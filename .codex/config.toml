@@ -1,0 +1,52 @@
+# Project-local Codex defaults.
+
+[features]
+multi_agent = true
+hooks = true
+
+[[hooks.PreToolUse]]
+matcher = "^Bash$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "python3 .codex/hooks/pre_tool_use_policy.py"
+timeout = 10
+statusMessage = "Checking Bash command"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "bash .codex/hooks/pre-commit-validation.sh"
+timeout = 180
+statusMessage = "Running pre-commit validation"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "bash .codex/hooks/tdd-guard.sh"
+timeout = 10
+statusMessage = "Tracking TDD test runs"
+
+[[hooks.PreToolUse]]
+matcher = "^(apply_patch|Edit|Write)$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "bash .codex/hooks/tdd-guard.sh"
+timeout = 10
+statusMessage = "Checking test coverage for edited files"
+
+[[hooks.PermissionRequest]]
+matcher = "^Bash$"
+
+[[hooks.PermissionRequest.hooks]]
+type = "command"
+command = "python3 .codex/hooks/permission_request_policy.py"
+timeout = 10
+statusMessage = "Checking approval request"
+
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = "python3 .codex/hooks/stop_validation.py"
+timeout = 120
+statusMessage = "Running project validation"
