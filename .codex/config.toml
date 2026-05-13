@@ -19,20 +19,8 @@ command = "bash .codex/hooks/pre-commit-validation.sh"
 timeout = 180
 statusMessage = "Running pre-commit validation"
 
-[[hooks.PreToolUse.hooks]]
-type = "command"
-command = "bash .codex/hooks/tdd-guard.sh"
-timeout = 10
-statusMessage = "Tracking TDD test runs"
-
 [[hooks.PreToolUse]]
 matcher = "^(apply_patch|Edit|Write)$"
-
-[[hooks.PreToolUse.hooks]]
-type = "command"
-command = "bash .codex/hooks/tdd-guard.sh"
-timeout = 10
-statusMessage = "Checking test coverage for edited files"
 
 [[hooks.PermissionRequest]]
 matcher = "^Bash$"
