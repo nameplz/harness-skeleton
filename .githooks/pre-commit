@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+python3 "$root/.codex/hooks/git_pre_commit.py"

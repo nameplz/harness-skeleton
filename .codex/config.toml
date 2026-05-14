@@ -1,0 +1,39 @@
+# Project-local Codex defaults for the Harness framework.
+approval_policy = "never"
+sandbox_mode = "workspace-write"
+
+[features]
+multi_agent = true
+hooks = true
+
+[[hooks.PreToolUse]]
+matcher = "^Bash$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = 'root="$PWD"; while [ "$root" != "/" ] && [ ! -f "$root/.codex/hooks/command_policy.py" ]; do root="$(dirname "$root")"; done; if [ -f "$root/.codex/hooks/command_policy.py" ]; then python3 "$root/.codex/hooks/command_policy.py"; fi'
+timeout = 30
+statusMessage = "Checking Bash command"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = 'root="$PWD"; while [ "$root" != "/" ] && [ ! -f "$root/.codex/hooks/pre_commit_validation.py" ]; do root="$(dirname "$root")"; done; if [ -f "$root/.codex/hooks/pre_commit_validation.py" ]; then python3 "$root/.codex/hooks/pre_commit_validation.py"; fi'
+timeout = 300
+statusMessage = "Running pre-commit validation"
+
+[[hooks.PermissionRequest]]
+matcher = "^Bash$"
+
+[[hooks.PermissionRequest.hooks]]
+type = "command"
+command = 'root="$PWD"; while [ "$root" != "/" ] && [ ! -f "$root/.codex/hooks/command_policy.py" ]; do root="$(dirname "$root")"; done; if [ -f "$root/.codex/hooks/command_policy.py" ]; then python3 "$root/.codex/hooks/command_policy.py"; fi'
+timeout = 30
+statusMessage = "Checking permission request"
+
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = 'root="$PWD"; while [ "$root" != "/" ] && [ ! -f "$root/.codex/hooks/stop_validation.py" ]; do root="$(dirname "$root")"; done; if [ -f "$root/.codex/hooks/stop_validation.py" ]; then python3 "$root/.codex/hooks/stop_validation.py"; fi'
+timeout = 300
+statusMessage = "Running project validation"

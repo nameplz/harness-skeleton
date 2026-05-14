@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Review"
+  short_description: "Review harness changes against project rules"
+  default_prompt: "Use $harness-review to review the current project changes."
