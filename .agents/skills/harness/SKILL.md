@@ -103,4 +103,6 @@ codex exec -c approval_policy=never -s workspace-write --json "작업 내용"
 
 The executor injects `AGENTS.md` and `docs/*.md`, accumulates completed step summaries, retries failed steps up to three times, and separates feature commits from phase metadata commits.
 
+Headless Codex sessions should modify the required files, run the step acceptance criteria, and update only the current step's `status`, `summary`, `error_message`, or `blocked_reason` in `phases/<task-name>/index.json`. They must not run `git commit`; `scripts/execute.py` owns all feature and housekeeping commits.
+
 If a step fails, reset that step from `error` to `pending` and remove `error_message` before rerunning. If a step is blocked, resolve `blocked_reason`, reset it to `pending`, and rerun.

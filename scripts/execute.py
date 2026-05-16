@@ -197,9 +197,6 @@ class StepExecutor:
 
     def _build_preamble(self, guardrails: str, step_context: str,
                         prev_error: Optional[str] = None) -> str:
-        commit_example = self.FEAT_MSG.format(
-            phase=self._phase_name, num="N", name="<step-name>"
-        )
         retry_section = ""
         if prev_error:
             retry_section = (
@@ -215,12 +212,12 @@ class StepExecutor:
             f"2. 이 step에 명시된 작업만 수행하라. 추가 기능이나 파일을 만들지 마라.\n"
             f"3. 기존 테스트를 깨뜨리지 마라.\n"
             f"4. AC(Acceptance Criteria) 검증을 직접 실행하라.\n"
-            f"5. /phases/{self._phase_dir_name}/index.json의 해당 step status를 업데이트하라:\n"
+            f"5. /phases/{self._phase_dir_name}/index.json의 해당 step만 정확히 업데이트하라:\n"
             f"   - AC 통과 → \"completed\" + \"summary\" 필드에 이 step의 산출물을 한 줄로 요약\n"
             f"   - {self.MAX_RETRIES}회 수정 시도 후에도 실패 → \"error\" + \"error_message\" 기록\n"
             f"   - 사용자 개입이 필요한 경우 (API 키, 인증, 수동 설정 등) → \"blocked\" + \"blocked_reason\" 기록 후 즉시 중단\n"
-            f"6. 모든 변경사항을 커밋하라:\n"
-            f"   {commit_example}\n\n---\n\n"
+            f"   - 다른 step의 status, summary, error_message, blocked_reason은 변경하지 마라.\n"
+            f"6. git commit은 실행하지 마라. 커밋은 scripts/execute.py가 담당한다.\n\n---\n\n"
         )
 
     # --- Codex 호출 ---
@@ -314,7 +311,8 @@ class StepExecutor:
 
             with progress_indicator(tag) as pi:
                 self._invoke_codex(step, preamble)
-                elapsed = int(pi.elapsed)
+
+            elapsed = int(pi.elapsed)
 
             index = self._read_json(self._index_file)
             status = next((s.get("status", "pending") for s in index["steps"] if s["step"] == step_num), "pending")

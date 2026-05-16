@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Validation"
+  short_description: "Generate safe project validation commands for harness hooks"
+  default_prompt: "Use $harness-validation to create or update .harness/validation.json."

@@ -20,10 +20,10 @@
 - `.agents/skills/harness-review`: 변경사항 리뷰와 프로젝트 규칙 검증 워크플로우
 
 ## Codex Hooks
-- `.codex/config.toml`에서 `features.codex_hooks = true`를 사용한다.
+- `.codex/config.toml`의 `[features] hooks = true`를 사용한다.
 - `PreToolUse`/`PermissionRequest` hook은 위험한 Bash 명령을 차단한다.
 - `PreToolUse` hook은 Codex가 `git commit` Bash 명령을 실행하기 전에 `lint`, `build`, `test`를 순서대로 검증한다.
-- `Stop` hook은 `package.json`에 `lint`, `build`, `test` 스크립트가 있을 때만 해당 검증을 실행한다.
+- `Stop`/pre-commit 검증은 `.harness/validation.json`이 있으면 이를 우선 사용하고, 없으면 `package.json`의 `lint`, `build`, `test` 스크립트를 fallback으로 감지한다.
 - 일반 Git hook이 필요하면 repo에서 `git config core.hooksPath .githooks`를 설정한다.
 
 ## 명령어

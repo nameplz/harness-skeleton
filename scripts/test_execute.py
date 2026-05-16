@@ -242,9 +242,13 @@ class TestBuildPreamble:
         result = executor._build_preamble("", ctx)
         assert "이전 Step 산출물" in result
 
-    def test_includes_commit_example(self, executor):
+    def test_excludes_direct_commit_instruction(self, executor):
         result = executor._build_preamble("", "")
-        assert "feat(mvp):" in result
+        assert "모든 변경사항을 커밋하라" not in result
+        assert "feat(mvp):" not in result
+        assert "git commit" in result
+        assert "실행하지 마라" in result
+        assert "scripts/execute.py" in result
 
     def test_includes_rules(self, executor):
         result = executor._build_preamble("", "")
@@ -267,6 +271,12 @@ class TestBuildPreamble:
     def test_includes_index_path(self, executor):
         result = executor._build_preamble("", "")
         assert "/phases/0-mvp/index.json" in result
+
+    def test_restricts_step_index_fields(self, executor):
+        result = executor._build_preamble("", "")
+        assert "summary" in result
+        assert "error_message" in result
+        assert "blocked_reason" in result
 
 
 # ---------------------------------------------------------------------------
@@ -483,6 +493,46 @@ class TestProgressIndicator:
         with ex.progress_indicator("test") as pi:
             time.sleep(0.2)
         assert pi.elapsed > 0
+
+
+# ---------------------------------------------------------------------------
+# _execute_single_step elapsed handling
+# ---------------------------------------------------------------------------
+
+class TestExecuteSingleStepElapsed:
+    def test_prints_elapsed_after_progress_context_exits(self, executor, capsys):
+        index = json.loads(executor._index_file.read_text())
+        step = index["steps"][2]
+
+        class FakeProgress:
+            elapsed = 0
+
+        fake_progress = FakeProgress()
+
+        class FakeProgressContext:
+            def __enter__(self):
+                return fake_progress
+
+            def __exit__(self, exc_type, exc, tb):
+                fake_progress.elapsed = 7.8
+
+        def fake_invoke(step_arg, preamble):
+            data = json.loads(executor._index_file.read_text())
+            for item in data["steps"]:
+                if item["step"] == step_arg["step"]:
+                    item["status"] = "completed"
+                    item["summary"] = "done"
+            executor._write_json(executor._index_file, data)
+            return {}
+
+        with patch.object(ex, "progress_indicator", return_value=FakeProgressContext()):
+            with patch.object(executor, "_invoke_codex", side_effect=fake_invoke):
+                with patch.object(executor, "_commit_step"):
+                    result = executor._execute_single_step(step, "")
+
+        captured = capsys.readouterr()
+        assert result is True
+        assert "[7s]" in captured.out
 
 
 # ---------------------------------------------------------------------------
