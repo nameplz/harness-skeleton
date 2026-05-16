@@ -9,8 +9,11 @@ Usage:
 import argparse
 import contextlib
 import json
+import os
+import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import types
@@ -53,17 +56,31 @@ class StepExecutor:
     """Phase 디렉토리 안의 step들을 순차 실행하는 하네스."""
 
     MAX_RETRIES = 3
+    TERMINAL_STATUSES = {"completed", "blocked", "error"}
+    STATUS_POLL_INTERVAL_SECONDS = 60
+    STUCK_TIMEOUT_SECONDS = 300
+    CODEX_TIMEOUT_SECONDS = 1800
     FEAT_MSG = "feat({phase}): step {num} — {name}"
     CHORE_MSG = "chore({phase}): step {num} output"
     TZ = timezone(timedelta(hours=9))
 
-    def __init__(self, phase_dir_name: str, *, auto_push: bool = False):
+    def __init__(
+        self,
+        phase_dir_name: str,
+        *,
+        auto_push: bool = False,
+        status_interval_seconds: int = STATUS_POLL_INTERVAL_SECONDS,
+        stuck_timeout_seconds: int = STUCK_TIMEOUT_SECONDS,
+    ):
         self._root = str(ROOT)
         self._phases_dir = ROOT / "phases"
         self._phase_dir = self._phases_dir / phase_dir_name
         self._phase_dir_name = phase_dir_name
         self._top_index_file = self._phases_dir / "index.json"
         self._auto_push = auto_push
+        self._status_interval_seconds = status_interval_seconds
+        self._stuck_timeout_seconds = stuck_timeout_seconds
+        self._codex_timeout_seconds = self.CODEX_TIMEOUT_SECONDS
 
         if not self._phase_dir.is_dir():
             print(f"ERROR: {self._phase_dir} not found")
@@ -81,6 +98,7 @@ class StepExecutor:
 
     def run(self):
         self._print_header()
+        self._recover_running_steps()
         self._check_blockers()
         self._checkout_branch()
         guardrails = self._load_guardrails()
@@ -92,6 +110,18 @@ class StepExecutor:
 
     def _stamp(self) -> str:
         return datetime.now(self.TZ).strftime("%Y-%m-%dT%H:%M:%S%z")
+
+    @staticmethod
+    def _parse_stamp(value: Optional[str]) -> Optional[datetime]:
+        if not value:
+            return None
+        try:
+            return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S%z")
+        except ValueError:
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                return None
 
     # --- JSON I/O ---
 
@@ -213,10 +243,15 @@ class StepExecutor:
             f"3. 기존 테스트를 깨뜨리지 마라.\n"
             f"4. AC(Acceptance Criteria) 검증을 직접 실행하라.\n"
             f"5. /phases/{self._phase_dir_name}/index.json의 해당 step만 정확히 업데이트하라:\n"
+            f"   - 실행 중에는 status를 \"running\"으로 유지하고, "
+            f"{self._status_interval_seconds}초마다 "
+            f"last_progress_at과 progress_message를 갱신하라.\n"
+            f"   - last_progress_at은 예: {self._stamp()} 형식으로 기록하라.\n"
             f"   - AC 통과 → \"completed\" + \"summary\" 필드에 이 step의 산출물을 한 줄로 요약\n"
             f"   - {self.MAX_RETRIES}회 수정 시도 후에도 실패 → \"error\" + \"error_message\" 기록\n"
             f"   - 사용자 개입이 필요한 경우 (API 키, 인증, 수동 설정 등) → \"blocked\" + \"blocked_reason\" 기록 후 즉시 중단\n"
-            f"   - 다른 step의 status, summary, error_message, blocked_reason은 변경하지 마라.\n"
+            f"   - 다른 step의 status, summary, error_message, blocked_reason, "
+            f"last_progress_at, progress_message는 변경하지 마라.\n"
             f"6. git commit은 실행하지 마라. 커밋은 scripts/execute.py가 담당한다.\n\n---\n\n"
         )
 
@@ -231,34 +266,197 @@ class StepExecutor:
             sys.exit(1)
 
         prompt = preamble + step_file.read_text()
-        result = subprocess.run(
-            [
-                "codex",
-                "exec",
-                "-c",
-                "approval_policy=never",
-                "-s",
-                "workspace-write",
-                "--json",
-                prompt,
-            ],
-            cwd=self._root, capture_output=True, text=True, timeout=1800,
-        )
+        cmd = [
+            "codex",
+            "exec",
+            "-c",
+            "approval_policy=never",
+            "-s",
+            "workspace-write",
+            "--json",
+            prompt,
+        ]
 
-        if result.returncode != 0:
-            print(f"\n  WARN: Codex가 비정상 종료됨 (code {result.returncode})")
-            if result.stderr:
-                print(f"  stderr: {result.stderr[:500]}")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stdout_path = Path(tmpdir) / "stdout.txt"
+            stderr_path = Path(tmpdir) / "stderr.txt"
+            with stdout_path.open("w+", encoding="utf-8") as stdout_file:
+                with stderr_path.open("w+", encoding="utf-8") as stderr_file:
+                    process = subprocess.Popen(
+                        cmd,
+                        cwd=self._root,
+                        stdout=stdout_file,
+                        stderr=stderr_file,
+                        text=True,
+                        start_new_session=True,
+                    )
+                    monitor = self._monitor_codex_process(process, step)
+
+                    stdout_file.seek(0)
+                    stderr_file.seek(0)
+                    stdout = stdout_file.read()
+                    stderr = stderr_file.read()
+
+        returncode = process.returncode
+        if monitor["stuck"]:
+            returncode = returncode if returncode is not None else -9
+            self._mark_step_error(step_num, monitor["reason"])
+
+        if monitor["timed_out"]:
+            returncode = returncode if returncode is not None else -9
+            self._mark_step_error(step_num, monitor["reason"])
+
+        if returncode != 0 and not monitor.get("terminal_status"):
+            print(f"\n  WARN: Codex가 비정상 종료됨 (code {returncode})")
+            if stderr:
+                print(f"  stderr: {stderr[:500]}")
 
         output = {
             "step": step_num, "name": step_name,
-            "exitCode": result.returncode,
-            "stdout": result.stdout, "stderr": result.stderr,
+            "exitCode": returncode,
+            "stdout": stdout, "stderr": stderr,
+            "stuck": monitor["stuck"],
+            "timedOut": monitor["timed_out"],
+            "terminalStatus": monitor.get("terminal_status"),
         }
         out_path = self._phase_dir / f"step{step_num}-output.json"
         self._write_json(out_path, output)
 
         return output
+
+    def _monitor_codex_process(self, process: subprocess.Popen, step: dict) -> dict:
+        step_num = step["step"]
+        step_name = step["name"]
+        started = time.monotonic()
+
+        while True:
+            elapsed = time.monotonic() - started
+            if elapsed >= self._codex_timeout_seconds:
+                reason = f"Codex timeout after {self._codex_timeout_seconds}s"
+                self._terminate_process(process)
+                return {
+                    "stuck": False,
+                    "timed_out": True,
+                    "reason": reason,
+                    "terminal_status": None,
+                }
+
+            wait_seconds = min(self._status_interval_seconds, self._codex_timeout_seconds - elapsed)
+            try:
+                process.wait(timeout=wait_seconds)
+                return {
+                    "stuck": False,
+                    "timed_out": False,
+                    "reason": "",
+                    "terminal_status": None,
+                }
+            except subprocess.TimeoutExpired:
+                snapshot = self._current_step_snapshot(step_num)
+                status = snapshot.get("status", "unknown")
+                progress = str(snapshot.get("progress_message", ""))[:160]
+                progress_age = self._progress_age_seconds(snapshot)
+                age_text = "unknown" if progress_age is None else f"{int(progress_age)}s"
+                print(
+                    f"\n  Status check: Step {step_num} ({step_name}) "
+                    f"status={status} last_progress_age={age_text} progress={progress}"
+                )
+
+                if status in self.TERMINAL_STATUSES:
+                    self._terminate_process(process)
+                    return {
+                        "stuck": False,
+                        "timed_out": False,
+                        "reason": f"Step reached terminal status '{status}'",
+                        "terminal_status": status,
+                    }
+
+                stale_for = progress_age if progress_age is not None else time.monotonic() - started
+                if stale_for >= self._stuck_timeout_seconds:
+                    reason = (
+                        f"No progress update for {int(stale_for)}s "
+                        f"(stuck timeout {self._stuck_timeout_seconds}s)"
+                    )
+                    self._terminate_process(process)
+                    return {
+                        "stuck": True,
+                        "timed_out": False,
+                        "reason": reason,
+                        "terminal_status": None,
+                    }
+
+    def _terminate_process(self, process: subprocess.Popen):
+        if process.poll() is not None:
+            return
+
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except (AttributeError, ProcessLookupError, PermissionError):
+            process.terminate()
+
+        try:
+            process.wait(timeout=10)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (AttributeError, ProcessLookupError, PermissionError):
+            process.kill()
+        process.wait()
+
+    def _current_step_snapshot(self, step_num: int) -> dict:
+        try:
+            index = self._read_json(self._index_file)
+        except (OSError, json.JSONDecodeError) as exc:
+            return {"status": "unknown", "progress_message": f"status read failed: {exc}"}
+
+        return next((dict(s) for s in index.get("steps", []) if s.get("step") == step_num), {})
+
+    def _progress_age_seconds(self, step: dict) -> Optional[float]:
+        progress_at = step.get("last_progress_at") or step.get("started_at")
+        parsed = self._parse_stamp(progress_at)
+        if parsed is None:
+            return None
+        return max(0.0, (datetime.now(self.TZ) - parsed).total_seconds())
+
+    def _clear_running_fields(self, step: dict):
+        step.pop("attempt", None)
+        step.pop("last_progress_at", None)
+        step.pop("progress_message", None)
+
+    def _mark_step_running(self, step_num: int, attempt: int):
+        index = self._read_json(self._index_file)
+        for s in index["steps"]:
+            if s["step"] == step_num:
+                s["status"] = "running"
+                s["attempt"] = attempt
+                s["last_progress_at"] = self._stamp()
+                s["progress_message"] = f"attempt {attempt} started"
+                s.pop("error_message", None)
+                break
+        self._write_json(self._index_file, index)
+
+    def _mark_step_error(self, step_num: int, error_message: str):
+        index = self._read_json(self._index_file)
+        for s in index["steps"]:
+            if s["step"] == step_num:
+                s["status"] = "error"
+                s["error_message"] = error_message
+                break
+        self._write_json(self._index_file, index)
+
+    def _recover_running_steps(self):
+        index = self._read_json(self._index_file)
+        changed = False
+        for s in index["steps"]:
+            if s.get("status") == "running":
+                s["status"] = "pending"
+                self._clear_running_fields(s)
+                s.pop("error_message", None)
+                changed = True
+        if changed:
+            self._write_json(self._index_file, index)
 
     # --- 헤더 & 검증 ---
 
@@ -309,6 +507,7 @@ class StepExecutor:
             if attempt > 1:
                 tag += f" [retry {attempt}/{self.MAX_RETRIES}]"
 
+            self._mark_step_running(step_num, attempt)
             with progress_indicator(tag) as pi:
                 self._invoke_codex(step, preamble)
 
@@ -321,6 +520,7 @@ class StepExecutor:
             if status == "completed":
                 for s in index["steps"]:
                     if s["step"] == step_num:
+                        self._clear_running_fields(s)
                         s["completed_at"] = ts
                 self._write_json(self._index_file, index)
                 self._commit_step(step_num, step_name)
@@ -330,6 +530,7 @@ class StepExecutor:
             if status == "blocked":
                 for s in index["steps"]:
                     if s["step"] == step_num:
+                        self._clear_running_fields(s)
                         s["blocked_at"] = ts
                 self._write_json(self._index_file, index)
                 reason = next((s.get("blocked_reason", "") for s in index["steps"] if s["step"] == step_num), "")
@@ -348,6 +549,7 @@ class StepExecutor:
                     if s["step"] == step_num:
                         s["status"] = "pending"
                         s.pop("error_message", None)
+                        self._clear_running_fields(s)
                 self._write_json(self._index_file, index)
                 prev_error = err_msg
                 print(f"  ↻ Step {step_num}: retry {attempt}/{self.MAX_RETRIES} — {err_msg}")
@@ -356,6 +558,7 @@ class StepExecutor:
                     if s["step"] == step_num:
                         s["status"] = "error"
                         s["error_message"] = f"[{self.MAX_RETRIES}회 시도 후 실패] {err_msg}"
+                        self._clear_running_fields(s)
                         s["failed_at"] = ts
                 self._write_json(self._index_file, index)
                 self._commit_step(step_num, step_name)
@@ -413,9 +616,33 @@ def main():
     parser = argparse.ArgumentParser(description="Harness Step Executor")
     parser.add_argument("phase_dir", help="Phase directory name (e.g. 0-mvp)")
     parser.add_argument("--push", action="store_true", help="Push branch after completion")
+    parser.add_argument(
+        "--status-interval",
+        type=int,
+        default=StepExecutor.STATUS_POLL_INTERVAL_SECONDS,
+        help="Seconds between status checks while Codex is running",
+    )
+    parser.add_argument(
+        "--stuck-timeout",
+        type=int,
+        default=StepExecutor.STUCK_TIMEOUT_SECONDS,
+        help="Seconds without last_progress_at updates before restarting a worker",
+    )
     args = parser.parse_args()
 
-    StepExecutor(args.phase_dir, auto_push=args.push).run()
+    if args.status_interval <= 0:
+        print("ERROR: --status-interval must be greater than 0")
+        sys.exit(2)
+    if args.stuck_timeout < 0:
+        print("ERROR: --stuck-timeout must be 0 or greater")
+        sys.exit(2)
+
+    StepExecutor(
+        args.phase_dir,
+        auto_push=args.push,
+        status_interval_seconds=args.status_interval,
+        stuck_timeout_seconds=args.stuck_timeout,
+    ).run()
 
 
 if __name__ == "__main__":

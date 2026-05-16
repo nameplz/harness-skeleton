@@ -103,6 +103,35 @@ codex exec -c approval_policy=never -s workspace-write --json "작업 내용"
 
 The executor injects `AGENTS.md` and `docs/*.md`, accumulates completed step summaries, retries failed steps up to three times, and separates feature commits from phase metadata commits.
 
-Headless Codex sessions should modify the required files, run the step acceptance criteria, and update only the current step's `status`, `summary`, `error_message`, or `blocked_reason` in `phases/<task-name>/index.json`. They must not run `git commit`; `scripts/execute.py` owns all feature and housekeeping commits.
+`scripts/execute.py` monitors headless Codex sessions while they run:
+
+- Default status polling interval: 60 seconds.
+- Default stuck timeout: 120 seconds without a fresh `last_progress_at`.
+- Override polling with `python3 scripts/execute.py <task-name> --status-interval <seconds>`.
+- Override stuck detection with `python3 scripts/execute.py <task-name> --stuck-timeout <seconds>`.
+- If a worker reaches `completed`, `blocked`, or `error` in the phase index but keeps running, the executor terminates the worker process and honors the terminal status.
+- If a worker is stuck, the executor terminates the worker process, marks the attempt as `error`, resets the step to `pending` when retries remain, and reruns the same step.
+- If `scripts/execute.py` starts and finds a prior `running` step, it recovers it to `pending` before continuing.
+
+Headless Codex sessions should modify the required files, run the step acceptance criteria, and update only the current step's fields in `phases/<task-name>/index.json`.
+
+Allowed current-step fields are:
+
+- `status`
+- `summary`
+- `error_message`
+- `blocked_reason`
+- `last_progress_at`
+- `progress_message`
+
+While a worker is active, it should keep the current step at `status: "running"` and refresh `last_progress_at` plus a short `progress_message` at least once per status polling interval. Use the same timestamp format that `scripts/execute.py` writes, such as `YYYY-MM-DDTHH:MM:SS+0900`.
+
+When the worker finishes:
+
+- Acceptance criteria pass: set `status` to `completed` and write a one-line `summary`.
+- User intervention is required: set `status` to `blocked` and write `blocked_reason`.
+- The worker cannot complete after its own correction attempts: set `status` to `error` and write `error_message`.
+
+Headless Codex sessions must not update other steps' `status`, `summary`, `error_message`, `blocked_reason`, `last_progress_at`, or `progress_message`. They must not run `git commit`; `scripts/execute.py` owns all feature and housekeeping commits.
 
 If a step fails, reset that step from `error` to `pending` and remove `error_message` before rerunning. If a step is blocked, resolve `blocked_reason`, reset it to `pending`, and rerun.

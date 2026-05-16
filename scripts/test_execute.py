@@ -4,6 +4,7 @@ execute.py 리팩터링 안전망 테스트.
 """
 
 import json
+import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -278,6 +279,12 @@ class TestBuildPreamble:
         assert "error_message" in result
         assert "blocked_reason" in result
 
+    def test_includes_progress_heartbeat_contract(self, executor):
+        result = executor._build_preamble("", "")
+        assert "last_progress_at" in result
+        assert "progress_message" in result
+        assert "60초" in result
+
 
 # ---------------------------------------------------------------------------
 # _update_top_index
@@ -431,27 +438,60 @@ class TestCommitStep:
 # ---------------------------------------------------------------------------
 
 class TestInvokeCodex:
+    class FakeProcess:
+        def __init__(self, returncode=0, timeouts_before_exit=0):
+            self.returncode = None
+            self._final_returncode = returncode
+            self._timeouts_before_exit = timeouts_before_exit
+            self.pid = 12345
+
+        def wait(self, timeout=None):
+            if self._timeouts_before_exit > 0:
+                self._timeouts_before_exit -= 1
+                raise subprocess.TimeoutExpired(["codex"], timeout)
+            self.returncode = self._final_returncode
+            return self.returncode
+
+        def poll(self):
+            return self.returncode
+
+    def _patch_popen(self, stdout_text="", stderr_text="", returncode=0):
+        calls = []
+
+        def fake_popen(cmd, **kwargs):
+            calls.append((cmd, kwargs))
+            kwargs["stdout"].write(stdout_text)
+            kwargs["stdout"].flush()
+            kwargs["stderr"].write(stderr_text)
+            kwargs["stderr"].flush()
+            return self.FakeProcess(returncode=returncode)
+
+        return calls, patch("subprocess.Popen", side_effect=fake_popen)
+
     def test_invokes_codex_with_correct_args(self, executor):
-        mock_result = MagicMock(returncode=0, stdout='{"result": "ok"}', stderr="")
         step = {"step": 2, "name": "ui"}
         preamble = "PREAMBLE\n"
 
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
+        calls, popen_patch = self._patch_popen(stdout_text='{"result": "ok"}')
+        with popen_patch:
             output = executor._invoke_codex(step, preamble)
 
-        cmd = mock_run.call_args[0][0]
+        cmd, kwargs = calls[0]
         assert cmd[:2] == ["codex", "exec"]
         assert cmd[2:6] == ["-c", "approval_policy=never", "-s", "workspace-write"]
         assert "--json" in cmd
         assert "PREAMBLE" in cmd[-1]
         assert "UI를 구현하세요" in cmd[-1]
+        assert kwargs["cwd"] == executor._root
+        assert kwargs["text"] is True
+        assert kwargs["start_new_session"] is True
         assert output["exitCode"] == 0
 
     def test_saves_output_json(self, executor):
-        mock_result = MagicMock(returncode=0, stdout='{"ok": true}', stderr="")
         step = {"step": 2, "name": "ui"}
 
-        with patch("subprocess.run", return_value=mock_result):
+        calls, popen_patch = self._patch_popen(stdout_text='{"ok": true}')
+        with popen_patch:
             executor._invoke_codex(step, "preamble")
 
         output_file = executor._phase_dir / "step2-output.json"
@@ -467,14 +507,91 @@ class TestInvokeCodex:
             executor._invoke_codex(step, "preamble")
         assert exc_info.value.code == 1
 
-    def test_timeout_is_1800(self, executor):
-        mock_result = MagicMock(returncode=0, stdout="{}", stderr="")
-        step = {"step": 2, "name": "ui"}
+    def test_codex_timeout_default_is_1800(self, executor):
+        assert executor._codex_timeout_seconds == 1800
 
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
-            executor._invoke_codex(step, "preamble")
 
-        assert mock_run.call_args[1]["timeout"] == 1800
+# ---------------------------------------------------------------------------
+# Headless worker monitoring
+# ---------------------------------------------------------------------------
+
+class TestWorkerMonitoring:
+    class LongRunningProcess:
+        pid = 12345
+        returncode = None
+
+        def wait(self, timeout=None):
+            raise subprocess.TimeoutExpired(["codex"], timeout)
+
+    class ExitsAfterOnePoll:
+        pid = 12345
+
+        def __init__(self):
+            self.returncode = None
+            self._waits = 0
+
+        def wait(self, timeout=None):
+            self._waits += 1
+            if self._waits == 1:
+                raise subprocess.TimeoutExpired(["codex"], timeout)
+            self.returncode = 0
+            return 0
+
+    def test_mark_step_running_records_heartbeat_fields(self, executor):
+        executor._mark_step_running(2, attempt=1)
+        step = json.loads(executor._index_file.read_text())["steps"][2]
+        assert step["status"] == "running"
+        assert step["attempt"] == 1
+        assert "last_progress_at" in step
+        assert step["progress_message"] == "attempt 1 started"
+
+    def test_monitor_terminates_stuck_worker(self, executor):
+        executor._mark_step_running(2, attempt=1)
+        executor._status_interval_seconds = 1
+        executor._stuck_timeout_seconds = 0
+        process = self.LongRunningProcess()
+
+        with patch.object(executor, "_terminate_process") as terminate:
+            result = executor._monitor_codex_process(process, {"step": 2, "name": "ui"})
+
+        assert result["stuck"] is True
+        assert "No progress update" in result["reason"]
+        terminate.assert_called_once_with(process)
+
+    def test_monitor_does_not_terminate_when_progress_is_fresh(self, executor):
+        executor._mark_step_running(2, attempt=1)
+        executor._status_interval_seconds = 1
+        executor._stuck_timeout_seconds = 999
+        process = self.ExitsAfterOnePoll()
+
+        with patch.object(executor, "_terminate_process") as terminate:
+            result = executor._monitor_codex_process(process, {"step": 2, "name": "ui"})
+
+        assert result["stuck"] is False
+        terminate.assert_not_called()
+
+    def test_monitor_stops_process_after_terminal_status(self, executor):
+        data = json.loads(executor._index_file.read_text())
+        data["steps"][2]["status"] = "completed"
+        data["steps"][2]["summary"] = "done"
+        executor._write_json(executor._index_file, data)
+        executor._status_interval_seconds = 1
+        process = self.LongRunningProcess()
+
+        with patch.object(executor, "_terminate_process") as terminate:
+            result = executor._monitor_codex_process(process, {"step": 2, "name": "ui"})
+
+        assert result["stuck"] is False
+        assert result["terminal_status"] == "completed"
+        terminate.assert_called_once_with(process)
+
+    def test_recover_running_steps_resets_interrupted_work(self, executor):
+        executor._mark_step_running(2, attempt=1)
+        executor._recover_running_steps()
+        step = json.loads(executor._index_file.read_text())["steps"][2]
+        assert step["status"] == "pending"
+        assert "last_progress_at" not in step
+        assert "progress_message" not in step
 
 
 # ---------------------------------------------------------------------------
@@ -533,6 +650,45 @@ class TestExecuteSingleStepElapsed:
         captured = capsys.readouterr()
         assert result is True
         assert "[7s]" in captured.out
+
+    def test_retries_after_stuck_worker_error(self, executor):
+        index = json.loads(executor._index_file.read_text())
+        step = index["steps"][2]
+        calls = {"count": 0}
+
+        class FakeProgress:
+            elapsed = 0
+
+        class FakeProgressContext:
+            def __enter__(self):
+                return FakeProgress()
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        def fake_invoke(step_arg, preamble):
+            calls["count"] += 1
+            data = json.loads(executor._index_file.read_text())
+            current = next(item for item in data["steps"] if item["step"] == step_arg["step"])
+            if calls["count"] == 1:
+                current["status"] = "error"
+                current["error_message"] = "No progress update for 120s"
+            else:
+                current["status"] = "completed"
+                current["summary"] = "done after retry"
+            executor._write_json(executor._index_file, data)
+            return {}
+
+        with patch.object(ex, "progress_indicator", return_value=FakeProgressContext()):
+            with patch.object(executor, "_invoke_codex", side_effect=fake_invoke):
+                with patch.object(executor, "_commit_step"):
+                    result = executor._execute_single_step(step, "")
+
+        assert result is True
+        assert calls["count"] == 2
+        final = json.loads(executor._index_file.read_text())["steps"][2]
+        assert final["status"] == "completed"
+        assert "last_progress_at" not in final
 
 
 # ---------------------------------------------------------------------------
