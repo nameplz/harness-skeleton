@@ -58,7 +58,7 @@ class StepExecutor:
     MAX_RETRIES = 3
     TERMINAL_STATUSES = {"completed", "blocked", "error"}
     STATUS_POLL_INTERVAL_SECONDS = 60
-    STUCK_TIMEOUT_SECONDS = 300
+    STUCK_TIMEOUT_SECONDS = 1800
     CODEX_TIMEOUT_SECONDS = 1800
     FEAT_MSG = "feat({phase}): step {num} — {name}"
     CHORE_MSG = "chore({phase}): step {num} output"
