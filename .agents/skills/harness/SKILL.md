@@ -1,6 +1,6 @@
 ---
 name: harness
-description: Harness framework workflow for planning phased implementation, generating phases/index.json, task index files, and stepN.md files, and executing them through scripts/execute.py with Codex headless sessions. Use when the user asks to use the harness, create or run implementation phases, split work into steps, or manage phase/step status.
+description: Harness framework workflow for preparing language-neutral project specs, generating phase/index.json and step files, and executing them through scripts/execute.py with Codex headless sessions. Use when the user asks to use the harness, create or run implementation phases, split work into steps, or manage phase/step status.
 ---
 
 # Harness
@@ -9,22 +9,32 @@ description: Harness framework workflow for planning phased implementation, gene
 
 Use this workflow to turn a larger implementation request into self-contained phase files that can be executed by `scripts/execute.py`.
 
+The Harness skeleton is intentionally language-neutral. Before phase planning, the target project's `AGENTS.md` and `docs/*.md` placeholders must be filled with the real product intent, technology stack, architecture rules, and validation expectations. Do not assume Node, Python, frontend, backend, or any framework unless the project docs or repository files establish it.
+
 ## Workflow
 
-1. Read `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/ADR.md`, and other relevant docs before proposing steps.
-2. Discuss unresolved product or technical decisions with the user before writing phase files.
-3. When the user approves implementation planning, split the work into small steps. Keep each step focused on one layer or module.
-4. Create or update the phase files under `phases/`.
-5. Run phases with `python3 scripts/execute.py <task-name>` or `python3 scripts/execute.py <task-name> --push` when requested.
+1. Read `AGENTS.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/ADR.md`, and other relevant docs before proposing steps.
+2. Confirm that project placeholders have been filled. If unresolved `{...}` placeholders remain in `AGENTS.md` or `docs/*.md`, ask the user to fill the project spec before phase planning unless they explicitly want an early draft.
+3. Configure project validation after the spec is filled:
+   - Preferred: run `python3 scripts/configure_harness.py`.
+   - Use `python3 scripts/configure_harness.py --dry-run` to preview detected validation.
+   - Use `--allow-placeholders` only when intentionally configuring before the template is fully filled.
+4. Discuss unresolved product or technical decisions with the user before writing phase files.
+5. Split work into small steps. Keep each step focused on one layer, module, or contract.
+6. Create or update phase files under `phases/`.
+7. Run phases with `python3 scripts/execute.py <task-name>` or `python3 scripts/execute.py <task-name> --push` when requested.
 
 ## Step Design Rules
 
 - Make every `stepN.md` self-contained. Do not rely on prior chat context.
 - List required files to read, including docs and files created by previous steps.
-- Give interfaces, file paths, class/function names, and invariants; leave implementation details to the executing Codex session unless they are safety-critical.
-- Write executable acceptance criteria, such as `npm run build && npm test`.
+- Give interfaces, file paths, class/function names, command names, schemas, and invariants when those are required for implementation safety.
+- Leave implementation details to the executing Codex session unless they are safety-critical.
+- Write executable acceptance criteria.
+- Prefer `python3 scripts/validate_project.py` for Acceptance Criteria when `.harness/validation.json` is configured.
+- If project validation is not configured yet, use explicit project-specific commands from `AGENTS.md`, docs, or manifests. Do not invent Node commands by default.
 - State prohibitions concretely as "Do not do X. Reason: Y."
-- Use kebab-case step names that describe the core module or action, such as `project-setup`, `api-layer`, or `auth-flow`.
+- Use kebab-case step names that describe the core module or action, such as `project-setup`, `validation-config`, `api-layer`, or `auth-flow`.
 
 ## Phase Files
 
@@ -49,8 +59,8 @@ Create `phases/<task-name>/index.json`:
   "phase": "<task-name>",
   "steps": [
     { "step": 0, "name": "project-setup", "status": "pending" },
-    { "step": 1, "name": "core-types", "status": "pending" },
-    { "step": 2, "name": "api-layer", "status": "pending" }
+    { "step": 1, "name": "core-contracts", "status": "pending" },
+    { "step": 2, "name": "feature-flow", "status": "pending" }
   ]
 }
 ```
@@ -66,6 +76,8 @@ Do not add timestamps during file creation. `scripts/execute.py` records `create
 
 먼저 아래 파일들을 읽고 프로젝트의 아키텍처와 설계 의도를 파악하라:
 
+- `/AGENTS.md`
+- `/docs/PRD.md`
 - `/docs/ARCHITECTURE.md`
 - `/docs/ADR.md`
 - {previously created or modified file paths}
@@ -77,21 +89,23 @@ Do not add timestamps during file creation. `scripts/execute.py` records `create
 ## Acceptance Criteria
 
 ```bash
-npm run build
-npm test
+python3 scripts/validate_project.py
 ```
 
 ## 검증 절차
 
 1. 위 AC 커맨드를 실행한다.
-2. ARCHITECTURE.md, ADR, AGENTS.md 규칙 위반 여부를 확인한다.
+2. `AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/ADR.md` 규칙 위반 여부를 확인한다.
 3. `phases/{task-name}/index.json`의 해당 step 상태를 업데이트한다.
 
 ## 금지사항
 
 - {Do not do X. Reason: Y.}
 - 기존 테스트를 깨뜨리지 마라.
+- `.harness/validation.json`이 없다는 이유만으로 Node/npm 명령을 임의로 추가하지 마라. Reason: Harness는 언어 중립이다.
 ````
+
+If `python3 scripts/validate_project.py` is not available or no validation commands are configured, replace the Acceptance Criteria block with the exact project-specific validation commands established in `AGENTS.md`, docs, manifests, or `.harness/validation.json`.
 
 ## Execution Semantics
 
@@ -106,7 +120,7 @@ The executor injects `AGENTS.md` and `docs/*.md`, accumulates completed step sum
 `scripts/execute.py` monitors headless Codex sessions while they run:
 
 - Default status polling interval: 60 seconds.
-- Default stuck timeout: 120 seconds without a fresh `last_progress_at`.
+- Default stuck timeout: 1800 seconds without a fresh `last_progress_at`.
 - Override polling with `python3 scripts/execute.py <task-name> --status-interval <seconds>`.
 - Override stuck detection with `python3 scripts/execute.py <task-name> --stuck-timeout <seconds>`.
 - If a worker reaches `completed`, `blocked`, or `error` in the phase index but keeps running, the executor terminates the worker process and honors the terminal status.
