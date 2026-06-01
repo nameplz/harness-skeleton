@@ -500,6 +500,63 @@ class TestInvokeCodex:
         assert data["step"] == 2
         assert data["name"] == "ui"
         assert data["exitCode"] == 0
+        assert data["schemaVersion"] == 2
+        assert data["phase"] == "mvp"
+        assert data["attempt"] is None
+        assert data["paths"] == {
+            "stepFile": "phases/0-mvp/step2.md",
+            "indexFile": "phases/0-mvp/index.json",
+            "outputFile": "phases/0-mvp/step2-output.json",
+        }
+        assert data["command"] == {
+            "program": "codex",
+            "args": [
+                "exec",
+                "-c",
+                "approval_policy=never",
+                "-s",
+                "workspace-write",
+                "--json",
+            ],
+            "cwd": str(executor._root),
+            "promptBytes": len("preamble# Step 2: UI\n\nUI를 구현하세요.".encode("utf-8")),
+        }
+        assert data["process"]["exitCode"] == 0
+        assert data["process"]["stdoutBytes"] == len('{"ok": true}'.encode("utf-8"))
+        assert data["monitor"] == {
+            "stuck": False,
+            "timedOut": False,
+            "terminalStatus": None,
+            "reason": "",
+        }
+        assert data["stepStatus"]["status"] == "pending"
+        assert "recordedAt" in data["timestamps"]
+        assert data["durationSeconds"] >= 0
+
+    def test_output_json_records_attempt_and_monitor_reason(self, executor):
+        step = {"step": 2, "name": "ui"}
+        executor._mark_step_running(2, attempt=2)
+
+        calls, popen_patch = self._patch_popen(stdout_text="partial")
+        monitor_result = {
+            "stuck": True,
+            "timed_out": False,
+            "reason": "No progress update for 120s",
+            "terminal_status": None,
+        }
+
+        with popen_patch:
+            with patch.object(executor, "_monitor_codex_process", return_value=monitor_result):
+                executor._invoke_codex(step, "preamble")
+
+        output_file = executor._phase_dir / "step2-output.json"
+        data = json.loads(output_file.read_text())
+        assert data["attempt"] == 2
+        assert data["exitCode"] == -9
+        assert data["monitor"]["stuck"] is True
+        assert data["monitor"]["reason"] == "No progress update for 120s"
+        assert data["stepStatus"]["status"] == "error"
+        assert data["stepStatus"]["errorMessage"] == "No progress update for 120s"
 
     def test_nonexistent_step_file_exits(self, executor):
         step = {"step": 99, "name": "nonexistent"}

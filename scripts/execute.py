@@ -266,6 +266,7 @@ class StepExecutor:
             sys.exit(1)
 
         prompt = preamble + step_file.read_text()
+        started = time.monotonic()
         cmd = [
             "codex",
             "exec",
@@ -311,18 +312,100 @@ class StepExecutor:
             if stderr:
                 print(f"  stderr: {stderr[:500]}")
 
-        output = {
-            "step": step_num, "name": step_name,
-            "exitCode": returncode,
-            "stdout": stdout, "stderr": stderr,
-            "stuck": monitor["stuck"],
-            "timedOut": monitor["timed_out"],
-            "terminalStatus": monitor.get("terminal_status"),
-        }
         out_path = self._phase_dir / f"step{step_num}-output.json"
+        output = self._build_step_output(
+            step=step,
+            prompt=prompt,
+            stdout=stdout,
+            stderr=stderr,
+            returncode=returncode,
+            monitor=monitor,
+            duration_seconds=time.monotonic() - started,
+            output_path=out_path,
+        )
         self._write_json(out_path, output)
 
         return output
+
+    def _relative_path(self, path: Path) -> str:
+        try:
+            return path.relative_to(Path(self._root)).as_posix()
+        except ValueError:
+            return path.as_posix()
+
+    def _build_step_output(
+        self,
+        *,
+        step: dict,
+        prompt: str,
+        stdout: str,
+        stderr: str,
+        returncode: int,
+        monitor: dict,
+        duration_seconds: float,
+        output_path: Path,
+    ) -> dict:
+        step_num = step["step"]
+        step_name = step["name"]
+        step_file = self._phase_dir / f"step{step_num}.md"
+        snapshot = self._current_step_snapshot(step_num)
+        step_status = {
+            "status": snapshot.get("status"),
+            "summary": snapshot.get("summary"),
+            "errorMessage": snapshot.get("error_message"),
+            "blockedReason": snapshot.get("blocked_reason"),
+            "progressMessage": snapshot.get("progress_message"),
+        }
+
+        return {
+            "schemaVersion": 2,
+            "phase": self._phase_name,
+            "step": step_num,
+            "name": step_name,
+            "attempt": snapshot.get("attempt"),
+            "exitCode": returncode,
+            "stdout": stdout,
+            "stderr": stderr,
+            "stuck": monitor["stuck"],
+            "timedOut": monitor["timed_out"],
+            "terminalStatus": monitor.get("terminal_status"),
+            "durationSeconds": round(duration_seconds, 3),
+            "timestamps": {
+                "startedAt": snapshot.get("started_at"),
+                "lastProgressAt": snapshot.get("last_progress_at"),
+                "recordedAt": self._stamp(),
+            },
+            "paths": {
+                "stepFile": self._relative_path(step_file),
+                "indexFile": self._relative_path(self._index_file),
+                "outputFile": self._relative_path(output_path),
+            },
+            "command": {
+                "program": "codex",
+                "args": [
+                    "exec",
+                    "-c",
+                    "approval_policy=never",
+                    "-s",
+                    "workspace-write",
+                    "--json",
+                ],
+                "cwd": self._root,
+                "promptBytes": len(prompt.encode("utf-8")),
+            },
+            "process": {
+                "exitCode": returncode,
+                "stdoutBytes": len(stdout.encode("utf-8")),
+                "stderrBytes": len(stderr.encode("utf-8")),
+            },
+            "monitor": {
+                "stuck": monitor["stuck"],
+                "timedOut": monitor["timed_out"],
+                "terminalStatus": monitor.get("terminal_status"),
+                "reason": monitor.get("reason", ""),
+            },
+            "stepStatus": step_status,
+        }
 
     def _monitor_codex_process(self, process: subprocess.Popen, step: dict) -> dict:
         step_num = step["step"]
