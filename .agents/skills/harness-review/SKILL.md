@@ -1,42 +1,71 @@
 ---
 name: harness-review
-description: Use this skill when reviewing changes in this Harness framework project for architecture compliance, ADR alignment, test coverage, AGENTS.md critical rules, and buildability.
+description: Review workflow for Harness framework projects. Use when the user asks to review current changes, verify implementation quality, check phase outputs, or compare modified files against AGENTS.md, docs/ARCHITECTURE.md, docs/ADR.md, tests, and build expectations.
 origin: harness_framework
 ---
 
 # Harness Review
 
-이 프로젝트의 변경 사항을 리뷰할 때 사용한다. 리뷰는 버그, 위험, 회귀, 누락된 테스트를 우선한다.
+## Overview
 
-## Required Reading
+Use this review workflow to evaluate changed files in a Harness project. Lead with concrete findings, ordered by severity, and include file references when possible.
 
-먼저 다음 문서들을 읽는다:
+`python3 scripts/validate_project.py` is the primary validation command for Harness projects. It reads `.harness/validation.json` when present and otherwise uses the shared Harness validation detection in `scripts/harness_validation.py`. Prefer it over ad hoc stack-specific commands during review.
 
-- `/AGENTS.md`
-- `/docs/ARCHITECTURE.md`
-- `/docs/ADR.md`
+## Review Procedure
 
-그런 다음 변경된 파일을 확인하고 체크리스트로 검증한다.
+1. Read `/AGENTS.md`, `/docs/ARCHITECTURE.md`, and `/docs/ADR.md`.
+2. Inspect changed files and generated phase outputs.
+3. Run `python3 scripts/validate_project.py` from the project root when `scripts/validate_project.py` exists.
+4. If `validate_project.py` is unavailable or reports no configured commands, use only validation commands explicitly established in `AGENTS.md`, docs, manifests, or `.harness/validation.json`.
+5. Verify the change against the checklist below.
+6. Report findings first. Keep summary and test notes secondary.
+
+Do not invent Node/npm commands as a fallback. Harness is language-neutral, and validation should flow through `scripts/validate_project.py` whenever available.
 
 ## Checklist
 
-1. **아키텍처 준수**: `ARCHITECTURE.md`에 정의된 디렉토리 구조를 따르는가?
-2. **기술 스택 준수**: `ADR.md`에 정의된 기술 선택을 벗어나지 않았는가?
-3. **테스트 존재**: 새로운 기능 또는 변경된 동작에 대한 테스트가 작성되어 있는가?
-4. **CRITICAL 규칙**: `AGENTS.md`의 CRITICAL 규칙을 위반하지 않았는가?
-5. **빌드 가능**: 빌드/테스트 명령어가 에러 없이 통과하는가?
+| 항목 | 기준 |
+|------|------|
+| 아키텍처 준수 | `docs/ARCHITECTURE.md`의 디렉토리 구조와 경계를 따르는가? |
+| 기술 스택 준수 | `docs/ADR.md`의 기술 선택을 벗어나지 않았는가? |
+| 테스트 존재 | 새 동작이나 변경된 동작에 대한 테스트가 있는가? |
+| CRITICAL 규칙 | `AGENTS.md`의 CRITICAL 규칙을 위반하지 않았는가? |
+| 프로젝트 검증 | `python3 scripts/validate_project.py`가 통과하는가? |
+| Phase 산출물 | step 상태, summaries, timestamps, `stepN-output.json` 구조가 `harness-workflow/references/subagent-execution.md` semantics와 일치하는가? |
 
 ## Output Format
 
+If issues exist, respond with findings first:
+
 ```markdown
-| 항목 | 결과 | 비고 |
-|------|------|------|
-| 아키텍처 준수 | ✅/❌ | {상세} |
-| 기술 스택 준수 | ✅/❌ | {상세} |
-| 테스트 존재 | ✅/❌ | {상세} |
-| CRITICAL 규칙 | ✅/❌ | {상세} |
-| 빌드 가능 | ✅/❌ | {상세} |
+**Findings**
+- High: [file.py:12] 구체적 문제와 영향.
+- Medium: [file.py:34] 구체적 문제와 영향.
+
+**Open Questions**
+- 확인이 필요한 사항.
+
+**Tests**
+- `python3 scripts/validate_project.py` 통과/실패/미실행 사유.
 ```
 
-위반 사항이 있으면 파일/라인 근거와 수정 방안을 구체적으로 제시한다. 심각한 문제를 먼저 나열하고, 요약은 뒤에 짧게 둔다.
+If there are no issues, say that clearly and still mention test coverage or residual risk:
 
+```markdown
+문제는 발견하지 못했습니다.
+
+**Tests**
+- `python3 scripts/validate_project.py` 통과.
+
+**Residual Risk**
+- {남은 위험 또는 없음}
+```
+
+## Review Standards
+
+- Treat missing tests as a finding when behavior changed and no equivalent coverage exists.
+- Treat `python3 scripts/validate_project.py` failure as a finding unless the failure is unrelated pre-existing project state and clearly documented.
+- Flag phase metadata errors if statuses, summaries, timestamps, or output files contradict the subagent execution protocol.
+- Flag broad or cross-module edits when a step claims a narrow scope.
+- Do not rewrite code during a review unless the user explicitly asks for fixes.

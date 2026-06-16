@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Workflow"
+  short_description: "Plan and run harness phase workflows with subagent workers"
+  default_prompt: "Use $harness-workflow to plan a phase and generate step files."

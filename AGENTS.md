@@ -1,25 +1,35 @@
 # 프로젝트: {프로젝트명}
 
 ## 기술 스택
-- {프레임워크 (예: Next.js 15)}
-- {언어 (예: TypeScript strict mode)}
-- {스타일링 (예: Tailwind CSS)}
+- {프레임워크/런타임}
+- {언어 및 버전}
+- {패키지 매니저/빌드 도구}
+- {테스트/검증 도구}
+- {UI가 있다면 스타일링/컴포넌트 전략, 없으면 N/A}
 
 ## 아키텍처 규칙
-- CRITICAL: {절대 지켜야 할 규칙 1 (예: 모든 API 로직은 app/api/ 라우트 핸들러에서만 처리)}
-- CRITICAL: {절대 지켜야 할 규칙 2 (예: 클라이언트 컴포넌트에서 직접 외부 API를 호출하지 말 것)}
-- {일반 규칙 (예: 컴포넌트는 components/ 폴더에, 타입은 types/ 폴더에 분리)}
+- CRITICAL: {절대 지켜야 할 규칙 1}
+- CRITICAL: {절대 지켜야 할 규칙 2}
+- {일반 규칙}
 
 ## 개발 프로세스
 - CRITICAL: 새 기능 구현 시 반드시 테스트를 먼저 작성하고, 테스트가 통과하는 구현을 작성할 것 (TDD)
 - 커밋 메시지는 conventional commits 형식을 따를 것 (feat:, fix:, docs:, refactor:)
+- `AGENTS.md`와 `docs/*.md`의 placeholder를 실제 프로젝트 spec으로 채운 뒤 `python3 scripts/configure_harness.py`를 실행해 검증 설정을 생성할 것
 
-## 로컬 Skills
-- `harness-workflow`: Harness phase/step 설계, `phases/` 메타데이터 생성, worker 서브 에이전트 기반 phase 실행 오케스트레이션.
-- `harness-review`: 변경사항 리뷰 시 아키텍처, ADR, 테스트, CRITICAL 규칙, 빌드 가능성 검증.
+## 프로젝트 로컬 스킬
+- `.agents/skills/harness-workflow`: Harness phase/step 설계와 worker 서브 에이전트 기반 phase 실행 오케스트레이션
+- `.agents/skills/harness-review`: 변경사항 리뷰와 프로젝트 규칙 검증 워크플로우
+- `.agents/skills/harness-validation`: 프로젝트 기술 스택 감지와 `.harness/validation.json` 생성 워크플로우
+
+## Codex Hooks
+- `.codex/config.toml`의 `[features] hooks = true`를 사용한다.
+- `PreToolUse`/`PermissionRequest` hook은 위험한 Bash 명령을 차단한다.
+- `PreToolUse` hook은 Codex가 `git commit` Bash 명령을 실행하기 전에 프로젝트 검증을 수행한다.
+- `Stop`/pre-commit 검증은 `.harness/validation.json`이 있으면 이를 우선 사용한다.
+- `.harness/validation.json`은 `python3 scripts/configure_harness.py`로 생성한다.
+- 일반 Git hook이 필요하면 repo에서 `git config core.hooksPath .githooks`를 설정한다.
 
 ## 명령어
-npm run dev      # 개발 서버
-npm run build    # 프로덕션 빌드
-npm run lint     # ESLint
-npm run test     # 테스트
+python3 scripts/configure_harness.py   # 프로젝트 스택 감지 및 검증 설정 생성
+python3 scripts/validate_project.py    # .harness/validation.json 기반 검증 실행
