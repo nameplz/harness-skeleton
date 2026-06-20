@@ -1,4 +1,4 @@
-# Project-local Codex defaults for the Harness skeleton.
+# Project-local Codex defaults.
 
 [features]
 multi_agent = true
@@ -9,29 +9,32 @@ matcher = "^Bash$"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = 'root="$PWD"; while [ "$root" != "/" ] && [ ! -f "$root/.codex/hooks/command_policy.py" ]; do root="$(dirname "$root")"; done; if [ -f "$root/.codex/hooks/command_policy.py" ]; then python3 "$root/.codex/hooks/command_policy.py"; fi'
-timeout = 30
+command = "python3 .codex/hooks/pre_tool_use_policy.py"
+timeout = 10
 statusMessage = "Checking Bash command"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = 'root="$PWD"; while [ "$root" != "/" ] && [ ! -f "$root/.codex/hooks/pre_commit_validation.py" ]; do root="$(dirname "$root")"; done; if [ -f "$root/.codex/hooks/pre_commit_validation.py" ]; then python3 "$root/.codex/hooks/pre_commit_validation.py"; fi'
-timeout = 300
+command = "bash .codex/hooks/pre-commit-validation.sh"
+timeout = 180
 statusMessage = "Running pre-commit validation"
+
+[[hooks.PreToolUse]]
+matcher = "^(apply_patch|Edit|Write)$"
 
 [[hooks.PermissionRequest]]
 matcher = "^Bash$"
 
 [[hooks.PermissionRequest.hooks]]
 type = "command"
-command = 'root="$PWD"; while [ "$root" != "/" ] && [ ! -f "$root/.codex/hooks/command_policy.py" ]; do root="$(dirname "$root")"; done; if [ -f "$root/.codex/hooks/command_policy.py" ]; then python3 "$root/.codex/hooks/command_policy.py"; fi'
-timeout = 30
-statusMessage = "Checking permission request"
+command = "python3 .codex/hooks/permission_request_policy.py"
+timeout = 10
+statusMessage = "Checking approval request"
 
 [[hooks.Stop]]
 
 [[hooks.Stop.hooks]]
 type = "command"
-command = 'root="$PWD"; while [ "$root" != "/" ] && [ ! -f "$root/.codex/hooks/stop_validation.py" ]; do root="$(dirname "$root")"; done; if [ -f "$root/.codex/hooks/stop_validation.py" ]; then python3 "$root/.codex/hooks/stop_validation.py"; fi'
-timeout = 300
+command = "python3 .codex/hooks/stop_validation.py"
+timeout = 120
 statusMessage = "Running project validation"
