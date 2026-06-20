@@ -1,0 +1,177 @@
+name: Harness CI
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  security-policy:
+    name: security-policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+          path: trusted
+
+      - name: Checkout pull request source
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+
+      - name: Checkout current source
+        if: github.event_name != 'pull_request'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+          path: candidate
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Generate changed file list
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REPO: ${{ github.event.pull_request.base.repo.full_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git -C candidate remote add base "https://github.com/${BASE_REPO}.git"
+          git -C candidate fetch --no-tags --depth=1 base "${BASE_SHA}"
+          git -C candidate diff --name-only "${BASE_SHA}" "${HEAD_SHA}" > candidate/.harness-changed-files.txt
+
+      - name: Check security policy
+        run: python3 trusted/scripts/check_ci_security.py --root candidate --event "$GITHUB_EVENT_PATH"
+
+  pr-contract:
+    name: pr-contract
+    if: github.event_name == 'pull_request'
+    needs: security-policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Check PR contract
+        run: python3 trusted/scripts/check_pr_contract.py --event "$GITHUB_EVENT_PATH"
+
+  harness-core:
+    name: harness-core
+    needs: security-policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pull request source
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Checkout current source
+        if: github.event_name != 'pull_request'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Compile Python
+        run: |
+          mkdir -p "${RUNNER_TEMP}/pycache"
+          PYTHONPYCACHEPREFIX="${RUNNER_TEMP}/pycache" python3 -m py_compile scripts/*.py .codex/hooks/*.py
+
+      - name: Run tests
+        run: python3 -m unittest discover -s tests
+
+      - name: Validate skeleton
+        run: python3 scripts/validate_project.py --root .
+
+  project-validation:
+    name: project-validation
+    needs: security-policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+          path: trusted
+
+      - name: Checkout pull request source
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+
+      - name: Checkout current source
+        if: github.event_name != 'pull_request'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+          path: candidate
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Run trusted setup
+        run: |
+          if [ -f trusted/.harness/ci.json ]; then
+            python3 trusted/scripts/run_ci_setup.py --root candidate --config trusted/.harness/ci.json
+          else
+            echo "No trusted Harness CI setup config"
+          fi
+
+      - name: Run trusted validation
+        run: |
+          if [ -f trusted/.harness/validation.json ]; then
+            python3 trusted/scripts/validate_project.py --root candidate --strict --config trusted/.harness/validation.json
+          else
+            python3 trusted/scripts/validate_project.py --root candidate
+          fi

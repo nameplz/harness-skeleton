@@ -5,6 +5,14 @@ next-env.d.ts
 tsconfig.tsbuildinfo
 .DS_Store
 .env
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# harness worktrees/runtime
+.worktrees/
+.harness/runtime/
+.harness-changed-files.txt
 
 # phase execution outputs
 phases/**/phase*-output.json
