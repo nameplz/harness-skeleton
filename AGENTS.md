@@ -5,6 +5,7 @@
 - Runtime boundaries and validation: `docs/ARCHITECTURE.md`
 - Durable design decisions: `docs/ADR.md`
 - Task routing, planning, and review: `.agents/skills/harness/SKILL.md`
+- GitHub PR publication and CI completion: `.agents/skills/pr-workflow/SKILL.md`
 - Project validation and risk settings: `.harness/config.toml`
 - Product scope: `docs/PRD.md`; visual work: `docs/UI_GUIDE.md`
 

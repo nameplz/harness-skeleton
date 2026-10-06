@@ -17,6 +17,7 @@ class AgentDocsTests(unittest.TestCase):
             "docs/ARCHITECTURE.md",
             "docs/ADR.md",
             ".agents/skills/harness/SKILL.md",
+            ".agents/skills/pr-workflow/SKILL.md",
         ):
             self.assertIn(relative, agents)
             self.assertTrue((ROOT / relative).is_file(), relative)
