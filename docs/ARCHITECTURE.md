@@ -15,7 +15,7 @@ AGENTS.md → .agents/skills/harness/SKILL.md → Codex session
 ## Knowledge and task state
 
 - `AGENTS.md` is a short index. Load architecture and decisions only when they matter to the task.
-- `.agents/skills/harness/SKILL.md` defines T0–T3 routing, delegation, task artifacts, and finish criteria.
+- `.agents/skills/harness/SKILL.md` defines issue-first task delivery, issue-specific branches, T0–T3 routing, task commits, and finish criteria. `.agents/skills/pr-workflow/SKILL.md` handles PR publication and required CI completion.
 - `.harness/config.toml` is the project-specific source for local validation commands and additional hard-risk and hint patterns. Trusted CI supplies this file from its trusted checkout with `--config-root`, so a candidate change cannot redefine the commands used to validate itself.
 - Use `/goal` for the active long-running objective. Keep one `.harness/tasks/<slug>.md` artifact only when a complex task must continue in a later session.
 - Git is the source for code state; deterministic command results and CI are the source for validation state.

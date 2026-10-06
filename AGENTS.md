@@ -15,7 +15,7 @@
 - Project validation commands are explicit argv arrays. Never infer a language tool or invoke a command through a shell.
 - Invalid configuration, unsafe paths, and failed required checks stop the operation. Bound captured output and redact known credential-shaped values and email addresses.
 - Keep one implementation writer. Use subagents only for independent read-only investigation or review.
-- Commit each completed task after configured checks and required reviews pass. Keep incomplete, failed, unrelated, and pre-existing user changes out of the commit; honor explicit no-commit requests. Push or merge only when asked.
+- Require a published GitHub issue and an issue-specific branch before implementation. Commit each completed task after configured checks and required reviews pass; then use the project PR workflow and wait for required CI checks to pass. Keep incomplete, failed, unrelated, and pre-existing user changes out of commits; honor explicit no-commit requests. Never merge unless asked.
 
 ## Development
 

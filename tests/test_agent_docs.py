@@ -45,7 +45,25 @@ class AgentDocsTests(unittest.TestCase):
         self.assertIn("commit each completed task separately", skill)
         self.assertIn("configured checks and required reviews pass", agents)
         self.assertIn("unrelated changes", skill)
-        self.assertIn("push or merge only when asked", agents)
+        self.assertIn("wait for required ci checks to pass", agents)
+        self.assertIn("never merge unless asked", agents)
+
+    def test_issue_first_delivery_finishes_with_pr_and_green_ci(self) -> None:
+        skill = (ROOT / ".agents/skills/harness/SKILL.md").read_text(encoding="utf-8").lower()
+        pr_skill = (ROOT / ".agents/skills/pr-workflow/SKILL.md").read_text(encoding="utf-8").lower()
+
+        self.assertIn("before implementation", skill)
+        self.assertIn("published github issue", skill)
+        self.assertIn("issue-specific branch", skill)
+        self.assertIn("currently configured issue-creation workflow", skill)
+        self.assertIn(".agents/skills/pr-workflow/skill.md", skill)
+        self.assertIn("required ci checks pass", skill)
+        self.assertNotIn("to-spec", skill)
+        self.assertIn("explicit user authorization", pr_skill)
+        self.assertIn("standing request", pr_skill)
+        self.assertIn("no-push", pr_skill)
+        self.assertIn("no-pr", pr_skill)
+        self.assertNotIn("to-spec", pr_skill)
 
     def test_codex_roles_exist_and_reviewers_are_read_only(self) -> None:
         config = tomllib.loads((ROOT / ".codex/config.toml").read_text(encoding="utf-8"))

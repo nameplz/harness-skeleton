@@ -5,7 +5,7 @@ description: Publish a completed task linked to an existing GitHub issue; push i
 
 # GitHub pull request workflow
 
-This project uses one existing GitHub issue, task-scoped commits, one pull request, and green CI for each completed task. Issue creation is handled by the currently configured issue workflow. When the user has requested this workflow, publish the task branch without asking for the same authorization again. Never merge the pull request.
+This project uses one existing GitHub issue, task-scoped commits, one pull request, and green CI for each completed task. Issue creation is handled by the currently configured issue workflow. Push and PR publication require explicit user authorization; the user's standing request for this issue-to-PR workflow authorizes these actions for its task-scoped issues, so do not ask again for each task. Honor explicit no-push, no-PR, and no-merge requests. If this workflow has not been authorized, stop before pushing or creating/updating a PR. Never merge the pull request.
 
 ## Prepare the branch
 

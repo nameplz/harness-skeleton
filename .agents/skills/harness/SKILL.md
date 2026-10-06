@@ -20,6 +20,12 @@ Main Codex is the implementation writer. T2/T3 do not imply an implementation su
 
 Keep reviewers read-only. Ask each reviewer to return `status`, `summary`, `findings`, `evidence`, and `recommendation`; findings include a cause, a repository `path:line` citation, and a concrete fix. An explicit no-findings result is required when the review passes.
 
+## Issue-first delivery
+
+- Each task starts from a published GitHub issue. Before implementation, confirm its link and acceptance criteria, then work on an issue-specific branch from the intended PR base. If no issue exists, use the currently configured issue-creation workflow and follow its approval steps; do not bind this policy to a skill name or begin implementation before the issue is published.
+- Keep one issue as the task boundary. Complete and verify its work using the task-unit commit policy below.
+- After the issue's work and commits are complete, follow `.agents/skills/pr-workflow/SKILL.md` to publish one PR and wait until all required CI checks pass. Fix task-caused failures. Report external or permission-blocked checks as incomplete. Never merge unless asked.
+
 ## State and artifacts
 
 - Use `/goal` for a long-running objective that spans phases or needs durable completion tracking.
@@ -31,7 +37,7 @@ Keep reviewers read-only. Ask each reviewer to return `status`, `summary`, `find
 - For multi-step requests, plan cohesive, independently verifiable task units; keep dependent changes together.
 - Finish one unit end-to-end before starting the next: implement it, run its configured checks, and complete any required read-only reviews.
 - Commit each completed task separately after checks and reviews pass. Stage only that task's changes or hunks. Never stage unrelated changes or pre-existing user changes.
-- Leave failed or unfinished work uncommitted. Honor explicit no-commit requests. Push or merge only when asked.
+- Leave failed or unfinished work uncommitted. Honor explicit no-commit requests. Publish completed tasks through the project PR workflow; never merge unless asked.
 
 ## Delegation and worktrees
 
