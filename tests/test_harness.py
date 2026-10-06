@@ -499,6 +499,31 @@ class HarnessCheckTests(unittest.TestCase):
             with self.assertRaises(HarnessError):
                 load_config(root)
 
+    def test_url_lookalikes_cannot_bypass_workspace_confinement(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            commands = (
+                [sys.executable, "/tmp/outside://evil.py"],
+                [sys.executable, "../outside://evil.py"],
+                [sys.executable, "--root=../outside://evil.py"],
+                [sys.executable, "C://outside/evil.py"],
+                [sys.executable, "C:///outside"],
+                [sys.executable, "C:////outside"],
+            )
+            for command in commands:
+                with self.subTest(command=command):
+                    self.write_config(root, [command], [command])
+                    with self.assertRaises(HarnessError):
+                        load_config(root)
+
+    def test_valid_urls_remain_allowed_as_check_arguments(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            command = [sys.executable, "-m", "pytest", "--base-url=https://example.test/app"]
+            self.write_config(root, [command], [command])
+
+            self.assertEqual(tuple(command), load_config(root).quick[0])
+
     def test_short_path_options_and_file_uris_cannot_escape_workspace(self) -> None:
         with TemporaryDirectory() as temp:
             root = Path(temp)

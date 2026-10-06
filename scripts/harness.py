@@ -73,6 +73,7 @@ SENSITIVE_VALUE_RE = re.compile(
     re.IGNORECASE,
 )
 FILE_URI_RE = re.compile(r"^file:", re.IGNORECASE)
+URL_RE = re.compile(r"^(?![a-z]:[/\\])[a-z][a-z0-9.+-]*://", re.IGNORECASE)
 PATH_BEARING_SHORT_OPTIONS = ("-I", "-r")
 PYTHON_INLINE_MODULES = frozenset({"timeit"})
 SAFE_GIT_SUBCOMMANDS = frozenset(
@@ -212,9 +213,9 @@ def _validate_command_safety(command: Sequence[str], workspace: Path, field: str
                 raise HarnessError(f"{field}[{index}] contains a file URI outside the workspace")
             if not separator and not argument.startswith("--") and ("/" in argument or "\\" in argument):
                 raise HarnessError(f"{field}[{index}] contains an unsupported short-option path")
-            if not separator or "://" in value or not _looks_like_path(value, workspace):
+            if not separator or URL_RE.match(value) or not _looks_like_path(value, workspace):
                 continue
-        elif option_path is None and ("://" in argument or not _looks_like_path(argument, workspace)):
+        elif option_path is None and (URL_RE.match(argument) or not _looks_like_path(argument, workspace)):
             continue
         normalized = value.replace("\\", "/")
         if any(part == ".." for part in normalized.split("/")):
