@@ -1,9 +1,8 @@
-name: Harness CI
+name: Project CI
 
 on:
   pull_request_target:
     branches: [main]
-    # Re-run the trusted path gate when trusted-maintenance authorization changes.
     types: [opened, synchronize, reopened, ready_for_review, edited, labeled, unlabeled]
   push:
     branches: [main]
@@ -11,11 +10,10 @@ on:
 permissions: {}
 
 jobs:
-  security-policy:
-    name: security-policy
+  source-package:
+    name: source-package
     permissions:
       contents: read
-      pull-requests: read
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -28,7 +26,7 @@ jobs:
           echo "Private cross-repository PR sources are unsupported because the base token cannot read their source."
           exit 1
 
-      - name: Checkout trusted source
+      - name: Checkout trusted Harness source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
@@ -55,46 +53,15 @@ jobs:
           ref: ${{ github.sha }}
           path: candidate
 
-      - name: Setup Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with:
-          python-version: "3.12"
-
-      - name: Initialize changed file list
-        env:
-          CHANGED_FILES: ${{ runner.temp }}/harness-changed-files.nul
-        run: ': > "$CHANGED_FILES"'
-
-      - name: Check security policy
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          CHANGED_FILES: ${{ runner.temp }}/harness-changed-files.nul
-          BASE_REPO: ${{ github.event.pull_request.base.repo.full_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |-
-          if [ "$GITHUB_EVENT_NAME" = "pull_request_target" ]; then
-            export GIT_CONFIG_COUNT=1
-            export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
-            export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 --wrap=0)"
-            git -C candidate remote add base "https://github.com/${BASE_REPO}.git"
-            git -C candidate fetch --no-tags --depth=1 base "$BASE_SHA"
-            python3 trusted/scripts/check_ci_security.py --collect-changed-files --root candidate --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" --output "$CHANGED_FILES"
-          fi
-          python3 trusted/scripts/check_ci_security.py --root candidate --event "$GITHUB_EVENT_PATH" --changed-files "$CHANGED_FILES"
-          if [ "$GITHUB_EVENT_NAME" = "pull_request_target" ]; then
-            python3 trusted/scripts/check_pr_contract.py --event "$GITHUB_EVENT_PATH"
-          fi
-
-      - name: Package trusted and candidate source
+      - name: Package project and trusted Harness source
         run: |
           tar --create --file "${RUNNER_TEMP}/trusted-source.tar" --directory trusted --exclude=.git .
           tar --create --file "${RUNNER_TEMP}/candidate-source.tar" --directory candidate --exclude=.git .
 
-      - name: Upload trusted and candidate source
+      - name: Upload project and trusted Harness source
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: harness-source
+          name: project-source
           path: |
             ${{ runner.temp }}/trusted-source.tar
             ${{ runner.temp }}/candidate-source.tar
@@ -102,20 +69,20 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
-  harness-core:
-    name: harness-core
-    needs: security-policy
+  project-validation:
+    name: project-validation
+    needs: source-package
     permissions: {}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - name: Download trusted and candidate source
+      - name: Download project and trusted Harness source
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: harness-source
+          name: project-source
           path: ${{ runner.temp }}
 
-      - name: Extract trusted and candidate source
+      - name: Extract project and trusted Harness source
         run: |
           mkdir trusted candidate
           tar --extract --file "${RUNNER_TEMP}/trusted-source.tar" --directory trusted --no-same-owner --no-same-permissions
@@ -129,5 +96,5 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Run repository checks with trusted Harness
+      - name: Run project checks with trusted Harness
         run: python3 -I trusted/scripts/harness.py check --full --root candidate --config-root trusted

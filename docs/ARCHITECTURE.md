@@ -1,78 +1,53 @@
-# 아키텍처
+# Harness Skeleton Architecture
 
-## 디렉토리 구조
-```
-src/
-├── app/               # 페이지 + API 라우트
-├── components/        # UI 컴포넌트
-├── types/             # TypeScript 타입 정의
-├── lib/               # 유틸리티 + 헬퍼
-└── services/          # 외부 API 래퍼
-```
+## Runtime boundary
 
-## 패턴
-{사용하는 디자인 패턴 (예: Server Components 기본, 인터랙션이 필요한 곳만 Client Component)}
-
-## 데이터 흐름
-```
-{데이터가 어떻게 흐르는지 (예:
-사용자 입력 → Client Component → API Route → 외부 API → 응답 → UI 업데이트
-)}
-```
-
-## 상태 관리
-{상태 관리 방식 (예: 서버 상태는 Server Components, 클라이언트 상태는 useState/useReducer)}
-
-## Harness 실행 계층
-
-Step 실행은 메인 에이전트가 오케스트레이션하고, 역할별 worker의 결과는 명시적인 계약으로 검증한다.
-
-- `scripts/step_contracts.py`: phase/step, 상대 경로, worker payload, 리뷰 명령, 보안 점검, 로그의 경계 검증
-- `scripts/step_prompts.py`: 구현·코드 리뷰·테스트·보안 리뷰 worker의 역할과 금지사항
-- `scripts/step_pipeline.py`: heartbeat 초기화·status update·stuck watchdog → 구현 → code-review/test 병렬 실행 → security-review → 메인 커밋 → trusted PR CI → 병합 순서와 재시도
-- `scripts/phase_worktree.py`: `started_at` 기준 30분 timeout, 60초 runtime heartbeat, `stuck_retry` lifecycle
-- `scripts/harness_validation.py`: project-defined validation profile, reviewer별 check, stop check, step test policy, mutation ignore
-- `tests/`: profile이 지정한 명령과 외부 동작을 검증하는 regression contract
-
-### Implementation lifecycle
-
-Runtime artifact는 `.harness/runtime/{phase}/step{N}-attempt{pipeline_attempt}.json`에 저장한다.
+Codex owns the agent loop: it plans, manages context, uses tools, delegates selectively, implements, and repairs failures. Harness provides the project knowledge map, deterministic checks, a diff-based risk signal, setup diagnostics, and trusted CI policy. It does not launch implementation workers or maintain a parallel task state machine.
 
 ```text
-implementation start → running heartbeat/status update (60s)
-    ├─ completed within 1800s → code/test review
-    └─ started_at + 1800s 초과 → stuck → 새 worker (최대 3 stuck retry)
-                                      └─ 초과 → error
+AGENTS.md → .agents/skills/harness/SKILL.md → Codex session
+                                      │
+                   scripts/harness.py check / risk / doctor
+                                      │
+                             Git + trusted CI
 ```
 
-`started_at`은 마지막 heartbeat와 독립된 timeout 기준이다. `pipeline_attempt`는 review,
-security, CI 실패 재작업 횟수이고 `stuck_retry`는 구현 timeout 재시도 횟수다.
-Main session은 약 60초마다 phase, step, attempt, elapsed, progress를 사용자에게 전달한다.
-구체적인 플랫폼 전송 구현은 `MainActions`/`AgentRunner` extension point로 남긴다.
+## Knowledge and task state
 
-### Project validation profile
+- `AGENTS.md` is a short index. Load architecture and decisions only when they matter to the task.
+- `.agents/skills/harness/SKILL.md` defines T0–T3 routing, delegation, task artifacts, and finish criteria.
+- `.harness/config.toml` is the project-specific source for local validation commands and additional risk patterns. Trusted CI supplies this file from its trusted checkout with `--config-root`, so a candidate change cannot redefine the commands used to validate itself.
+- Use `/goal` for the active long-running objective. Keep one `.harness/tasks/<slug>.md` artifact only when a complex task must continue in a later session.
+- Git is the source for code state; deterministic command results and CI are the source for validation state.
 
-`.harness/validation.json`이 유일한 project validation command source다.
-`commands`에 argv 배열과 역할을 정의하고, `stopChecks`, `reviewChecks`, `stepPolicies`,
-`reviewMutationIgnore`, `maxCompletionConditions`가 같은 profile을 참조한다.
-Harness core는 명령 이름이나 언어를 추측하지 않는다. 예: Python은 pytest/ruff/mypy,
-Node/TypeScript는 vitest/eslint/tsc, Go는 go test/go vet을 프로젝트가 직접 정의한다.
+## Deterministic CLI
 
-Code Review는 spec, architecture, ADR, completion criteria, logic, contract, scope와
-자신에게 배정된 lint/typecheck check를 담당한다. Test Review는 unit/integration/e2e,
-regression, coverage와 자신에게 배정된 test check를 담당한다. 두 reviewer가 같은 전체
-suite를 반복 실행하지 않는다. Security Review는 별도 read-only 역할이다.
+`scripts/harness.py` is the single user-facing entrypoint. `scripts/harness_risk.py` owns Git path/diff inspection and risk routing, while `scripts/harness_common.py` centralizes errors and output redaction:
 
-Step test policy는 `feature=required`, `bugfix=regression`, `refactor=optional`,
-`docs/ci/config/metadata=none`을 기본으로 하며 profile에서 조정할 수 있다.
+- `check` validates configuration and runs the selected project-defined argv commands with `shell=False`; the internal `scripts/command_runner.py` bounds captured output to 1 MiB per command, limits quick checks to 2 minutes and full profiles to 15 minutes, and terminates timed-out POSIX process groups. Python `unittest` and `compileall` module checks run with isolated interpreter mode, and the built-in doctor command resolves to the trusted Harness script. The non-empty unittest summary check catches silent early exits; it is a sanity heuristic, not proof that arbitrary test code completed, because tests can print their own summary before exiting. Trusted CI uses no repository secrets for candidate execution.
+- `risk` reads changes only under the requested project root, loads that root's `.harness/config.toml`, and reports the maximum task tier, code-review signal, security-review signal, and evidence for each signal.
+- `doctor` checks the skeleton's required files, configuration, and Git state.
 
-Completion criteria는 최소 1개, 권장 3~10개, 최대값은 profile에서 설정한다. 사용자 확인
-전에는 pipeline과 Markdown artifact를 만들지 않는다. 확인 후 `docs/completion-criteria.md`
-를 durable source로 저장하고, 구현·Code Review에 같은 artifact와 조건을 전달한다.
-Code Review는 조건 1..N을 정확히 한 번씩 `pass/fail` 및 `path:line` 근거로 평가한다.
+The core does not infer pytest, npm, Go, or other tools from files. Configuration and path-like command arguments fail closed when invalid, including embedded assignment values, existing extensionless files, option values, and Windows absolute paths. It rejects environment-replacement launchers, Git commands outside a local read-only allowlist, and Git helper configuration or transport options. Validation subprocesses drop inherited `GIT_*` overrides, inject fixed safe Git settings, and ignore system/global Git configuration. An absolute executable is accepted only when it resolves to the running Python interpreter; other executable paths must stay inside the workspace. Captured output is memory-bounded and sanitized before display, including credential labels, URL userinfo, JWTs, PEM private keys, email addresses, and unquoted multiline credential records through the next blank line. Each command has a 10-minute ceiling; quick validation has a 2-minute aggregate ceiling and the full profile has a 15-minute ceiling. Timeout cleanup terminates the original process group; a descendant that starts a new session may outlive a local command timeout. Candidate CI runs without token permissions on an ephemeral job with a 15-minute limit.
 
-Reviewer mutation 검사는 Git status/diff 기반으로 먼저 수행하고 untracked file도 포함한다.
-Git 외 workspace에서는 제한된 filesystem snapshot을 사용한다. `reviewMutationIgnore`에
-명시한 generated artifact만 무시하며 `.git` metadata mutation은 별도로 항상 차단한다.
+One `harness_hook.py` handles `PreToolUse`, `PermissionRequest`, and `Stop`. It blocks a small set of destructive shell patterns and runs the configured quick checks before a Git commit or turn completion. Hooks are convenience guardrails, not a sandbox.
 
-리뷰 worker는 파일을 수정하거나 커밋하지 않으며, 모든 blocking finding은 구현 worker의 다음 시도에 전달된다. 메인 에이전트는 코드·메타데이터 커밋과 PR 병합만 담당한다.
+## Risk routing
+
+Security-sensitive paths and keywords in the project config raise a task to T3. Multi-file, public API, dependency, and subsystem changes raise it to T2. Documentation-only work is T0; other focused work is T1. A task's highest signal wins. A reviewer cannot replace a configured test, lint, typecheck, build, or CI command.
+
+T0/T1 use no reviewer by default. T2 uses one independent read-only code reviewer. T3 adds one independent read-only security reviewer. There is no test-review agent; deterministic commands verify test outcomes, while a T2/T3 code reviewer can assess whether the test cases cover the requested behavior.
+
+## Security and CI boundaries
+
+Validation commands are explicit argv arrays, run without a shell, checked against a small set of destructive or mutating patterns, and bounded by per-command and aggregate time limits. Path-like command arguments and paths from Git/config are normalized and confined to the workspace. Logs redact common credential-shaped values and email addresses; arbitrary unlabelled secrets cannot be inferred from output.
+
+Pull request checks use `pull_request_target`, so GitHub loads the workflow definition from the trusted base branch; ordinary `pull_request` and manual dispatch are disabled. The trusted `security-policy` job checks the candidate using base-branch scripts and has `contents: read` plus `pull-requests: read`. The `project-ci` `source-package` job has only `contents: read` so it can package trusted Harness and candidate source. Both source jobs inspect or package candidate files without executing them. The only explicit `github.token` reference is in the exact trusted policy step, where it authenticates the base diff fetch and the label-actor permission check. Jobs that execute candidate tests or validation declare `permissions: {}` and receive no repository secrets. Each trusted source job creates a one-day tar archive containing dotfiles and executable modes but excluding Git metadata, then uploads it as an artifact; permissionless jobs extract it, initialize candidate Git metadata, and run validation with both the trusted Harness script and trusted `.harness/config.toml` against the candidate checkout. See [GitHub's `pull_request_target` guidance](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target) and [artifact upload documentation](https://github.com/actions/upload-artifact).
+
+Trusted checkouts use the PR base or protected `main`. Private cross-repository PR sources are rejected before checkout because the base repository token cannot reliably read them; same-repository private branches and public forks remain supported. The changed-path inventory is NUL-delimited, collected by the trusted helper with a 60-second timeout and 1 MiB output cap, and stored under the runner's temporary directory outside the candidate checkout. The base fetch uses the policy job's read token through a temporary Git HTTP header; checkout credentials are not persisted. Git external diff and text conversion are disabled. Unsafe paths and candidate workflow symlinks are rejected. Jobs require the fixed `ubuntu-24.04` hosted runner label; every `actions/checkout` step disables credential persistence and cannot supply custom checkout credentials. Workflow expressions cannot access the secrets context or serialize the GitHub context. Candidate changes to workflows, local actions, Harness config, Codex config/hooks, or trusted validators require the `harness-trusted-maintenance` label. The trusted checker accepts it only on the event that applies the label and verifies that event's actor through GitHub's repository-permission API; pushes and other later PR events require a fresh label action. It bypasses only sensitive-path denial, while workflow-content checks still run. Workflow triggers require exact approved branch/type mappings with no path filters. Workflow YAML is safely parsed with Ruby Psych on the pinned Ubuntu 24.04 runner; multiple documents, ambiguous YAML 1.1 boolean keys, duplicate keys, and invalid YAML fail closed. Local actions must resolve within `.github/actions/`; symlink escapes are rejected. The initial migration of this gate requires one privileged bootstrap because the current base-branch checker cannot yet recognize the label. Project hooks provide quick feedback, not a sandbox. Codex permissions, writable roots, network boundaries, branch protection, and trusted CI enforce the actual limits.
+
+`harness-ci.yml` validates the Harness repository itself by running the trusted base-branch `harness.py` and `.harness/config.toml` against the candidate source. The configured Python module checks use isolated imports, and the doctor command resolves to the trusted script. `project-ci.yml` uses the same trusted entrypoint for a candidate project's configured checks on an ephemeral GitHub-hosted runner; it does not hard-code the Harness internal test suite. Candidate checks run in jobs with empty workflow token permissions and no repository secrets; checkout credentials are not persisted. A copied project should edit `.harness/config.toml` to define its own test, lint, typecheck, build, and integration commands.
+
+## Isolation
+
+Use the current worktree for ordinary interactive tasks. Use a separate Git worktree for concurrent independent work, risky experiments, or migrations that need isolation. Codex remains the orchestrator in both cases.

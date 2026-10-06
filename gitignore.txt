@@ -4,7 +4,3 @@ out/
 next-env.d.ts
 tsconfig.tsbuildinfo
 .DS_Store
-
-# phase execution outputs
-phases/**/phase*-output.json
-phases/**/step*-output.json

@@ -1,51 +1,32 @@
 # Architecture Decision Records
 
-## 철학
-{프로젝트의 핵심 가치관 (예: MVP 속도 최우선. 외부 의존성 최소화. 작동하는 최소 구현을 선택.)}
+## Project decisions
 
----
+Add durable choices for the concrete project here. Record the decision, the reason, and the trade-off.
 
-### ADR-001: {결정 사항 (예: Next.js App Router 선택)}
-**결정**: {뭘 선택했는지}
-**이유**: {왜 선택했는지}
-**트레이드오프**: {뭘 포기했는지}
+## Harness v2 decisions
 
-### ADR-002: {결정 사항}
-**결정**: {뭘 선택했는지}
-**이유**: {왜 선택했는지}
-**트레이드오프**: {뭘 포기했는지}
+### ADR-010: Codex owns orchestration
+**Decision:** Use Codex's native session, planning, context, tools, and selective subagents as the execution path. Keep Harness focused on project knowledge, task contracts, deterministic validation, risk signals, and CI boundaries.
+**Reason:** The v1 Python `StepPipeline` had no Codex adapter and duplicated lifecycle behavior without running a real Codex worker.
+**Trade-off:** Progress lives in `/goal`, Git, or one optional task artifact rather than a centrally managed runtime state machine. The harness has no Python worker pipeline, heartbeat, or stuck-state runtime.
 
-### ADR-003: {결정 사항}
-**결정**: {뭘 선택했는지}
-**이유**: {왜 선택했는지}
-**트레이드오프**: {뭘 포기했는지}
+### ADR-011: Risk-based review routing
+**Decision:** T0/T1 tasks use deterministic checks and self-review. T2 tasks add one independent code review. T3 tasks add an independent security review. No separate test-review worker runs.
+**Reason:** Test status is deterministic, while independent reasoning is most useful for complex changes and trust boundaries.
+**Trade-off:** The diff detector is an escalation signal, not a complete understanding of task intent; ambiguous or unshown risks are escalated by the skill.
 
-### ADR-004: Step별 역할 분리형 품질 게이트
-**결정**: 구현 worker와 read-only code-review/test/security-review worker를 분리하고, 메인 에이전트가 리뷰·PR CI 결과를 종합한 뒤에만 커밋·병합한다.
-**이유**: 구현 변경과 검증 판단을 분리해 누락된 요구사항, 테스트 부족, YAML·경로·입력·로그 보안 문제를 구현 단계에서 반복적으로 수정할 수 있어야 한다.
-**트레이드오프**: 한 step마다 리뷰와 CI 대기 시간이 늘어나지만, 실패 원인과 수정 제안이 다음 구현 시도에 남고 리뷰 worker의 우발적 변경을 차단할 수 있다.
+### ADR-012: Project-defined validation commands
+**Decision:** Keep project commands in `.harness/config.toml` as argv arrays selected by quick/full profile. Run with `shell=False`, a 10-minute per-command limit, a 2-minute quick and 15-minute full-profile ceiling, a 1 MiB output cap, and sanitized output; terminate timed-out POSIX process groups. Run `unittest` and `compileall` through isolated Python module loading, and resolve the built-in doctor command to the trusted Harness script. The unittest output summary is only a sanity heuristic: test code can print a fake completion summary, so trusted CI obtains its validation config from the protected checkout, executes candidate code without repository secrets. Confine path arguments, option values, and path-like assignment values to the workspace. Reject environment-replacement launchers, Git subcommands outside a local read-only allowlist, Git helper configuration, and external transport options. Drop inherited `GIT_*` environment overrides, inject fixed safe Git settings, and ignore global/system Git config. Permit an absolute executable only when it resolves to the running Python interpreter.
+**Reason:** The harness must not guess toolchains or turn project configuration into arbitrary shell text.
+**Trade-off:** A new project must provide its own checks; the core does not invent tests, lint, typecheck, or build commands. Logs redact known credential forms, including URL userinfo, JWTs, PEM keys, email addresses, and unquoted multiline credential records through the next blank line, but cannot infer arbitrary secret values with no recognizable format.
 
-### ADR-005: Implementation watchdog lifecycle
-**결정**: implementation attempt는 `started_at`부터 1800초로 제한하고, runtime heartbeat와 사용자 status update는 60초 간격으로 유지한다. timeout 재시도(`stuck_retry`)와 review/CI 재시도(`pipeline_attempt`)를 분리한다.
-**이유**: heartbeat가 계속 살아 있어도 무한 implementation을 허용하면 main session이 진행을 판단할 수 없다.
-**트레이드오프**: 실행 adapter가 deadline을 존중해야 하며, 최대 stuck retry 초과 시 자동 복구 대신 `error`로 멈춘다.
+### ADR-013: Trusted maintenance for sensitive files
+**Decision:** Pull request checks use `pull_request_target`, which loads workflow definitions from the trusted base branch; ordinary `pull_request` and manual dispatch are disabled. Trusted base-branch validators inspect candidate files. The `security-policy` job receives `contents: read` and `pull-requests: read`; the `project-ci` `source-package` job receives only `contents: read`. Both jobs inspect or package candidate files without executing them. The explicit `github.token` expression is limited to the exact policy step; candidate tests run only in artifact-consuming jobs with `permissions: {}` and no repository secrets. One-day artifact payloads are tar archives that retain hidden files and executable modes while omitting Git metadata. Normal pull requests cannot alter security-sensitive paths, including local actions under `.github/actions/`. Trusted source comes from the PR base or protected `main`. Private cross-repository PR sources are explicitly rejected before checkout because the base token cannot reliably access them; same-repository private branches and public forks remain supported. The `harness-trusted-maintenance` label allows sensitive-path changes only on the event that applies it, after the trusted checker confirms that event actor has admin or maintain permission through GitHub's repository-permission API. Later push or PR events require a fresh label action; structural workflow checks always run. The checker requires fixed hosted runner labels, non-persisted checkout credentials, exact approved trigger mappings without path filters, and bounded authenticated Git changed-path collection.
+**Reason:** A candidate change must not replace the validator that judges that same candidate, while the harness still needs a reviewed way to evolve.
+**Trade-off:** The initial migration of the trusted gate needs one privileged bootstrap because the old base-branch validator cannot authorize its replacement. Subsequent sensitive changes need a trusted maintainer to reapply the label after each update; the label does not bypass workflow-content checks.
 
-### ADR-006: Project-defined validation profile
-**결정**: `.harness/validation.json`의 argv command와 reviewer/stop 역할을 validation source of truth로 사용한다.
-**이유**: skeleton core가 Python, Node, Go, Rust 도구를 추측하거나 reviewer마다 같은 suite를 중복 실행하지 않게 한다.
-**트레이드오프**: concrete project가 profile을 작성해야 하며, required check 누락은 fail-closed 된다.
-
-### ADR-007: Step validation policy
-**결정**: step kind별 `required`, `regression`, `optional`, `none` test-change policy를 사용한다.
-**이유**: feature/bugfix 보호는 유지하면서 docs, CI, config, metadata 작업에 불필요한 test-file 변경을 강제하지 않는다.
-**트레이드오프**: bugfix는 regression test 경로를 명시해야 하고, optional step은 기존 validation 결과에 더 의존한다.
-
-### ADR-008: Durable completion criteria
-**결정**: 사용자 확인 후 criteria를 Markdown artifact로 저장하고 pipeline은 session-local draft state를 source of truth로 사용하지 않는다.
-**이유**: 새 세션도 phase metadata, step artifact, confirmed criteria artifact만 읽어 workflow 상태를 복원할 수 있어야 한다.
-**트레이드오프**: 사용자 확인은 명시적 입력으로 남고, artifact write/read 검증이 추가된다.
-
-### ADR-009: Git-first reviewer mutation detection
-**결정**: reviewer 전후 Git status와 파일 digest를 우선 비교하고, non-Git workspace만 제한된 filesystem snapshot으로 보완한다. generated output은 profile의 `reviewMutationIgnore`로만 예외 처리한다.
-**이유**: 대형 repository의 전체 파일 해시 비용과 generated artifact false positive를 줄이면서 tracked/untracked mutation을 잡는다.
-**트레이드오프**: ignore 설정이 과도하면 검출 범위가 줄어들므로 `.git` metadata는 별도 검사로 항상 차단한다.
+### ADR-014: Hooks are feedback, CI is enforcement
+**Decision:** Keep local hooks small and focused on command policy and project-defined validation. Treat Codex sandbox/permissions and trusted CI as enforcement boundaries.
+**Reason:** A regex hook is not a complete sandbox and must not be presented as one.
+**Trade-off:** Local checks improve feedback but do not replace repository protection or CI.

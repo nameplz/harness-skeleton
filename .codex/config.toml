@@ -4,30 +4,33 @@
 multi_agent = true
 hooks = true
 
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 2
+
+[agents.reviewer]
+description = "Independent, read-only reviewer for T2/T3 correctness, contracts, architecture, regression risk, and test adequacy."
+config_file = "agents/reviewer.toml"
+
+[agents.security_reviewer]
+description = "Independent, read-only security reviewer for T3 trust boundaries, permissions, data exposure, and injection risks."
+config_file = "agents/security-reviewer.toml"
+
 [[hooks.PreToolUse]]
 matcher = "^Bash$"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = "python3 .codex/hooks/pre_tool_use_policy.py"
-timeout = 10
-statusMessage = "Checking Bash command"
-
-[[hooks.PreToolUse.hooks]]
-type = "command"
-command = "bash .codex/hooks/pre-commit-validation.sh"
+command = 'python "$(git rev-parse --show-toplevel)/.codex/hooks/harness_hook.py"'
 timeout = 180
-statusMessage = "Running pre-commit validation"
-
-[[hooks.PreToolUse]]
-matcher = "^(apply_patch|Edit|Write)$"
+statusMessage = "Checking Bash command and commit validation"
 
 [[hooks.PermissionRequest]]
 matcher = "^Bash$"
 
 [[hooks.PermissionRequest.hooks]]
 type = "command"
-command = "python3 .codex/hooks/permission_request_policy.py"
+command = 'python "$(git rev-parse --show-toplevel)/.codex/hooks/harness_hook.py"'
 timeout = 10
 statusMessage = "Checking approval request"
 
@@ -35,6 +38,6 @@ statusMessage = "Checking approval request"
 
 [[hooks.Stop.hooks]]
 type = "command"
-command = "python3 .codex/hooks/stop_validation.py"
-timeout = 120
+command = 'python "$(git rev-parse --show-toplevel)/.codex/hooks/harness_hook.py"'
+timeout = 180
 statusMessage = "Running project validation"

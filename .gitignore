@@ -9,11 +9,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
-# harness worktrees/runtime
+# optional isolated worktrees
 .worktrees/
-.harness/runtime/
 .harness-changed-files.txt
-
-# phase execution outputs
-phases/**/phase*-output.json
-phases/**/step*-output.json

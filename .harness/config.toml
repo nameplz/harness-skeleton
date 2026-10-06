@@ -1,0 +1,38 @@
+schema = 2
+
+[checks]
+quick = [
+  ["python", "-m", "unittest", "discover", "-s", "tests", "-t", "."],
+]
+full = [
+  ["python", "scripts/harness.py", "doctor", "--root", "."],
+  ["python", "-m", "compileall", "-q", "scripts", ".codex/hooks"],
+  ["python", "-m", "unittest", "discover", "-s", "tests", "-t", "."],
+]
+
+[risk]
+security_paths = [
+  ".github/**",
+  ".codex/hooks/**",
+  ".harness/**",
+  "deploy/**",
+  "**/auth/**",
+  "**/security/**",
+  "**/migrations/**",
+  "*.sql",
+  "**/*.sql",
+]
+security_keywords = [
+  "subprocess",
+  "shell",
+  "exec",
+  "network client",
+  "credential",
+  "secret",
+  "token",
+  "user-controlled path",
+  "filesystem write",
+  "permission",
+  "authentication",
+  "authorization",
+]

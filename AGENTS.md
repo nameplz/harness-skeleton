@@ -1,24 +1,22 @@
-# 프로젝트: {프로젝트명}
+# Harness Skeleton Agent Guide
 
-## 기술 스택
-- {프레임워크 (예: Next.js 15)}
-- {언어 (예: TypeScript strict mode)}
-- {스타일링 (예: Tailwind CSS)}
+## Read when relevant
 
-## 아키텍처 규칙
-- CRITICAL: {절대 지켜야 할 규칙 1 (예: 모든 API 로직은 app/api/ 라우트 핸들러에서만 처리)}
-- CRITICAL: {절대 지켜야 할 규칙 2 (예: 클라이언트 컴포넌트에서 직접 외부 API를 호출하지 말 것)}
-- {일반 규칙 (예: 컴포넌트는 components/ 폴더에, 타입은 types/ 폴더에 분리)}
+- Runtime boundaries and validation: `docs/ARCHITECTURE.md`
+- Durable design decisions: `docs/ADR.md`
+- Task routing, planning, and review: `.agents/skills/harness/SKILL.md`
+- Project validation and risk settings: `.harness/config.toml`
+- Product scope: `docs/PRD.md`; visual work: `docs/UI_GUIDE.md`
 
-## 개발 프로세스
-- CRITICAL: 새 기능 구현 시 반드시 테스트를 먼저 작성하고, 테스트가 통과하는 구현을 작성할 것 (TDD)
-- 커밋 메시지는 conventional commits 형식을 따를 것 (feat:, fix:, docs:, refactor:)
+## Core invariants
 
-## 로컬 Skills
-- `harness-workflow`: Harness phase/step 설계, `phases/` 메타데이터 생성, worker 서브 에이전트 기반 phase 실행 오케스트레이션.
-- `harness-review`: 변경사항 리뷰 시 아키텍처, ADR, 테스트, CRITICAL 규칙, 빌드 가능성 검증.
+- Codex owns planning, context, tool use, delegation, and implementation. Harness scripts provide deterministic validation, risk signals, and setup checks.
+- Project validation commands are explicit argv arrays. Never infer a language tool or invoke a command through a shell.
+- Invalid configuration, unsafe paths, and failed required checks stop the operation. Bound captured output and redact known credential-shaped values and email addresses.
+- Keep one implementation writer. Use subagents only for independent read-only investigation or review.
+- Do not commit, push, or merge unless the user asks.
 
-## 명령어
-`.harness/validation.json`의 프로젝트별 profile이 validation, reviewer, stop 명령을 정의한다.
-구체적인 실행 명령은 생성된 프로젝트의 profile을 따르며, Harness core·hook은
-특정 언어·패키지 매니저 명령을 하드코딩하지 않는다.
+## Development
+
+- Add or update tests for behavior changes. Run `python scripts/harness.py check --quick` for focused work and `--full` before completion when configured.
+- Run `python scripts/harness.py risk` after code changes and follow its review signals. CI remains the trusted merge gate.
