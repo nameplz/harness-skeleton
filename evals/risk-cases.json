@@ -1,0 +1,189 @@
+{
+  "cases": [
+    {
+      "name": "README typo",
+      "paths": ["README.md"],
+      "diff": "+Fix a typographical error",
+      "expected": {"level": "T0", "code_review": false, "security_review": false}
+    },
+    {
+      "name": "Harness skill security wording",
+      "paths": [".agents/skills/harness/SKILL.md"],
+      "diff": "+Add authorization guidance and describe token handling.",
+      "expected": {"level": "T0", "code_review": false, "security_review": false}
+    },
+    {
+      "name": "AGENTS guide security wording",
+      "paths": ["AGENTS.md"],
+      "diff": "+Document credential and permission boundaries.",
+      "expected": {"level": "T0", "code_review": false, "security_review": false}
+    },
+    {
+      "name": "extensionless README security wording",
+      "paths": ["README"],
+      "diff": "+Document authorization and token terminology.",
+      "expected": {"level": "T0", "code_review": false, "security_review": false}
+    },
+    {
+      "name": "AsciiDoc under docs remains documentation-only",
+      "paths": ["docs/guide.adoc"],
+      "diff": "+Document authorization and token terminology.",
+      "expected": {"level": "T0", "code_review": false, "security_review": false}
+    },
+    {
+      "name": "extensionless document under docs remains documentation-only",
+      "paths": ["docs/guide"],
+      "diff": "+Document authorization and token terminology.",
+      "expected": {"level": "T0", "code_review": false, "security_review": false}
+    },
+    {
+      "name": "source text file still checks hard behavior",
+      "paths": ["src/runner.txt"],
+      "diff": "+subprocess.run(command)",
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
+    },
+    {
+      "name": "documentation HTTPS link",
+      "paths": ["docs/setup.md"],
+      "diff": "+See https://example.test/setup",
+      "expected": {"level": "T0", "code_review": false, "security_review": false}
+    },
+    {
+      "name": "documentation security vocabulary",
+      "paths": ["docs/protocol.md"],
+      "diff": "+Authorization uses a short-lived token with scoped permission.",
+      "expected": {"level": "T0", "code_review": false, "security_review": false}
+    },
+    {
+      "name": "one source bug fix",
+      "paths": ["src/client.py"],
+      "diff": "+return cached_value",
+      "expected": {"level": "T1", "code_review": false, "security_review": false}
+    },
+    {
+      "name": "two source files remain T1",
+      "paths": ["src/client.py", "src/config.py"],
+      "diff": "+return cached_value",
+      "expected": {"level": "T1", "code_review": false, "security_review": false},
+      "required_hints": ["changes span 2 implementation files"]
+    },
+    {
+      "name": "source token keyword is a hint",
+      "paths": ["src/client.py"],
+      "diff": "+token = read_token()",
+      "expected": {"level": "T1", "code_review": false, "security_review": false},
+      "required_hints": ["token"]
+    },
+    {
+      "name": "dependency declaration",
+      "paths": ["pyproject.toml"],
+      "diff": "+dependencies = []",
+      "expected": {"level": "T2", "code_review": true, "security_review": false}
+    },
+    {
+      "name": "requirements text dependency declaration",
+      "paths": ["requirements.txt"],
+      "diff": "+requests==2.0",
+      "expected": {"level": "T2", "code_review": true, "security_review": false}
+    },
+    {
+      "name": "public API area",
+      "paths": ["src/api/client.py"],
+      "diff": "+def fetch(): return None",
+      "expected": {"level": "T2", "code_review": true, "security_review": false}
+    },
+    {
+      "name": "auth-sensitive path",
+      "paths": ["src/auth/session.py"],
+      "diff": "+return session",
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
+    },
+    {
+      "name": "Codex hook path",
+      "paths": [".codex/hooks/harness_hook.py"],
+      "diff": "+return decision",
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
+    },
+    {
+      "name": "GitHub workflow path",
+      "paths": [".github/workflows/check.yml"],
+      "diff": "+name: checks",
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
+    },
+    {
+      "name": "subprocess boundary",
+      "paths": ["src/runner.py"],
+      "diff": "+subprocess.run(command)",
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
+    },
+    {
+      "name": "credential-shaped source boundary",
+      "paths": ["src/client.py"],
+      "diff": "+api_secret = read_secret()",
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
+    },
+    {
+      "name": "shell execution boundary",
+      "paths": ["src/runner.py"],
+      "diff": "+Popen(command, shell = True)",
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
+    },
+    {
+      "name": "migration SQL path",
+      "paths": ["migrations/001_init.sql"],
+      "diff": "+ALTER TABLE accounts ADD COLUMN status TEXT",
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
+    },
+    {
+      "name": "sensitive path beats documentation type",
+      "paths": [".github/README.md"],
+      "diff": "+See https://example.test",
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
+    },
+    {
+      "name": "evaluation harness implementation is sensitive",
+      "paths": ["scripts/eval_harness.py"],
+      "diff": "+change expected outcomes",
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
+    },
+    {
+      "name": "risk evaluation fixture is sensitive",
+      "paths": ["evals/risk-cases.json"],
+      "diff": "+change expected outcomes",
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
+    },
+    {
+      "name": "network keyword hint",
+      "paths": ["src/client.py"],
+      "diff": "+response = network_http_client.get(url)",
+      "expected": {"level": "T1", "code_review": false, "security_review": false},
+      "required_hints": ["http", "network"]
+    },
+    {
+      "name": "permission keyword hint",
+      "paths": ["src/policy.py"],
+      "diff": "+permission = resolve_access()",
+      "expected": {"level": "T1", "code_review": false, "security_review": false},
+      "required_hints": ["permission"]
+    },
+    {
+      "name": "explicit new subsystem marker",
+      "paths": ["src/tasks.py"],
+      "diff": "+This adds a new subsystem for task routing.",
+      "expected": {"level": "T2", "code_review": true, "security_review": false}
+    },
+    {
+      "name": "no changes",
+      "paths": [],
+      "diff": "",
+      "expected": {"level": "T0", "code_review": false, "security_review": false}
+    },
+    {
+      "name": "test files do not count as implementation files",
+      "paths": ["tests/test_client.py", "tests/test_config.py"],
+      "diff": "+assert True",
+      "expected": {"level": "T1", "code_review": false, "security_review": false},
+      "forbidden_hints": ["implementation files"]
+    }
+  ]
+}

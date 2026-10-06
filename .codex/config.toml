@@ -6,7 +6,6 @@ hooks = true
 
 [agents]
 enabled = true
-max_concurrent_threads_per_session = 2
 
 [agents.reviewer]
 description = "Independent, read-only reviewer for T2/T3 correctness, contracts, architecture, regression risk, and test adequacy."

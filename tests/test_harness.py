@@ -26,7 +26,7 @@ class HarnessRiskTests(unittest.TestCase):
         cases = (
             (["docs/README.md"], "", "T0", False, False),
             (["src/app.py"], "+return value", "T1", False, False),
-            (["src/app.py", "src/store.py"], "+return value", "T2", True, False),
+            (["src/app.py", "src/store.py"], "+return value", "T1", False, False),
             ([".codex/config.toml"], "+enabled = true", "T3", True, True),
         )
 
@@ -37,6 +37,85 @@ class HarnessRiskTests(unittest.TestCase):
                 self.assertEqual(level, result.level)
                 self.assertEqual(code_review, result.code_review)
                 self.assertEqual(security_review, result.security_review)
+
+    def test_documentation_keywords_do_not_raise_risk(self) -> None:
+        cases = (
+            (["README.md"], "+See https://example.test for details"),
+            (["README"], '+Add an authorization explanation and token glossary'),
+            (["docs/guide.adoc"], '+Add an authorization explanation and token glossary'),
+            (["docs/guide"], '+Add an authorization explanation and token glossary'),
+            (["docs/security.md"], '+"authorization" and "token" are protocol terms'),
+        )
+
+        for paths, diff in cases:
+            with self.subTest(paths=paths):
+                result = classify_risk(paths, diff)
+                self.assertEqual("T0", result.level)
+                self.assertFalse(result.code_review)
+                self.assertFalse(result.security_review)
+
+    def test_text_file_outside_known_documentation_locations_keeps_hard_escalation(self) -> None:
+        result = classify_risk(["src/runner.txt"], "+subprocess.run(command)")
+
+        self.assertEqual("T3", result.level)
+        self.assertTrue(result.security_review)
+
+    def test_two_implementation_files_are_hint_not_t2(self) -> None:
+        result = classify_risk(["src/app.py", "src/store.py"], "+return value")
+
+        self.assertEqual("T1", result.level)
+        self.assertFalse(result.code_review)
+        self.assertIn("changes span 2 implementation files", result.hints)
+
+    def test_soft_security_keywords_only_add_hints(self) -> None:
+        result = classify_risk(["src/client.py"], "+token = read_token()\n+open(path).write_text(data)")
+
+        self.assertEqual("T1", result.level)
+        self.assertFalse(result.security_review)
+        self.assertTrue(any("token" in hint for hint in result.hints))
+        self.assertTrue(any("open(" in hint for hint in result.hints))
+
+    def test_hard_security_keywords_escalate_but_hints_do_not(self) -> None:
+        for diff in (
+            "+subprocess.run(command)",
+            "+os.system(command)",
+            "+shell=True",
+            "+Popen(command, shell = True)",
+            "+api_secret = read_secret()",
+        ):
+            with self.subTest(diff=diff):
+                result = classify_risk(["src/runner.py"], diff)
+                self.assertEqual("T3", result.level)
+                self.assertTrue(result.security_review)
+
+    def test_hard_security_path_precedes_documentation_only(self) -> None:
+        result = classify_risk([".github/workflows/README.md"], "+See https://example.test")
+
+        self.assertEqual("T3", result.level)
+        self.assertTrue(result.security_review)
+
+    def test_eval_policy_paths_require_security_review(self) -> None:
+        for path in ("scripts/eval_harness.py", "evals/risk-cases.json"):
+            with self.subTest(path=path):
+                result = classify_risk([path], "+change expected evidence")
+                self.assertEqual("T3", result.level)
+                self.assertTrue(result.security_review)
+
+    def test_hard_complexity_signals_raise_t2(self) -> None:
+        cases = (
+            (["package.json", "src/app.py"], "+return value", "changed dependency declarations"),
+            (["requirements.txt"], "+requests==2.0", "changed dependency declarations"),
+            (["src/api/client.py"], "+return value", "changed a public API area"),
+            (["src/app.py"], "+introduces a new subsystem", "complex change marker"),
+        )
+
+        for paths, diff, reason in cases:
+            with self.subTest(paths=paths, diff=diff):
+                result = classify_risk(paths, diff)
+                self.assertEqual("T2", result.level)
+                self.assertTrue(result.code_review)
+                self.assertFalse(result.security_review)
+                self.assertTrue(any(reason in item for item in result.reasons))
 
     def test_project_risk_rules_are_additive_and_path_patterns_are_validated(self) -> None:
         result = classify_risk(
@@ -51,6 +130,12 @@ class HarnessRiskTests(unittest.TestCase):
 
         with self.assertRaises(HarnessError):
             classify_risk(["src/file.py"], "", security_paths=["../outside/**"])
+
+        custom_hard = classify_risk(["src/file.py"], "+ledger boundary", security_keywords=["ledger boundary"])
+        self.assertEqual("T3", custom_hard.level)
+        custom_hint = classify_risk(["src/file.py"], "+cache layer", security_hint_keywords=["cache layer"])
+        self.assertEqual("T1", custom_hint.level)
+        self.assertIn("cache layer", custom_hint.hints[0])
 
     def test_unsafe_diff_paths_fail_closed(self) -> None:
         for path in ("../outside.txt", "/tmp/outside.txt", "C:\\outside.txt", "src/../secret.py"):
@@ -167,6 +252,7 @@ class HarnessCheckTests(unittest.TestCase):
         )
         self.assertEqual(("-m", "compileall"), config.full[1][1:3])
         self.assertEqual(("-m", "unittest"), config.full[2][1:3])
+        self.assertIn(("python", "scripts/eval_harness.py"), config.full)
 
     def write_config(self, root: Path, quick: list[list[str]], full: list[list[str]]) -> Path:
         config = root / ".harness/config.toml"
@@ -907,6 +993,61 @@ class HarnessCheckTests(unittest.TestCase):
             self.assertEqual("T3", report["level"])
             self.assertTrue(report["security_review"])
 
+    def test_risk_command_serializes_project_security_hints(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.run_git(root, "init", "-q")
+            self.run_git(root, "config", "user.name", "Harness Test")
+            self.run_git(root, "config", "user.email", "harness@example.test")
+            config = self.write_config(root, [["true"]], [["true"]])
+            config.write_text(
+                config.read_text(encoding="utf-8")
+                + '\n[risk]\nsecurity_hint_keywords = ["cache signal"]\n',
+                encoding="utf-8",
+            )
+            source = root / "src/client.py"
+            source.parent.mkdir(parents=True)
+            source.write_text("return None\n", encoding="utf-8")
+            self.run_git(root, "add", ".")
+            self.run_git(root, "-c", "user.name=Harness Test", "-c", "user.email=harness@example.test", "commit", "-qm", "baseline")
+            source.write_text("cache signal = True\n", encoding="utf-8")
+            output = StringIO()
+
+            with redirect_stdout(output):
+                exit_code = main(["risk", "--root", str(root)])
+
+            report = json.loads(output.getvalue())
+            self.assertEqual(0, exit_code)
+            self.assertEqual("T1", report["level"])
+            self.assertTrue(any("cache signal" in hint for hint in report["hints"]))
+
+    def test_schema_two_config_accepts_optional_security_hint_keywords(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            config = self.write_config(root, [["true"]], [["true"]])
+            config.write_text(
+                config.read_text(encoding="utf-8")
+                + '\n[risk]\nsecurity_hint_keywords = ["network client"]\n',
+                encoding="utf-8",
+            )
+
+            loaded = load_config(root)
+
+            self.assertEqual(("network client",), loaded.security_hint_keywords)
+
+    def test_invalid_security_hint_keywords_fail_closed(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            config = self.write_config(root, [["true"]], [["true"]])
+            config.write_text(
+                config.read_text(encoding="utf-8")
+                + '\n[risk]\nsecurity_hint_keywords = "token"\n',
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(HarnessError, "security_hint_keywords"):
+                load_config(root)
+
     def test_doctor_checks_required_files_config_and_git_state(self) -> None:
         with TemporaryDirectory() as temp:
             root = Path(temp)
@@ -946,6 +1087,118 @@ class HarnessCheckTests(unittest.TestCase):
             self.assertFalse(report["ok"])
             self.assertIn(".codex/hooks/harness_hook.py", report["errors"])
 
+    def test_doctor_rejects_missing_reviewer_role(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_config(root, [["true"]], [["true"]])
+            self.write_doctor_files(root)
+            (root / ".codex/agents/reviewer.toml").unlink()
+
+            report = doctor(root)
+
+            self.assertFalse(report["ok"])
+            self.assertTrue(any("reviewer" in error for error in report["errors"]))
+
+    def test_doctor_rejects_missing_reviewer_role_declaration(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_config(root, [["true"]], [["true"]])
+            self.write_doctor_files(root)
+            project = root / ".codex/config.toml"
+            project.write_text(
+                project.read_text(encoding="utf-8").replace(
+                    '[agents.reviewer]\nconfig_file = "agents/reviewer.toml"\n', ""
+                ),
+                encoding="utf-8",
+            )
+
+            report = doctor(root)
+
+            self.assertFalse(report["ok"])
+            self.assertIn(".codex/config.toml (missing reviewer role)", report["errors"])
+
+    def test_doctor_rejects_invalid_reviewer_toml(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_config(root, [["true"]], [["true"]])
+            self.write_doctor_files(root)
+            (root / ".codex/agents/reviewer.toml").write_text("sandbox_mode = [", encoding="utf-8")
+
+            report = doctor(root)
+
+            self.assertFalse(report["ok"])
+            self.assertTrue(any("reviewer" in error and "invalid" in error for error in report["errors"]))
+
+    def test_doctor_rejects_reviewer_config_path_escape(self) -> None:
+        for config_file in ("../reviewer.toml", "/tmp/reviewer.toml"):
+            with self.subTest(config_file=config_file), TemporaryDirectory() as temp:
+                root = Path(temp)
+                self.write_config(root, [["true"]], [["true"]])
+                self.write_doctor_files(root)
+                project = root / ".codex/config.toml"
+                content = project.read_text(encoding="utf-8").replace(
+                    'config_file = "agents/reviewer.toml"',
+                    f'config_file = {json.dumps(config_file)}',
+                )
+                project.write_text(content, encoding="utf-8")
+
+                report = doctor(root)
+
+                self.assertFalse(report["ok"])
+                self.assertTrue(any("reviewer" in error and "config_file" in error for error in report["errors"]))
+
+    def test_doctor_rejects_reviewer_symlink_escape(self) -> None:
+        with TemporaryDirectory() as temp, TemporaryDirectory() as outside:
+            root = Path(temp)
+            self.write_config(root, [["true"]], [["true"]])
+            self.write_doctor_files(root)
+            external = Path(outside) / "reviewer.toml"
+            external.write_text('sandbox_mode = "read-only"\ndeveloper_instructions = "review"\n', encoding="utf-8")
+            reviewer = root / ".codex/agents/reviewer.toml"
+            reviewer.unlink()
+            reviewer.symlink_to(external)
+
+            report = doctor(root)
+
+            self.assertFalse(report["ok"])
+            self.assertTrue(any("reviewer" in error for error in report["errors"]))
+
+    def test_doctor_requires_read_only_and_nonempty_reviewer_instructions(self) -> None:
+        cases = (
+            ('sandbox_mode = "workspace-write"', "read-only"),
+            ('developer_instructions = "   "', "developer_instructions"),
+        )
+        for replacement, expected in cases:
+            with self.subTest(expected=expected), TemporaryDirectory() as temp:
+                root = Path(temp)
+                self.write_config(root, [["true"]], [["true"]])
+                self.write_doctor_files(root)
+                reviewer = root / ".codex/agents/reviewer.toml"
+                content = reviewer.read_text(encoding="utf-8")
+                if expected == "read-only":
+                    content = content.replace('sandbox_mode = "read-only"', replacement)
+                else:
+                    content = content.replace(
+                        'developer_instructions = "read-only review"', replacement
+                    )
+                reviewer.write_text(content, encoding="utf-8")
+
+                report = doctor(root)
+
+                self.assertFalse(report["ok"])
+                self.assertTrue(any(expected in error for error in report["errors"]))
+
+    def test_doctor_accepts_roles_without_model_pinning(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_config(root, [["true"]], [["true"]])
+            self.write_doctor_files(root)
+            self.run_git(root, "init", "-q")
+
+            report = doctor(root)
+
+            self.assertTrue(report["ok"], report["errors"])
+
     def test_doctor_preserves_docs_and_deployment_layout_checks(self) -> None:
         with TemporaryDirectory() as temp:
             root = Path(temp)
@@ -972,6 +1225,8 @@ class HarnessCheckTests(unittest.TestCase):
             "docs/ADR.md",
             ".agents/skills/harness/SKILL.md",
             ".codex/config.toml",
+            ".codex/agents/reviewer.toml",
+            ".codex/agents/security-reviewer.toml",
             ".codex/hooks/harness_hook.py",
             "scripts/command_runner.py",
             "scripts/harness.py",
@@ -982,6 +1237,8 @@ class HarnessCheckTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             if relative == ".codex/config.toml":
                 path.write_text(
+                    '[agents.reviewer]\nconfig_file = "agents/reviewer.toml"\n'
+                    '[agents.security_reviewer]\nconfig_file = "agents/security-reviewer.toml"\n'
                     "[[hooks.PreToolUse]]\nmatcher = \"^Bash$\"\n"
                     "[[hooks.PreToolUse.hooks]]\ntype = \"command\"\n"
                     "command = 'python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/harness_hook.py\"'\n"
@@ -991,6 +1248,13 @@ class HarnessCheckTests(unittest.TestCase):
                     "[[hooks.Stop]]\n"
                     "[[hooks.Stop.hooks]]\ntype = \"command\"\n"
                     "command = 'python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/harness_hook.py\"'\n",
+                    encoding="utf-8",
+                )
+            elif relative in {".codex/agents/reviewer.toml", ".codex/agents/security-reviewer.toml"}:
+                role = "security reviewer" if "security" in relative else "read-only review"
+                path.write_text(
+                    'sandbox_mode = "read-only"\n'
+                    f'developer_instructions = "{role}"\n',
                     encoding="utf-8",
                 )
             else:

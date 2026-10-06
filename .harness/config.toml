@@ -8,6 +8,7 @@ full = [
   ["python", "scripts/harness.py", "doctor", "--root", "."],
   ["python", "-m", "compileall", "-q", "scripts", ".codex/hooks"],
   ["python", "-m", "unittest", "discover", "-s", "tests", "-t", "."],
+  ["python", "scripts/eval_harness.py"],
 ]
 
 [risk]
@@ -15,6 +16,8 @@ security_paths = [
   ".github/**",
   ".codex/hooks/**",
   ".harness/**",
+  "scripts/eval_harness.py",
+  "evals/**",
   "deploy/**",
   "**/auth/**",
   "**/security/**",
@@ -22,17 +25,5 @@ security_paths = [
   "*.sql",
   "**/*.sql",
 ]
-security_keywords = [
-  "subprocess",
-  "shell",
-  "exec",
-  "network client",
-  "credential",
-  "secret",
-  "token",
-  "user-controlled path",
-  "filesystem write",
-  "permission",
-  "authentication",
-  "authorization",
-]
+# security_keywords add hard T3 signals; hint keywords never set review routes.
+security_hint_keywords = ["network client"]

@@ -42,7 +42,9 @@ class AgentDocsTests(unittest.TestCase):
         agents = config["agents"]
 
         self.assertTrue(config["features"]["multi_agent"])
-        self.assertEqual(2, agents["max_concurrent_threads_per_session"])
+        self.assertTrue(config["features"]["hooks"])
+        self.assertTrue(agents["enabled"])
+        self.assertNotIn("max_concurrent_threads_per_session", agents)
         self.assertEqual({"reviewer", "security_reviewer"}, {key for key in agents if isinstance(agents[key], dict)})
         skill = (ROOT / ".agents/skills/harness/SKILL.md").read_text(encoding="utf-8")
         self.assertIn("`reviewer`", skill)
@@ -53,6 +55,7 @@ class AgentDocsTests(unittest.TestCase):
                 role_config = tomllib.loads(role_config_path.read_text(encoding="utf-8"))
                 self.assertEqual("read-only", role_config["sandbox_mode"])
                 self.assertIn("read-only", role_config["developer_instructions"].lower())
+                self.assertNotIn("model", role_config)
 
     def test_validation_test_discovery_uses_project_root_as_top_level(self) -> None:
         config = tomllib.loads((ROOT / ".harness/config.toml").read_text(encoding="utf-8"))
@@ -61,6 +64,7 @@ class AgentDocsTests(unittest.TestCase):
         for profile in ("quick", "full"):
             with self.subTest(profile=profile):
                 self.assertIn(expected, config["checks"][profile])
+        self.assertIn(["python", "scripts/eval_harness.py"], config["checks"]["full"])
 
 
 if __name__ == "__main__":

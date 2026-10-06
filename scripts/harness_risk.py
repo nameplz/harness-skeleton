@@ -42,26 +42,32 @@ DEFAULT_SECURITY_PATHS = (
     "scripts/harness.py",
     "scripts/harness_common.py",
     "scripts/harness_risk.py",
+    "scripts/eval_harness.py",
+    "evals",
+    "evals/**",
     "scripts/*validation*.py",
     "scripts/check_*.py",
 )
 DEFAULT_SECURITY_KEYWORDS = (
     "subprocess",
-    "shell",
-    "exec",
-    "spawn",
-    "network",
-    "http",
+    "os.system",
+    "shell=true",
     "credential",
     "secret",
-    "token",
     "user-controlled path",
     "user_supplied",
-    "write_text",
-    "open(",
-    "permission",
     "authentication",
     "authorization",
+)
+DEFAULT_SECURITY_HINT_KEYWORDS = (
+    "http",
+    "network",
+    "token",
+    "permission",
+    "spawn",
+    "open(",
+    "write_text",
+    "filesystem write",
 )
 DEPENDENCY_FILES = frozenset(
     {
@@ -82,6 +88,8 @@ DEPENDENCY_FILES = frozenset(
     }
 )
 COMPLEXITY_MARKERS = ("public api", "public interface", "new subsystem", "cross-module")
+DOCUMENTATION_SUFFIXES = frozenset({".md", ".markdown", ".mdx", ".rst", ".txt", ".adoc", ".asciidoc"})
+DOCUMENTATION_NAMES = frozenset({"readme", "agents", "changelog", "contributing", "code_of_conduct", "license"})
 
 
 @dataclass(frozen=True)
@@ -90,11 +98,13 @@ class RiskAssessment:
     code_review: bool
     security_review: bool
     reasons: tuple[str, ...]
+    hints: tuple[str, ...]
     changed_paths: tuple[str, ...]
 
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
         result["reasons"] = list(self.reasons)
+        result["hints"] = list(self.hints)
         result["changed_paths"] = list(self.changed_paths)
         return result
 
@@ -105,38 +115,55 @@ def classify_risk(
     *,
     security_paths: Sequence[str] = DEFAULT_SECURITY_PATHS,
     security_keywords: Sequence[str] = DEFAULT_SECURITY_KEYWORDS,
+    security_hint_keywords: Sequence[str] = DEFAULT_SECURITY_HINT_KEYWORDS,
 ) -> RiskAssessment:
-    """Classify changes conservatively for review routing."""
+    """Classify deterministic minimum risk and return non-binding hints."""
 
     changed_paths = validate_relative_paths(paths)
     if not isinstance(diff_text, str):
         raise HarnessError("diff content must be text")
-    configured_paths = _merge_patterns(DEFAULT_SECURITY_PATHS, security_paths, "security_paths")
-    configured_keywords = _merge_keywords(DEFAULT_SECURITY_KEYWORDS, security_keywords)
-    changed_text = _changed_lines(diff_text).casefold()
+    if not changed_paths:
+        return RiskAssessment("T0", False, False, ("no changes detected",), (), ())
 
+    configured_paths = _merge_patterns(DEFAULT_SECURITY_PATHS, security_paths, "security_paths")
     reasons: list[str] = []
     for path in changed_paths:
         if any(fnmatch.fnmatchcase(path.casefold(), pattern.casefold()) for pattern in configured_paths):
             reasons.append(f"changed security-sensitive path: {path}")
-    for keyword in configured_keywords:
-        if keyword.casefold() in changed_text:
-            reasons.append(f"security-sensitive keyword detected: {keyword}")
-
-    if not changed_paths:
-        reasons.append("no changes detected")
-        return RiskAssessment("T0", False, False, tuple(reasons), ())
-
     if reasons:
-        return RiskAssessment("T3", True, True, tuple(dict.fromkeys(reasons)), changed_paths)
+        return RiskAssessment("T3", True, True, tuple(reasons), (), changed_paths)
 
     if all(_is_documentation_path(path) for path in changed_paths):
-        return RiskAssessment("T0", False, False, ("documentation-only changes",), changed_paths)
+        return RiskAssessment("T0", False, False, ("documentation-only changes",), (), changed_paths)
+
+    changed_text = _changed_lines(diff_text).casefold()
+    configured_keywords = _merge_keywords(DEFAULT_SECURITY_KEYWORDS, security_keywords, "security_keywords")
+    configured_hint_keywords = _merge_keywords(
+        DEFAULT_SECURITY_HINT_KEYWORDS, security_hint_keywords, "security_hint_keywords"
+    )
+    hard_reasons = [
+        f"security-sensitive keyword detected: {keyword}"
+        for keyword in configured_keywords
+        if _contains_keyword(changed_text, keyword)
+    ]
+    hints = [
+        f"security-related keyword detected: {keyword}"
+        for keyword in configured_hint_keywords
+        if keyword.casefold() in changed_text
+    ]
+    implementation_paths = [
+        path for path in changed_paths if not _is_documentation_path(path) and not _is_test_path(path)
+    ]
+    if len(implementation_paths) > 1:
+        hints.append(f"changes span {len(implementation_paths)} implementation files")
+    hints = list(dict.fromkeys(hints))
+    if hard_reasons:
+        return RiskAssessment("T3", True, True, tuple(hard_reasons), tuple(hints), changed_paths)
 
     complexity_reasons = _complexity_reasons(changed_paths, changed_text)
     if complexity_reasons:
-        return RiskAssessment("T2", True, False, tuple(complexity_reasons), changed_paths)
-    return RiskAssessment("T1", False, False, ("focused change",), changed_paths)
+        return RiskAssessment("T2", True, False, tuple(complexity_reasons), tuple(hints), changed_paths)
+    return RiskAssessment("T1", False, False, ("focused change",), tuple(hints), changed_paths)
 
 
 def validate_relative_paths(paths: Sequence[str]) -> tuple[str, ...]:
@@ -187,19 +214,28 @@ def _validate_pattern_list(values: Sequence[str], name: str) -> tuple[str, ...]:
     return tuple(patterns)
 
 
-def _merge_keywords(defaults: Sequence[str], custom: Sequence[str]) -> tuple[str, ...]:
+def _merge_keywords(defaults: Sequence[str], custom: Sequence[str], name: str) -> tuple[str, ...]:
     if isinstance(custom, (str, bytes)) or not isinstance(custom, Sequence):
-        raise HarnessError("security_keywords must be a list of strings")
+        raise HarnessError(f"{name} must be a list of strings")
     keywords: list[str] = list(defaults)
     for value in custom:
         if not isinstance(value, str) or not value.strip():
-            raise HarnessError("security_keywords entries must be non-empty strings")
+            raise HarnessError(f"{name} entries must be non-empty strings")
         keyword = value.strip()
         if any(ord(char) < 32 or ord(char) == 127 for char in keyword):
-            raise HarnessError("security_keywords entries cannot contain control characters")
+            raise HarnessError(f"{name} entries cannot contain control characters")
         if keyword.casefold() not in {item.casefold() for item in keywords}:
             keywords.append(keyword)
     return tuple(keywords)
+
+
+def _contains_keyword(text: str, keyword: str) -> bool:
+    if keyword.casefold() == "shell=true":
+        return re.search(r"(?<![A-Za-z0-9])shell\s*=\s*true(?![A-Za-z0-9])", text) is not None
+    escaped = re.escape(keyword.casefold())
+    prefix = r"(?<![A-Za-z0-9])" if keyword[0].isalnum() or keyword[0] == "_" else ""
+    suffix = r"(?![A-Za-z0-9])" if keyword[-1].isalnum() or keyword[-1] == "_" else ""
+    return re.search(prefix + escaped + suffix, text) is not None
 
 
 def _changed_lines(diff_text: str) -> str:
@@ -213,9 +249,19 @@ def _changed_lines(diff_text: str) -> str:
 
 def _is_documentation_path(path: str) -> bool:
     candidate = PurePosixPath(path)
-    if candidate.suffix.casefold() not in {".md", ".mdx", ".rst", ".txt"}:
+    name = candidate.name.casefold()
+    suffix = candidate.suffix.casefold()
+    parts = tuple(part.casefold() for part in candidate.parts)
+
+    if name in DEPENDENCY_FILES:
         return False
-    return candidate.parts[0].casefold() == "docs" or candidate.name.casefold().startswith("readme")
+    if suffix and suffix not in DOCUMENTATION_SUFFIXES:
+        return False
+    if parts[0] == "docs":
+        return True
+    if name.split(".", 1)[0] in DOCUMENTATION_NAMES:
+        return True
+    return len(parts) >= 3 and parts[:2] == (".agents", "skills") and suffix in DOCUMENTATION_SUFFIXES
 
 
 def _is_test_path(path: str) -> bool:
@@ -230,8 +276,6 @@ def _is_test_path(path: str) -> bool:
 def _complexity_reasons(paths: Sequence[str], changed_text: str) -> list[str]:
     reasons: list[str] = []
     source_paths = [path for path in paths if not _is_documentation_path(path) and not _is_test_path(path)]
-    if len(source_paths) >= 2:
-        reasons.append("changes span multiple implementation files")
     if any("api" in {part.casefold() for part in PurePosixPath(path).parts[:-1]} for path in source_paths):
         reasons.append("changed a public API area")
     if any(PurePosixPath(path).name.casefold() in DEPENDENCY_FILES for path in paths):
@@ -388,6 +432,7 @@ def inspect_git_risk(
             diff_text,
             security_paths=config.security_paths,
             security_keywords=config.security_keywords,
+            security_hint_keywords=getattr(config, "security_hint_keywords", ()),
         )
     return classify_risk(paths, diff_text)
 

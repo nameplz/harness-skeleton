@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import tomllib
 from typing import Any
 
@@ -52,7 +52,8 @@ SHELL_EXECUTABLES = frozenset({"sh", "bash", "zsh", "dash", "fish", "pwsh", "pow
 SCRIPT_EXECUTABLE_SUFFIXES = frozenset({".py", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ps1", ".bat", ".cmd"})
 REQUIRED_PROJECT_FILES = (
     "AGENTS.md", "docs/ARCHITECTURE.md", "docs/ADR.md", ".agents/skills/harness/SKILL.md",
-    ".codex/config.toml", ".codex/hooks/harness_hook.py", "scripts/command_runner.py",
+    ".codex/config.toml", ".codex/agents/reviewer.toml", ".codex/agents/security-reviewer.toml",
+    ".codex/hooks/harness_hook.py", "scripts/command_runner.py",
     "scripts/harness.py", "scripts/harness_common.py", "scripts/harness_risk.py",
 )
 REQUIRED_DOC_SCAN_PATHS = ("AGENTS.md", "docs/ARCHITECTURE.md", "docs/ADR.md")
@@ -96,6 +97,7 @@ class HarnessConfig:
     full: tuple[tuple[str, ...], ...]
     security_paths: tuple[str, ...]
     security_keywords: tuple[str, ...]
+    security_hint_keywords: tuple[str, ...]
 
 
 def load_config(root: Path, *, config_root: Path | None = None) -> HarnessConfig:
@@ -132,11 +134,16 @@ def load_config(root: Path, *, config_root: Path | None = None) -> HarnessConfig
     quick = _validate_command_list(checks["quick"], "checks.quick", workspace)
     full = _validate_command_list(checks["full"], "checks.full", workspace)
     risk = data.get("risk", {})
-    if not isinstance(risk, dict) or set(risk) - {"security_paths", "security_keywords"}:
+    if not isinstance(risk, dict) or set(risk) - {
+        "security_paths", "security_keywords", "security_hint_keywords"
+    }:
         raise HarnessError("Harness config risk section contains unsupported fields")
     security_paths = _validate_pattern_list(risk.get("security_paths", []), "security_paths")
-    security_keywords = _validate_keyword_list(risk.get("security_keywords", []))
-    return HarnessConfig(quick, full, security_paths, security_keywords)
+    security_keywords = _validate_keyword_list(risk.get("security_keywords", []), "security_keywords")
+    security_hint_keywords = _validate_keyword_list(
+        risk.get("security_hint_keywords", []), "security_hint_keywords"
+    )
+    return HarnessConfig(quick, full, security_paths, security_keywords, security_hint_keywords)
 
 
 def _resolve_workspace(root: Path) -> Path:
@@ -477,16 +484,16 @@ def _is_mutating_formatter(command: Sequence[str], tokens: set[str]) -> bool:
     return tuple(command[:2]) in {("go", "fmt"), ("cargo", "fmt")}
 
 
-def _validate_keyword_list(values: Any) -> tuple[str, ...]:
+def _validate_keyword_list(values: Any, name: str) -> tuple[str, ...]:
     if not isinstance(values, list):
-        raise HarnessError("security_keywords must be a list of strings")
+        raise HarnessError(f"{name} must be a list of strings")
     keywords: list[str] = []
     for value in values:
         if not isinstance(value, str) or not value.strip() or len(value) > 256:
-            raise HarnessError("security_keywords entries must be non-empty strings")
+            raise HarnessError(f"{name} entries must be non-empty strings")
         keyword = value.strip()
         if any(ord(char) < 32 or ord(char) == 127 for char in keyword):
-            raise HarnessError("security_keywords entries cannot contain control characters")
+            raise HarnessError(f"{name} entries cannot contain control characters")
         if keyword.casefold() not in {item.casefold() for item in keywords}:
             keywords.append(keyword)
     return tuple(keywords)
@@ -632,6 +639,7 @@ def doctor(root: Path, *, config_root: Path | None = None) -> dict[str, Any]:
                         )
                 if not any(".codex/hooks/harness_hook.py" in command for command in commands):
                     errors.append(f".codex/config.toml (missing {event} Harness hook)")
+        errors.extend(_doctor_codex_role_errors(workspace, codex_data))
     except (OSError, RuntimeError, ValueError, tomllib.TOMLDecodeError):
         if ".codex/config.toml" not in errors:
             errors.append(".codex/config.toml (invalid)")
@@ -656,6 +664,63 @@ def doctor(root: Path, *, config_root: Path | None = None) -> dict[str, Any]:
         "git": git_report,
         "errors": list(dict.fromkeys(errors)),
     }
+
+
+def _doctor_codex_role_errors(root: Path, codex_data: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    agents = codex_data.get("agents")
+    codex_dir = root / ".codex"
+    try:
+        resolved_codex_dir = codex_dir.resolve(strict=True)
+        resolved_codex_dir.relative_to(root)
+    except (OSError, RuntimeError, ValueError):
+        return [".codex/config.toml (invalid role config directory)"]
+
+    for role in ("reviewer", "security_reviewer"):
+        role_data = agents.get(role) if isinstance(agents, dict) else None
+        if not isinstance(role_data, dict):
+            errors.append(f".codex/config.toml (missing {role} role)")
+            continue
+        config_file = role_data.get("config_file")
+        if not isinstance(config_file, str) or not config_file.strip():
+            errors.append(f".codex/config.toml ({role} config_file missing)")
+            continue
+        normalized = config_file.replace("\\", "/")
+        relative = PurePosixPath(normalized)
+        if (
+            normalized.startswith(("/", "~"))
+            or re.match(r"^[A-Za-z]:", normalized)
+            or "\x00" in normalized
+            or any(part in {"", ".", ".."} for part in normalized.split("/"))
+        ):
+            errors.append(f".codex/config.toml ({role} config_file is unsafe)")
+            continue
+        role_path = codex_dir.joinpath(*relative.parts)
+        try:
+            resolved_role_path = role_path.resolve(strict=True)
+        except (OSError, RuntimeError):
+            errors.append(f".codex/config.toml ({role} config_file unavailable)")
+            continue
+        try:
+            resolved_role_path.relative_to(resolved_codex_dir)
+        except ValueError:
+            errors.append(f".codex/config.toml ({role} config_file escapes .codex)")
+            continue
+        try:
+            if not resolved_role_path.is_file() or resolved_role_path.stat().st_size > MAX_CONFIG_BYTES:
+                errors.append(f".codex/config.toml ({role} config is not a regular TOML file)")
+                continue
+            role_config = tomllib.loads(resolved_role_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+            errors.append(f".codex/config.toml ({role} config_file unavailable or invalid TOML)")
+            continue
+        if role_config.get("sandbox_mode") != "read-only":
+            errors.append(f".codex/config.toml ({role} sandbox_mode must be read-only)")
+        if not isinstance(role_config.get("developer_instructions"), str) or not role_config[
+            "developer_instructions"
+        ].strip():
+            errors.append(f".codex/config.toml ({role} developer_instructions must be non-empty)")
+    return errors
 
 
 def _doctor_doc_and_deploy_errors(root: Path) -> list[str]:

@@ -28,9 +28,9 @@ FORBIDDEN_WORKFLOW_PATTERNS = (
     (re.compile(r"\bself-hosted\b", re.IGNORECASE), "self-hosted runners are forbidden"),
     (re.compile(r"\b(deploy|publish|migration)\b", re.IGNORECASE), "deploy/publish/migration terms are forbidden"),
 )
-SENSITIVE_PREFIXES = (".github/workflows/", ".github/actions/", ".harness/", ".codex/")
+SENSITIVE_PREFIXES = (".github/workflows/", ".github/actions/", ".harness/", ".codex/", "evals/")
 SENSITIVE_DIRECTORY_PATHS = frozenset(
-    {".github", ".github/workflows", ".github/actions", ".harness", ".codex"}
+    {".github", ".github/workflows", ".github/actions", ".harness", ".codex", "evals"}
 )
 SENSITIVE_SCRIPT_PATTERNS = ("*validation*.py", "validate*.py", "check_*.py")
 SENSITIVE_SCRIPT_PATHS = frozenset(
@@ -39,6 +39,7 @@ SENSITIVE_SCRIPT_PATHS = frozenset(
         "scripts/harness_common.py",
         "scripts/harness_risk.py",
         "scripts/command_runner.py",
+        "scripts/eval_harness.py",
     }
 )
 TRUSTED_MAINTENANCE_LABEL = "harness-trusted-maintenance"
