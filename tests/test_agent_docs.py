@@ -37,6 +37,15 @@ class AgentDocsTests(unittest.TestCase):
         self.assertFalse((ROOT / ".agents/skills/harness-workflow/SKILL.md").exists())
         self.assertFalse((ROOT / ".agents/skills/harness-review/SKILL.md").exists())
 
+    def test_workflow_commits_each_verified_task_unit(self) -> None:
+        skill = (ROOT / ".agents/skills/harness/SKILL.md").read_text(encoding="utf-8").lower()
+        agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8").lower()
+
+        self.assertIn("commit each completed task separately", skill)
+        self.assertIn("configured checks and required reviews pass", agents)
+        self.assertIn("unrelated changes", skill)
+        self.assertIn("push or merge only when asked", agents)
+
     def test_codex_roles_exist_and_reviewers_are_read_only(self) -> None:
         config = tomllib.loads((ROOT / ".codex/config.toml").read_text(encoding="utf-8"))
         agents = config["agents"]

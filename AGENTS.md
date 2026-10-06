@@ -14,7 +14,7 @@
 - Project validation commands are explicit argv arrays. Never infer a language tool or invoke a command through a shell.
 - Invalid configuration, unsafe paths, and failed required checks stop the operation. Bound captured output and redact known credential-shaped values and email addresses.
 - Keep one implementation writer. Use subagents only for independent read-only investigation or review.
-- Do not commit, push, or merge unless the user asks.
+- Commit each completed task after configured checks and required reviews pass. Keep incomplete, failed, unrelated, and pre-existing user changes out of the commit; honor explicit no-commit requests. Push or merge only when asked.
 
 ## Development
 

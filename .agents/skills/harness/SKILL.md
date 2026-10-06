@@ -26,6 +26,13 @@ Keep reviewers read-only. Ask each reviewer to return `status`, `summary`, `find
 - For a complex task that must survive a new session, keep one concise `.harness/tasks/<slug>.md` file with Goal, Acceptance, Constraints, Decisions, Current state, and Next. Validate the slug as a relative path under `.harness/tasks/`.
 - Do not create a task file for routine T0/T1 changes. Git records code state; CI records validation state.
 
+## Task units and commits
+
+- For multi-step requests, plan cohesive, independently verifiable task units; keep dependent changes together.
+- Finish one unit end-to-end before starting the next: implement it, run its configured checks, and complete any required read-only reviews.
+- Commit each completed task separately after checks and reviews pass. Stage only that task's changes or hunks. Never stage unrelated changes or pre-existing user changes.
+- Leave failed or unfinished work uncommitted. Honor explicit no-commit requests. Push or merge only when asked.
+
 ## Delegation and worktrees
 
 - Keep one implementation writer in a mutable workspace.
