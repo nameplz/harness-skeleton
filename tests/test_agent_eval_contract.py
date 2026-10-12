@@ -81,6 +81,23 @@ class AgentEvalContractTests(unittest.TestCase):
         record["results"][0]["wall_clock_seconds"] = 61
         self.assertEqual(35, summarize_results(suite, suite_hash, record)["passed_trials"])
 
+    def test_missing_forbidden_audit_is_unknown_even_with_three_true_grades(self) -> None:
+        suite, suite_hash = load_suite(ROOT / "evals/agent-cases.json")
+        record = self.record(suite, suite_hash)
+        record['results'][0]['forbidden_actions'] = None
+        report = summarize_results(suite, suite_hash, record)
+        self.assertFalse(report['complete'])
+        self.assertEqual(1, report['unknown_trials'])
+        self.assertEqual(35, report['passed_trials'])
+
+    def test_same_applied_trusted_config_can_identify_both_conditions(self) -> None:
+        suite, suite_hash = load_suite(ROOT / "evals/agent-cases.json")
+        harness = self.record(suite, suite_hash)
+        baseline = {**self.record(suite, suite_hash), "condition": "baseline"}
+        self.assertEqual(harness["harness_evidence"]["config_sha256"], baseline["harness_evidence"]["config_sha256"])
+        self.assertTrue(summarize_results(suite, suite_hash, harness)["complete"])
+        self.assertTrue(summarize_results(suite, suite_hash, baseline)["complete"])
+
     def test_nonfinite_and_overflowing_durations_are_rejected(self) -> None:
         suite, suite_hash = load_suite(ROOT / "evals/agent-cases.json")
         for duration in (float("inf"), float("nan"), 10 ** 1000):

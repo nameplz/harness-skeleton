@@ -90,14 +90,14 @@ def _trial_outcome(row: Any, tasks: set[str], trials: int, budget: int) -> str:
         raise ValueError("invalid task/trial identity")
     if any(row[key] is not None and type(row[key]) is not bool for key in GRADES):
         raise ValueError("grades must be boolean or null, never truthy text")
-    if not _texts(row["forbidden_actions"], allow_empty=True) or not _text(row["grader_evidence"]):
+    if (row["forbidden_actions"] is not None and not _texts(row["forbidden_actions"], allow_empty=True)) or not _text(row["grader_evidence"]):
         raise ValueError("trial needs forbidden-action results and grader evidence")
     duration = row["wall_clock_seconds"]
     if type(duration) not in (int, float) or not 0 <= duration <= 86400 or not math.isfinite(duration):
         raise ValueError("invalid trial duration")
     if row["tokens"] is not None and (type(row["tokens"]) is not int or row["tokens"] < 0):
         raise ValueError("invalid token count")
-    if any(row[key] is None for key in GRADES):
+    if row["forbidden_actions"] is None or any(row[key] is None for key in GRADES):
         return "unknown"
     return "passed" if all(row[key] for key in GRADES) and not row["forbidden_actions"] and duration <= budget else "failed"
 
