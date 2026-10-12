@@ -112,6 +112,44 @@ class HarnessHookTests(unittest.TestCase):
 
         self.assertIsNone(result)
 
+    def test_git_commit_spellings_trigger_validation(self) -> None:
+        for command in (
+            "git commit -m x", "git -C 'my repo' commit -m x", "git -Crepo commit",
+            '"git" --no-pager commit -m x', "git --git-dir=.git commit",
+            "git -c core.quotepath=false commit", "git status && git commit -m x",
+            "git status\ngit commit -m x", "/usr/bin/git --no-optional-locks commit",
+            "git --no-lazy-fetch commit -m x", "GIT.EXE --no-pager commit -m x",
+        ):
+            with self.subTest(command=command), patch(
+                "harness_hook._run_quick_check", return_value=(False, "failed")
+            ) as check:
+                result = handle_event({"hook_event_name": "PreToolUse", "tool_name": "Bash",
+                                       "tool_input": {"command": command}, "cwd": str(ROOT)})
+                check.assert_called_once_with(ROOT)
+                self.assertEqual("deny", result["hookSpecificOutput"]["permissionDecision"])
+
+    def test_commit_text_in_arguments_or_comments_does_not_trigger_validation(self) -> None:
+        for command in (
+            "echo 'git commit'", "git commit-msg", "git status # git commit",
+            "echo ';' git commit", "git -C 'git commit' status", "git -C",
+            "git status --format='git commit'", "echo 'unterminated",
+        ):
+            with self.subTest(command=command), patch("harness_hook._run_quick_check") as check:
+                result = handle_event({"hook_event_name": "PreToolUse", "tool_name": "Bash",
+                                       "tool_input": {"command": command}})
+                self.assertIsNone(result)
+                check.assert_not_called()
+
+    def test_invalid_hook_payload_reports_an_error_without_echoing_input(self) -> None:
+        for payload in ("not-json private-input", "[]"):
+            with self.subTest(payload=payload):
+                result = subprocess.run([sys.executable, str(ROOT / ".codex/hooks/harness_hook.py")],
+                                        input=payload, capture_output=True, text=True, check=False)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("invalid hook payload", result.stderr)
+                self.assertNotIn("private-input", result.stderr)
+                self.assertEqual("", result.stdout)
+
     def test_hooks_without_a_project_config_are_inert(self) -> None:
         with TemporaryDirectory() as temp:
             result = handle_event(

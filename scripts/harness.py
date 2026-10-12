@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -17,8 +19,9 @@ import tomllib
 from typing import Any
 
 try:
-    from .command_runner import run_bounded_command
+    from .command_runner import _git_subcommand_index, _is_git_executable, run_bounded_command
     from .harness_common import HarnessError, sanitize_log
+    from .harness_evidence import capture_workspace
     from .harness_risk import (
         _git_output,
         _git_root,
@@ -29,8 +32,9 @@ except ImportError:  # Direct script invocation from the scripts directory.
     # Isolated mode omits the script directory from sys.path; restore only the
     # directory containing this trusted script, never the candidate workspace.
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from command_runner import run_bounded_command
+    from command_runner import _git_subcommand_index, _is_git_executable, run_bounded_command
     from harness_common import HarnessError, sanitize_log
+    from harness_evidence import capture_workspace
     from harness_risk import (
         _git_output,
         _git_root,
@@ -52,9 +56,11 @@ SHELL_EXECUTABLES = frozenset({"sh", "bash", "zsh", "dash", "fish", "pwsh", "pow
 SCRIPT_EXECUTABLE_SUFFIXES = frozenset({".py", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ps1", ".bat", ".cmd"})
 REQUIRED_PROJECT_FILES = (
     "AGENTS.md", "docs/ARCHITECTURE.md", "docs/ADR.md", ".agents/skills/harness/SKILL.md",
+    ".agents/skills/pr-workflow/SKILL.md",
+    ".github/PULL_REQUEST_TEMPLATE.md", ".harness/task-template.md", "docs/AGENT_EVALUATION.md",
     ".codex/config.toml", ".codex/agents/reviewer.toml", ".codex/agents/security-reviewer.toml",
     ".codex/hooks/harness_hook.py", "scripts/command_runner.py",
-    "scripts/harness.py", "scripts/harness_common.py", "scripts/harness_risk.py",
+    "scripts/harness.py", "scripts/harness_common.py", "scripts/harness_risk.py", "scripts/harness_evidence.py",
 )
 REQUIRED_DOC_SCAN_PATHS = ("AGENTS.md", "docs/ARCHITECTURE.md", "docs/ADR.md")
 PLACEHOLDER_RE = re.compile(r"\{[^{}\n]+\}")
@@ -98,6 +104,7 @@ class HarnessConfig:
     security_paths: tuple[str, ...]
     security_keywords: tuple[str, ...]
     security_hint_keywords: tuple[str, ...]
+    config_sha256: str
 
 
 def load_config(root: Path, *, config_root: Path | None = None) -> HarnessConfig:
@@ -111,9 +118,11 @@ def load_config(root: Path, *, config_root: Path | None = None) -> HarnessConfig
         resolved_config.relative_to(config_workspace)
         if not resolved_config.is_file():
             raise HarnessError("Harness config must be a regular file")
-        if resolved_config.stat().st_size > MAX_CONFIG_BYTES:
+        with resolved_config.open("rb") as stream:
+            raw_bytes = stream.read(MAX_CONFIG_BYTES + 1)
+        if len(raw_bytes) > MAX_CONFIG_BYTES:
             raise HarnessError("Harness config exceeds the size limit")
-        raw = resolved_config.read_text(encoding="utf-8")
+        raw = raw_bytes.decode("utf-8")
     except HarnessError:
         raise
     except (OSError, UnicodeError, ValueError) as exc:
@@ -143,7 +152,8 @@ def load_config(root: Path, *, config_root: Path | None = None) -> HarnessConfig
     security_hint_keywords = _validate_keyword_list(
         risk.get("security_hint_keywords", []), "security_hint_keywords"
     )
-    return HarnessConfig(quick, full, security_paths, security_keywords, security_hint_keywords)
+    return HarnessConfig(quick, full, security_paths, security_keywords, security_hint_keywords,
+                         hashlib.sha256(raw_bytes).hexdigest())
 
 
 def _resolve_workspace(root: Path) -> Path:
@@ -188,10 +198,10 @@ def _validate_command_safety(command: Sequence[str], workspace: Path, field: str
     executable = _normalize_executable(Path(command[0].replace("\\", "/")).name.casefold())
     if executable == "env":
         raise HarnessError(f"{field}[{index}] cannot override the validation process environment")
-    for position, argument in enumerate(command):
-        nested_executable = _normalize_executable(Path(argument.replace("\\", "/")).name.casefold())
-        if nested_executable == "git":
-            _validate_git_command(command[position:], field, index)
+    if _is_git_executable(command[0]):
+        _validate_git_command(command, field, index)
+    elif any(_is_git_executable(argument) for argument in command[1:]):
+        raise HarnessError(f"{field}[{index}] must invoke Git directly, not through a wrapper")
     if tokens & SHELL_EXECUTABLES and any(
         _is_inline_shell_flag(part, tokens) for part in command[1:]
     ):
@@ -314,47 +324,6 @@ def _validate_git_command(command: Sequence[str], field: str, index: int) -> Non
     ):
         raise HarnessError(f"{field}[{index}] cannot write Git diff output to a file")
 
-
-def _git_subcommand_index(arguments: Sequence[str]) -> int | None:
-    options_with_values = {
-        "-C",
-        "-c",
-        "--config",
-        "--config-env",
-        "--git-dir",
-        "--work-tree",
-        "--namespace",
-        "--super-prefix",
-        "--exec-path",
-    }
-    options_without_values = {
-        "--bare", "--no-pager", "--no-replace-objects", "--no-lazy-fetch",
-        "--no-optional-locks", "--literal-pathspecs",
-    }
-    position = 0
-    while position < len(arguments):
-        argument = arguments[position]
-        if argument in options_with_values:
-            position += 2
-        elif argument in options_without_values or argument.startswith(
-            (
-                "--config=",
-                "--config-env=",
-                "--git-dir=",
-                "--work-tree=",
-                "--namespace=",
-                "--super-prefix=",
-                "--exec-path=",
-            )
-        ):
-            position += 1
-        elif argument.startswith(("-C", "-c")) and len(argument) > 2:
-            position += 1
-        elif argument.startswith("-"):
-            position += 1
-        else:
-            return position
-    return None
 
 
 def _git_config_is_safe(setting: str) -> bool:
@@ -504,15 +473,24 @@ def run_checks(root: Path, profile: str, *, config_root: Path | None = None) -> 
         raise HarnessError("check profile must be quick or full")
     workspace = _resolve_workspace(root)
     config = load_config(workspace, config_root=config_root)
+    evidence = {**capture_workspace(workspace), "config_sha256": config.config_sha256}
     commands = config.quick if profile == "quick" else config.full
+    if evidence.get("status") == "error":
+        checks = _unstarted_results(commands, 1, reason="identity_error")
+        return {"ok": False, "profile": profile, "checks": checks, "evidence": evidence,
+                "evidence_after": None, "evidence_unchanged": False}
     results: list[dict[str, Any]] = []
     total_timeout = CHECK_QUICK_TIMEOUT_SECONDS if profile == "quick" else CHECK_TOTAL_TIMEOUT_SECONDS
     deadline = time.monotonic() + total_timeout
     for index, command in enumerate(commands, start=1):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            results.extend(_deadline_results(commands[index - 1 :], index))
+            results.extend(_unstarted_results(commands[index - 1 :], index))
             break
+        started_at = time.perf_counter()
+        started = True
+        timed_out = output_limited = False
+        failure_reason: str | None = None
         try:
             trusted_command = _trusted_check_command(command, config_root=config_root)
             completed = run_bounded_command(
@@ -522,15 +500,24 @@ def run_checks(root: Path, profile: str, *, config_root: Path | None = None) -> 
                 max_output_bytes=MAX_COMMAND_OUTPUT_BYTES,
             )
             returncode = completed.returncode
+            started = getattr(completed, "started", True)
             output = completed.output
+            timed_out, output_limited = completed.timed_out, completed.output_limited
             if completed.output_limited:
+                failure_reason = "output_limit"
+                returncode = returncode or 125
                 output = "check command output exceeded capture limit\n" + output
             elif completed.timed_out:
+                failure_reason = "timeout"
+                returncode = returncode or 124
                 output = "check command timed out or left child processes running\n" + output
             elif returncode == 0 and _is_unittest_command(trusted_command) and not _unittest_completed(output):
                 returncode = 125
+                failure_reason = "incomplete_unittest"
                 output = "unit test process ended without a successful unittest summary\n" + output
         except OSError:
+            started = False
+            failure_reason = "start_failed"
             returncode = 127
             output = "check command could not be started"
         results.append(
@@ -540,9 +527,29 @@ def run_checks(root: Path, profile: str, *, config_root: Path | None = None) -> 
                 "returncode": returncode,
                 "passed": returncode == 0,
                 "output": sanitize_command_output(output, command),
+                "duration_ms": round((time.perf_counter() - started_at) * 1000, 3),
+                "started": started,
+                "timed_out": timed_out,
+                "output_limited": output_limited,
+                "failure_reason": failure_reason or ("exit_status" if returncode else None),
             }
         )
-    return {"ok": all(item["passed"] for item in results), "profile": profile, "checks": results}
+    try:
+        final_config_sha256 = load_config(workspace, config_root=config_root).config_sha256
+    except HarnessError:
+        final_config_sha256 = None
+    evidence_after = {**capture_workspace(workspace), "config_sha256": final_config_sha256}
+    if evidence["config_sha256"] != final_config_sha256 or evidence_after.get("status") == "error":
+        unchanged: bool | None = False
+    elif evidence.get("status") != evidence_after.get("status"):
+        unchanged = False
+    elif evidence["diff_sha256"] is None or evidence_after["diff_sha256"] is None:
+        unchanged = None
+    else:
+        unchanged = evidence == evidence_after
+    return {"ok": all(item["passed"] for item in results) and unchanged is not False,
+            "profile": profile, "checks": results, "evidence": evidence,
+            "evidence_after": evidence_after, "evidence_unchanged": unchanged}
 
 
 def _is_unittest_command(command: Sequence[str]) -> bool:
@@ -585,12 +592,30 @@ def _unittest_completed(output: str) -> bool:
     return summary is not None and success is not None and success.start() > summary.end()
 
 
-def _deadline_results(commands: Sequence[Sequence[str]], first_index: int) -> list[dict[str, Any]]:
+def _unstarted_results(commands: Sequence[Sequence[str]], first_index: int, *, reason: str = "aggregate_timeout") -> list[dict[str, Any]]:
     return [
-        {"name": f"check-{index}", "command": _safe_command(command), "returncode": 124,
-         "passed": False, "output": "aggregate validation runtime limit reached"}
+        {"name": f"check-{index}", "command": _safe_command(command), "returncode": 125 if reason == "identity_error" else 124,
+         "passed": False, "output": "workspace identity could not be captured" if reason == "identity_error" else "aggregate validation runtime limit reached",
+         "duration_ms": None, "started": False, "timed_out": False,
+         "output_limited": False, "failure_reason": reason}
         for index, command in enumerate(commands, start=first_index)
     ]
+
+
+def _valid_harness_hook(hook: Any, workspace: Path) -> bool:
+    if not isinstance(hook, dict) or hook.get("type") != "command" or not isinstance(hook.get("command"), str):
+        return False
+    try:
+        argv = shlex.split(hook["command"])
+    except ValueError:
+        return False
+    if len(argv) == 3 and argv[1] == "-I":
+        argv = [argv[0], argv[2]]
+    return len(argv) == 2 and _is_python_executable(argv[0]) and argv[1] in {
+        ".codex/hooks/harness_hook.py",
+        "$(git rev-parse --show-toplevel)/.codex/hooks/harness_hook.py",
+        str(workspace / ".codex/hooks/harness_hook.py"),
+    }
 
 
 def doctor(root: Path, *, config_root: Path | None = None) -> dict[str, Any]:
@@ -627,17 +652,17 @@ def doctor(root: Path, *, config_root: Path | None = None) -> dict[str, Any]:
         else:
             for event in ("PreToolUse", "PermissionRequest", "Stop"):
                 entries = hooks.get(event)
-                commands: list[str] = []
+                valid_hook = False
                 if isinstance(entries, list):
                     for entry in entries:
                         if not isinstance(entry, dict) or not isinstance(entry.get("hooks"), list):
                             continue
-                        commands.extend(
-                            hook["command"]
-                            for hook in entry["hooks"]
-                            if isinstance(hook, dict) and isinstance(hook.get("command"), str)
+                        if event != "Stop" and entry.get("matcher") != "^Bash$":
+                            continue
+                        valid_hook = valid_hook or any(
+                            _valid_harness_hook(hook, workspace) for hook in entry["hooks"]
                         )
-                if not any(".codex/hooks/harness_hook.py" in command for command in commands):
+                if not valid_hook:
                     errors.append(f".codex/config.toml (missing {event} Harness hook)")
         errors.extend(_doctor_codex_role_errors(workspace, codex_data))
     except (OSError, RuntimeError, ValueError, tomllib.TOMLDecodeError):

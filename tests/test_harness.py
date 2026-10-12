@@ -497,6 +497,7 @@ class HarnessCheckTests(unittest.TestCase):
             with (
                 patch("scripts.harness.CHECK_TOTAL_TIMEOUT_SECONDS", 5),
                 patch("scripts.harness.time.monotonic", side_effect=[0, 0, 6]),
+                patch("scripts.harness.capture_workspace", return_value={"head": None, "dirty": None, "diff_sha256": None}),
                 patch(
                     "scripts.harness.run_bounded_command",
                     return_value=SimpleNamespace(returncode=0, output="", timed_out=False, output_limited=False),
@@ -517,6 +518,7 @@ class HarnessCheckTests(unittest.TestCase):
             with (
                 patch("scripts.harness.CHECK_QUICK_TIMEOUT_SECONDS", 3),
                 patch("scripts.harness.time.monotonic", side_effect=[0, 0]),
+                patch("scripts.harness.capture_workspace", return_value={"head": None, "dirty": None, "diff_sha256": None}),
                 patch(
                     "scripts.harness.run_bounded_command",
                     return_value=SimpleNamespace(returncode=0, output="", timed_out=False, output_limited=False),
@@ -1224,6 +1226,10 @@ class HarnessCheckTests(unittest.TestCase):
             "docs/ARCHITECTURE.md",
             "docs/ADR.md",
             ".agents/skills/harness/SKILL.md",
+            ".agents/skills/pr-workflow/SKILL.md",
+            ".github/PULL_REQUEST_TEMPLATE.md",
+            ".harness/task-template.md",
+            "docs/AGENT_EVALUATION.md",
             ".codex/config.toml",
             ".codex/agents/reviewer.toml",
             ".codex/agents/security-reviewer.toml",
@@ -1232,6 +1238,7 @@ class HarnessCheckTests(unittest.TestCase):
             "scripts/harness.py",
             "scripts/harness_common.py",
             "scripts/harness_risk.py",
+            "scripts/harness_evidence.py",
         ):
             path = root / relative
             path.parent.mkdir(parents=True, exist_ok=True)

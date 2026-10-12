@@ -10,13 +10,37 @@
       "name": "Harness skill security wording",
       "paths": [".agents/skills/harness/SKILL.md"],
       "diff": "+Add authorization guidance and describe token handling.",
-      "expected": {"level": "T0", "code_review": false, "security_review": false}
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
     },
     {
       "name": "AGENTS guide security wording",
       "paths": ["AGENTS.md"],
       "diff": "+Document credential and permission boundaries.",
-      "expected": {"level": "T0", "code_review": false, "security_review": false}
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
+    },
+    {
+      "name": "PR workflow instructions are control policy",
+      "paths": [".agents/skills/pr-workflow/SKILL.md"],
+      "diff": "+Use the canonical PR template",
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
+    },
+    {
+      "name": "workflow scanner dependency is sensitive",
+      "paths": ["scripts/github_expression_scanner.py"],
+      "diff": "+Update expression parsing",
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
+    },
+    {
+      "name": "command runner boundary is sensitive",
+      "paths": ["scripts/command_runner.py"],
+      "diff": "+Update timeout accounting",
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
+    },
+    {
+      "name": "validation evidence helper is sensitive",
+      "paths": ["scripts/harness_evidence.py"],
+      "diff": "+Update workspace fingerprint",
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
     },
     {
       "name": "extensionless README security wording",
@@ -184,6 +208,18 @@
       "diff": "+assert True",
       "expected": {"level": "T1", "code_review": false, "security_review": false},
       "forbidden_hints": ["implementation files"]
+    },
+    {
+      "name": "nested agent instructions",
+      "paths": ["packages/foo/AGENTS.md"],
+      "diff": "+change task policy",
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
+    },
+    {
+      "name": "additional agent skill",
+      "paths": [".agents/skills/other/SKILL.md"],
+      "diff": "+change task policy",
+      "expected": {"level": "T3", "code_review": true, "security_review": true}
     }
   ]
 }

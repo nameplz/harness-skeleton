@@ -30,3 +30,13 @@ Add durable choices for the concrete project here. Record the decision, the reas
 **Decision:** Keep local hooks small and focused on command policy and project-defined validation. Treat Codex sandbox/permissions and trusted CI as enforcement boundaries.
 **Reason:** A regex hook is not a complete sandbox and must not be presented as one.
 **Trade-off:** Local checks improve feedback but do not replace repository protection or CI.
+
+### ADR-015: Protect the control plane and bind its evidence
+**Decision:** Protect the core agent/PR instructions, validator dependencies, and evidence helper in both trusted CI maintenance policy and local hard-risk routing. Keep ordinary documentation T0. Bind checks to HEAD, dirty-content and applied-config digests; expose execution-limit metadata and invalidate results when source/config changes during validation. Align the PR template, workflow instructions, non-empty section checker, and issue-reference requirement.
+**Reason:** A trusted policy is only complete when its dependencies are protected; results cannot be reused safely for a different revision or empty delivery evidence.
+**Trade-off:** Core instruction edits need trusted maintenance. Fingerprints are bounded, non-atomic change evidence with explicit unknown values, not execution attestations. Syntactic PR references still need remote existence checks during authorized publication.
+
+### ADR-016: Separate policy regression from live agent measurement
+**Decision:** Keep risk fixtures offline. Add an offline opt-in scenario/result contract and a documented protocol for actual Codex evaluation; do not put live model calls or a new worker engine in default CI. Preserve one writer and independent reviewers.
+**Reason:** Classifier correctness cannot establish agent success, while vendor runtimes and benchmark effects cannot be assumed transferable to this coding workflow.
+**Trade-off:** Live runs still need project-specific isolated fixtures, independent graders, effective permissions and an explicit budget. The result contract verifies consistency, not the truth of supplied grading artifacts. Operating policy and GitHub protection remain deployment responsibilities.

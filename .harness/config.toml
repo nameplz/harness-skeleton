@@ -9,6 +9,7 @@ full = [
   ["python", "-m", "compileall", "-q", "scripts", ".codex/hooks"],
   ["python", "-m", "unittest", "discover", "-s", "tests", "-t", "."],
   ["python", "scripts/eval_harness.py"],
+  ["python", "scripts/check_agent_eval.py"],
 ]
 
 [risk]

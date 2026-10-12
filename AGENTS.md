@@ -8,6 +8,7 @@
 - GitHub PR publication and CI completion: `.agents/skills/pr-workflow/SKILL.md`
 - Project validation and risk settings: `.harness/config.toml`
 - Product scope: `docs/PRD.md`; visual work: `docs/UI_GUIDE.md`
+- Agent evaluation and its limits: `docs/AGENT_EVALUATION.md`
 
 ## Core invariants
 
@@ -15,7 +16,8 @@
 - Project validation commands are explicit argv arrays. Never infer a language tool or invoke a command through a shell.
 - Invalid configuration, unsafe paths, and failed required checks stop the operation. Bound captured output and redact known credential-shaped values and email addresses.
 - Keep one implementation writer. Use subagents only for independent read-only investigation or review.
-- Require a published GitHub issue and an issue-specific branch before implementation. Commit each completed task after configured checks and required reviews pass; then use the project PR workflow and wait for required CI checks to pass. Keep incomplete, failed, unrelated, and pre-existing user changes out of commits; honor explicit no-commit requests. Never merge unless asked.
+- Require a published GitHub issue and an issue-specific branch before implementation for issue-to-PR delivery. An explicit local-only user request authorizes local implementation and validation without creating an external issue or publishing. Commit each completed delivery task after configured checks and required reviews pass; then use the project PR workflow and wait for required CI checks to pass. Keep incomplete, failed, unrelated, and pre-existing user changes out of commits; honor explicit no-commit requests. Never merge unless asked.
+- Validation and review evidence belongs to its HEAD, dirty diff, and configuration. Rerun affected checks/reviews after changes; unknown identity is not proof that a previous result applies.
 
 ## Development
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 from typing import Any
@@ -20,12 +21,16 @@ DANGEROUS_PATTERNS = (
     (re.compile(r"\bgit\s+reset\s+--hard\b"), "hard git reset"),
     (re.compile(r"\bDROP\s+TABLE\b", re.IGNORECASE), "DROP TABLE statement"),
 )
-COMMIT_PATTERN = re.compile(r"(^|[;&|]\s*)git\s+commit(?:\s|$)")
+GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix", "--exec-path"})
+GIT_FLAG_OPTIONS = frozenset({"--no-pager", "--paginate", "-p", "-P", "--bare",
+                              "--no-replace-objects", "--no-optional-locks", "--no-lazy-fetch",
+                              "--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs"})
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.harness import sanitize_log  # noqa: E402
+from scripts.command_runner import _is_git_executable  # noqa: E402
 
 
 def extract_command(payload: dict[str, Any]) -> str:
@@ -41,6 +46,43 @@ def _dangerous_reason(command: str) -> str | None:
         if pattern.search(command):
             return reason
     return None
+
+
+def _contains_git_commit(command: str) -> bool:
+    # shortcut: recognize simple command lists, not shell functions/substitutions; native permissions and CI enforce safety.
+    lexer = shlex.shlex(command, posix=False, punctuation_chars=";&|\n")
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
+    segments: list[list[str]] = [[]]
+    try:
+        for token in lexer:
+            if token and all(char in ";&|\n" for char in token):
+                segments.append([])
+            else:
+                parts = shlex.split(token)
+                if len(parts) != 1:
+                    return False
+                segments[-1].append(parts[0])
+    except ValueError:
+        return False
+    return any(_is_git_commit(tokens) for tokens in segments)
+
+
+def _is_git_commit(tokens: list[str]) -> bool:
+    if not tokens or not _is_git_executable(tokens[0]):
+        return False
+    index = 1
+    while index < len(tokens):
+        token = tokens[index]
+        if token in GIT_VALUE_OPTIONS:
+            index += 2
+        elif token in GIT_FLAG_OPTIONS or token.startswith(("-C", "-c")) or (
+            "=" in token and token.split("=", 1)[0] in GIT_VALUE_OPTIONS
+        ):
+            index += 1
+        else:
+            return token == "commit"
+    return False
 
 
 def _hook_response(event: str, reason: str) -> dict[str, Any]:
@@ -146,7 +188,7 @@ def handle_event(payload: dict[str, Any]) -> dict[str, Any] | None:
         dangerous = _dangerous_reason(command)
         if dangerous:
             return _hook_response(event, f"Blocked dangerous Bash command: {dangerous}.")
-        if event != "PreToolUse" or not COMMIT_PATTERN.search(command):
+        if event != "PreToolUse" or not _contains_git_commit(command):
             return None
 
     elif event == "Stop":
@@ -176,7 +218,11 @@ def main() -> int:
     try:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, OSError):
-        payload = {}
+        print("invalid hook payload: expected a JSON object", file=sys.stderr)
+        return 1
+    if not isinstance(payload, dict):
+        print("invalid hook payload: expected a JSON object", file=sys.stderr)
+        return 1
     response = handle_event(payload)
     if response is not None:
         print(json.dumps(response, ensure_ascii=False))

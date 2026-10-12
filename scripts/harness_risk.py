@@ -20,6 +20,10 @@ except ImportError:  # Direct script invocation from the scripts directory.
 MAX_DIFF_BYTES = 8 * 1024 * 1024
 MAX_UNTRACKED_FILE_BYTES = 1024 * 1024
 DEFAULT_SECURITY_PATHS = (
+    "AGENTS.md",
+    "**/AGENTS.md",
+    ".agents",
+    ".agents/**",
     ".github",
     ".github/**",
     ".codex",
@@ -42,6 +46,9 @@ DEFAULT_SECURITY_PATHS = (
     "scripts/harness.py",
     "scripts/harness_common.py",
     "scripts/harness_risk.py",
+    "scripts/harness_evidence.py",
+    "scripts/command_runner.py",
+    "scripts/github_expression_scanner.py",
     "scripts/eval_harness.py",
     "evals",
     "evals/**",
@@ -286,7 +293,7 @@ def _complexity_reasons(paths: Sequence[str], changed_text: str) -> list[str]:
     return reasons
 
 
-def _git_output(root: Path, arguments: Sequence[str], *, timeout: int = 30) -> str:
+def _git_output(root: Path, arguments: Sequence[str], *, timeout: float = 30) -> str:
     try:
         completed = run_bounded_command(
             ["git", *arguments],
@@ -401,21 +408,9 @@ def inspect_git_risk(
     for relative in untracked_paths:
         if not relative:
             continue
-        normalized = validate_relative_paths((relative,))[0]
-        candidate = workspace / normalized
-        resolved = candidate.resolve(strict=False)
-        try:
-            resolved.relative_to(workspace)
-        except ValueError as exc:
-            raise HarnessError(f"untracked path resolves outside workspace: {normalized}") from exc
-        if candidate.is_symlink() or not candidate.is_file():
+        content = _read_untracked_file(workspace, relative)
+        if content is None:
             continue
-        try:
-            content = candidate.read_bytes()
-        except OSError as exc:
-            raise HarnessError(f"could not read untracked path: {normalized}") from exc
-        if len(content) > MAX_UNTRACKED_FILE_BYTES:
-            raise HarnessError(f"untracked file exceeds risk scan limit: {normalized}")
         addition = "\n" + "\n".join(
             "+" + line for line in content.decode("utf-8", errors="replace").splitlines()
         )
@@ -435,6 +430,25 @@ def inspect_git_risk(
             security_hint_keywords=getattr(config, "security_hint_keywords", ()),
         )
     return classify_risk(paths, diff_text)
+
+
+def _read_untracked_file(workspace: Path, relative: str) -> bytes | None:
+    normalized = validate_relative_paths((relative,))[0]
+    candidate = workspace / normalized
+    try:
+        candidate.resolve(strict=False).relative_to(workspace)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HarnessError(f"untracked path resolves outside workspace: {normalized}") from exc
+    if candidate.is_symlink() or not candidate.is_file():
+        return None
+    try:
+        with candidate.open("rb") as stream:
+            content = stream.read(MAX_UNTRACKED_FILE_BYTES + 1)
+    except OSError as exc:
+        raise HarnessError(f"could not read untracked path: {normalized}") from exc
+    if len(content) > MAX_UNTRACKED_FILE_BYTES:
+        raise HarnessError(f"untracked file exceeds risk scan limit: {normalized}")
+    return content
 
 
 def _git_has_head(repository: Path) -> bool:
