@@ -10,6 +10,7 @@ from pathlib import Path
 import stat
 from typing import Any
 
+from evals.runtime_cases import case_spec
 from evals.runtime_fixtures import RuntimeFixture
 from evals.native_runtime import build_review_command
 from evals.runtime_invocation import Invocation, consume_invocation, verify_invocation
@@ -74,12 +75,26 @@ def _scan(root: Path) -> tuple[dict[str, Any], ...]:
 
 def final_manifest(fixture: RuntimeFixture) -> dict[str, Any]:
     # Git metadata is resource-checked too; its integrity is graded separately.
-    files = [entry for entry in _scan(fixture.root) if not entry['path'].startswith('.git/')]
+    scanned = _scan(fixture.root)
+    files = [entry for entry in scanned if not entry['path'].startswith('.git/')]
     seed = {'case': fixture.case, 'variant': fixture.variant, 'condition': fixture.condition,
-            'head': fixture.seed_head, 'fixture_sha256': fixture.fixture_sha256, 'files': fixture.seed_files}
+            'head': fixture.seed_head, 'fixture_sha256': fixture.fixture_sha256, 'files': fixture.seed_files,
+            'modes': fixture.seed_modes, 'spec_sha256': case_spec(fixture.case).sha256,
+            'git_control_files': fixture.git_control_files}
     identity = {'schema': 1, 'case': fixture.case, 'condition': fixture.condition,
                 'seed_head': fixture.seed_head, 'seed_manifest_sha256': _digest(seed), 'files': files}
+    if fixture.git_control_files:
+        identity['git_control_sha256'] = _digest(_git_entries(scanned))
     return {**identity, 'sha256': _digest(identity)}
+
+
+def _git_entries(entries: tuple[dict[str, Any], ...]) -> tuple[tuple[str, str, int], ...]:
+    return tuple((entry['path'], entry['sha256'], entry['mode']) for entry in entries
+                 if entry['path'].startswith('.git/'))
+
+
+def git_control_manifest(root: Path) -> tuple[tuple[str, str, int], ...]:
+    return _git_entries(_scan(root))
 
 
 def regular_files(root: Path) -> tuple[str, ...]:
@@ -120,7 +135,7 @@ def review_matches(fixture: RuntimeFixture, evidence: ReviewEvidence | None, *,
         char not in '0123456789abcdef' for char in evidence.artifact_sha256
     ):
         return None
-    required = {'correctness', 'security'} if fixture.case == 'security-boundary' else {'correctness'}
+    required = set(case_spec(fixture.case).required_review_roles)
     reviews = dict(evidence.reviews)
     if len(reviews) != len(evidence.reviews) or not set(reviews).issubset(required):
         return None
@@ -210,6 +225,9 @@ def load_review_evidence(fixture: RuntimeFixture, artifact: Path, digest: str, *
     roles = [record.get('role') for record in records if isinstance(record, dict)]
     if any(not isinstance(role, str) or role not in {'correctness', 'security'} for role in roles):
         raise ValueError('invalid review role')
+    required = set(case_spec(fixture.case).required_review_roles)
+    if set(launches) != required or set(roles) != required:
+        raise ValueError('review needs all required review roles')
     if len(launches) != len(expected_invocations) or len(roles) != len(records) or \
             set(roles) != set(launches) or len(set(roles)) != len(roles):
         raise ValueError('review needs exactly its current parent-issued launches')

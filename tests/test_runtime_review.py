@@ -12,6 +12,46 @@ from evals.runtime_review import ReviewEvidence, final_manifest, freeze_for_revi
 
 
 class RuntimeReviewTests(unittest.TestCase):
+    def test_t3_partial_cli_review_is_rejected_without_consuming_launch(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            fixture = materialize_fixture('security-boundary', root / 'candidate', condition='baseline')
+            snapshot = root / 'snapshot'
+            manifest = freeze_for_review(fixture, snapshot)
+            source = write_frozen_source(fixture, root / 'source.json')
+            launch = issue_invocation(fixture, root / 'launch', source, model='test-model',
+                kind='correctness', execution_root=snapshot, final_manifest_sha256=manifest['sha256'])
+            bindings = {'final_manifest_sha256': manifest['sha256'], 'config_sha256': '1' * 64,
+                        'suite_sha256': '2' * 64, 'source_sha256': source.source_sha256}
+            launch = claim_launch(launch, (*build_review_command(snapshot, model=launch.model, invocation=launch),
+                review_prompt(fixture, 'correctness', bindings, invocation=launch)))
+            session = '00000000-0000-0000-0000-000000000001'
+            verdict = {**bindings, 'role': 'correctness', 'status': 'pass', 'invocation_nonce': launch.nonce,
+                       'invocation_sha256': launch.sha256, 'source_manifest_sha256': source.manifest_sha256}
+            rollout = launch.artifact_root / 'rollout.jsonl'
+            rollout.write_text('\n'.join(json.dumps(row) for row in (
+                {'type': 'thread.started', 'thread_id': session},
+                {'type': 'item.completed', 'item': {'type': 'agent_message', 'text': json.dumps(verdict)}},
+                {'type': 'turn.completed'},
+            )) + '\n')
+            launch = bind_session(launch, session)
+            envelope = {'schema': 1, 'manifest': manifest, 'snapshot_root': str(snapshot),
+                **{key: value for key, value in bindings.items() if key != 'final_manifest_sha256'},
+                'reviews': [{'role': 'correctness', 'session_id': session, 'model': launch.model,
+                    'command_path': str(launch.artifact_root / 'command.json'), 'command_sha256': launch.command_sha256,
+                    'rollout_path': str(rollout), 'rollout_sha256': hashlib.sha256(rollout.read_bytes()).hexdigest(),
+                    'returncode': 0, 'timed_out': False, 'output_limited': False,
+                    'invocation_nonce': launch.nonce, 'invocation_sha256': launch.sha256}]}
+            artifact = root / 'review.json'; artifact.write_text(json.dumps(envelope))
+            with self.assertRaisesRegex(ValueError, 'required review roles'):
+                load_review_evidence(fixture, artifact, hashlib.sha256(artifact.read_bytes()).hexdigest(),
+                                     expected_invocations=(launch,))
+            self.assertFalse((launch.artifact_root / 'consumed.json').exists())
+            for path in snapshot.rglob('*'):
+                if path.is_dir():
+                    path.chmod(0o755)
+            snapshot.chmod(0o755)
+
     def test_loader_requires_protected_native_artifacts_and_readonly_command(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)

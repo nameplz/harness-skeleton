@@ -11,6 +11,7 @@ import secrets
 import stat
 from uuid import UUID
 
+from evals.runtime_cases import case_spec
 from evals.runtime_fixtures import PROJECT_ROOT, RuntimeFixture
 from evals.runtime_trace import json_object, open_no_symlink, read_protected_artifact
 
@@ -82,7 +83,9 @@ class Invocation:
         return {'nonce': self.nonce, 'kind': self.kind, 'candidate_root': str(self.fixture.root),
                 'execution_root': str(self.execution_root), 'artifact_root': str(self.artifact_root),
                 'case': self.fixture.case, 'condition': self.fixture.condition, 'seed_head': self.fixture.seed_head,
-                'seed_manifest_sha256': _digest(self.fixture.seed_files), 'model': self.model,
+                'seed_manifest_sha256': _digest({'files': self.fixture.seed_files, 'modes': self.fixture.seed_modes}),
+                'git_control_manifest_sha256': _digest(self.fixture.git_control_files),
+                'spec_sha256': case_spec(self.fixture.case).sha256, 'model': self.model,
                 'fixture_sha256': self.fixture.fixture_sha256, 'variant': self.fixture.variant,
                 'task_prompt_sha256': hashlib.sha256(self.fixture.prompt.encode()).hexdigest(),
                 'source_manifest_sha256': self.source.manifest_sha256, 'source_sha256': self.source.source_sha256,

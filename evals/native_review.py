@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 
+from evals.runtime_cases import case_spec
 from evals.native_config import BinaryPin
 from evals.native_runtime import worker_prompt
 from evals.runtime_fixtures import RuntimeFixture
@@ -92,7 +93,7 @@ def load_native_review_evidence(fixture: RuntimeFixture, invocations: tuple[Invo
                                bindings: ReviewBindings, disabled_servers: tuple[str, ...] = (),
                                instruction_sources: tuple[tuple[str, str], ...] = ()) -> ReviewEvidence:
     from evals.native_collect import _read_native_turn
-    required = {'correctness', 'security'} if fixture.case == 'security-boundary' else {'correctness'}
+    required = set(case_spec(fixture.case).required_review_roles)
     if not isinstance(invocations, tuple) or len(invocations) != len(required) or any(
             not isinstance(launch, Invocation) or launch.fixture != fixture for launch in invocations):
         raise ValueError('native review needs its exact parent-issued launches')
