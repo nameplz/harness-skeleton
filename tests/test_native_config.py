@@ -113,6 +113,30 @@ class NativeConfigTests(unittest.TestCase):
             with self.subTest(payload=payload), self.assertRaises(ValueError):
                 project_warning(payload)
 
+    def test_pinned_native_features_are_explicitly_disabled_in_command(self):
+        root=Path.cwd()
+        command=build_config_command(root,binary=self._binary())
+        for name in ('goals','remote_control','network_proxy','auth_elicitation','js_repl','tool_suggest','memories'):
+            self.assertIn('features.'+name+'=false',command)
+        projected=project_config({'config':{'features':{'goals':False,'remote_control':False,'network_proxy':False}}})
+        self.assertFalse(dict(projected.features)['goals'])
+
+    def test_unknown_feature_keys_fail_closed(self):
+        for enabled in (True, False):
+            with self.subTest(enabled=enabled), self.assertRaises(ValueError):
+                project_config({'config': {'features': {'future_remote_exec': enabled}}})
+
+    def test_active_or_malformed_remote_control_fails_closed(self):
+        for params in ({'status': 'connected', 'installationId': 'id', 'serverName': 'name'},
+                       {'status': 'connecting', 'installationId': 'id', 'serverName': 'name'},
+                       {'status': 'errored', 'installationId': 'id', 'serverName': 'name'},
+                       {'status': 'disabled'}, {'secret': 'SENTINEL'}):
+            with TemporaryDirectory() as temp, self.subTest(params=params):
+                root=Path(temp)
+                argv=self._server(root,"    print(json.dumps({'method':'remoteControl/status/changed','params':"+repr(params)+"}),flush=True)\n")
+                with patch('evals.native_config.build_config_command',return_value=argv),self.assertRaises(ValueError):
+                    inspect_native_config(root,binary=self._binary())
+
     def _server(self, root, behavior):
         script = root / 'server.py'
         script.write_text('''import json, sys, time
@@ -148,7 +172,7 @@ for line in sys.stdin:
     def test_known_notification_is_projected_without_its_payload(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)
-            argv = self._server(root, "    print(json.dumps({'method': 'remoteControl/status/changed', 'params': {'secret': 'SENTINEL'}}), flush=True)\n")
+            argv = self._server(root, "    print(json.dumps({'method': 'remoteControl/status/changed', 'params': {'status':'disabled','installationId':'SENTINEL','serverName':'SENTINEL'}}), flush=True)\n")
             with patch('evals.native_config.build_config_command', return_value=argv):
                 result = inspect_native_config(root, binary=self._binary())
             self.assertEqual(('remoteControl/status/changed',), result.notification_methods)
@@ -185,11 +209,11 @@ for line in sys.stdin:
             ('    time.sleep(2)\n', {'timeout_seconds': 0.1}),
             ("    print('x' * 10000, flush=True)\n", {'max_output_bytes': 1000}),
             ("    print('SENTINEL not JSON', flush=True)\n", {}),
-            ("    print(json.dumps({'id': 99, 'method': 'item/commandExecution/requestApproval', 'params': {'secret': 'SENTINEL'}}), flush=True)\n", {}),
-            ("    print(json.dumps({'method': 'mcpServer/startupStatus/updated', 'params': {'secret': 'SENTINEL'}}), flush=True)\n", {}),
+            ("    print(json.dumps({'id': 99, 'method': 'item/commandExecution/requestApproval', 'params': {'status':'disabled','installationId':'SENTINEL','serverName':'SENTINEL'}}), flush=True)\n", {}),
+            ("    print(json.dumps({'method': 'mcpServer/startupStatus/updated', 'params': {'status':'disabled','installationId':'SENTINEL','serverName':'SENTINEL'}}), flush=True)\n", {}),
             ("    print(json.dumps({'id': request['id'], 'error': {'message': 'SENTINEL'}}), flush=True)\n", {}),
             ("    if request['method'] == 'configRequirements/read': result = {'requirements': {'featureRequirements': []}}\n", {}),
-            ("    print(json.dumps({'method': 'unrecognized/notify', 'params': {'secret': 'SENTINEL'}}), flush=True)\n", {}),
+            ("    print(json.dumps({'method': 'unrecognized/notify', 'params': {'status':'disabled','installationId':'SENTINEL','serverName':'SENTINEL'}}), flush=True)\n", {}),
         )
         with TemporaryDirectory() as temp:
             root = Path(temp)

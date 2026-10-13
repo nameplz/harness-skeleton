@@ -16,7 +16,7 @@ from uuid import UUID
 
 from evals.native_config import (BinaryPin, ConfigProjection, ConfigWarning, FEATURES,
                                 InspectionFailure, _ConfigExchange, _cleanup, _sha,
-                                build_config_command, project_config, verify_binary)
+                                build_config_command, project_config, trusted_binary_identity, verify_binary)
 from evals.native_runtime import PROFILE, runtime_readable_roots, sandbox_options, tool_environment
 from evals.runtime_trace import open_no_symlink
 from scripts.command_runner import _command_environment
@@ -77,12 +77,19 @@ class SessionInspection:
 
 
 def build_session_command(root: Path, *, binary: BinaryPin, disabled_servers: tuple[str, ...],
-                          writable: bool) -> tuple[str, ...]:
+                          writable: bool, invocation=None) -> tuple[str, ...]:
     if type(writable) is not bool:
         raise ValueError('native session access must be a boolean')
     base = build_config_command(root, binary=binary, disabled_servers=disabled_servers)
-    values = '{' + ','.join(json.dumps(key) + '=' + json.dumps(value)
-                           for key, value in tool_environment(root.resolve()).items()) + '}'
+    environment = tool_environment(root.resolve())
+    if invocation is not None:
+        from evals.runtime_invocation import verify_invocation
+        verify_invocation(invocation.fixture, invocation)
+        if root.resolve() != invocation.execution_root or writable != (invocation.kind == 'worker'):
+            raise ValueError('native command differs from its invocation')
+        environment = {**environment, 'HARNESS_EVAL_NONCE': invocation.nonce,
+                       'HARNESS_EVAL_INVOCATION_SHA256': invocation.sha256}
+    values = '{' + ','.join(json.dumps(key) + '=' + json.dumps(value) for key, value in environment.items()) + '}'
     return (*base[:-3], *sandbox_options(writable=writable, readable_roots=runtime_readable_roots()),
             '-c', 'approval_policy="never"', '-c', 'web_search="disabled"',
             '-c', 'model_reasoning_effort="high"', '-c', 'shell_environment_policy.set=' + values,
@@ -174,8 +181,20 @@ class _SessionExchange(_ConfigExchange):
         self.started: list[str] = []
         self.closed: list[str] = []
         self.thread_id: str | None = None
+        self.invocation = None
+        self.turn_handler = None
+        self.raw_handler = None
+
+    def decode(self, raw: bytes) -> dict:
+        message = super().decode(raw)
+        if self.raw_handler is not None:
+            self.raw_handler(raw, message)
+        return message
 
     def notification(self, message: dict) -> None:
+        if self.turn_handler is not None:
+            self.turn_handler(message)
+            return
         method, params = message.get('method'), message.get('params')
         if 'id' in message:
             raise ValueError('unexpected native server request')
@@ -205,7 +224,8 @@ class _SessionExchange(_ConfigExchange):
                 raise ValueError('unclassified native configuration warning')
         self.notifications.add(method)
 
-    def preflight(self, root: Path, model: str, writable: bool, disabled_servers: tuple[str, ...]) -> SessionEvidence:
+    def preflight(self, root: Path, model: str, writable: bool, disabled_servers: tuple[str, ...],
+                  developer_instructions: str = '') -> SessionEvidence:
         self.request(1, 'initialize', {'clientInfo': {'name': 'harness-native-session', 'version': '1'},
             'capabilities': {'experimentalApi': True, 'requestAttestation': False, 'extensions': {},
                             'explicitGatewayOauth': True, 'mcpServerOpenaiFormElicitation': False}})
@@ -226,7 +246,7 @@ class _SessionExchange(_ConfigExchange):
             raise ValueError('native permission profile is missing or disallowed')
         self.stage = 'thread/start'
         reply = self.request(5, 'thread/start', {'model': model, 'cwd': str(root), 'runtimeWorkspaceRoots': [str(root)],
-            'permissions': PROFILE, 'approvalPolicy': 'never', 'approvalsReviewer': 'user', 'developerInstructions': '',
+            'permissions': PROFILE, 'approvalPolicy': 'never', 'approvalsReviewer': 'user', 'developerInstructions': developer_instructions,
             'dynamicTools': [], 'selectedCapabilityRoots': [],
             'environments': [{'environmentId': 'local', 'cwd': str(root), 'runtimeWorkspaceRoots': [str(root)]}],
             'ephemeral': True, 'experimentalRawEvents': False, 'allowProviderModelFallback': False})
@@ -246,16 +266,28 @@ class _SessionExchange(_ConfigExchange):
 @contextmanager
 def native_session(root: Path, *, binary: BinaryPin, model: str, writable: bool = False,
                    disabled_servers: tuple[str, ...] = (), timeout_seconds: float = 30,
-                   max_output_bytes: int = 1024 * 1024) -> Iterator[tuple[_SessionExchange, SessionEvidence]]:
+                   max_output_bytes: int = 1024 * 1024, invocation=None,
+                   developer_instructions: str = '') -> Iterator[tuple[_SessionExchange, SessionEvidence]]:
     """Trusted host context: retain the gated process for a subsequent bound collector."""
     if os.name != 'posix' or not isinstance(model, str) or not model.strip() or len(model) > 128 or \
             type(timeout_seconds) not in (int, float) or not 0 < timeout_seconds <= 300 or \
-            type(max_output_bytes) is not int or not 1 <= max_output_bytes <= 1024 * 1024:
+            type(max_output_bytes) is not int or not 1 <= max_output_bytes <= 1024 * 1024 or \
+            not isinstance(developer_instructions, str) or len(developer_instructions.encode()) > 32768:
         raise ValueError('invalid native session limits or model')
     verify_binary(binary)
+    binary_identity = trusted_binary_identity(binary) if invocation is not None else None
     root = root.resolve(strict=True)
-    command = build_session_command(root, binary=binary, disabled_servers=disabled_servers, writable=writable)
+    command = build_session_command(root, binary=binary, disabled_servers=disabled_servers,
+                                    writable=writable, invocation=invocation)
+    if invocation is not None:
+        from evals.runtime_invocation import bind_session, claim_native_launch
+        if model != invocation.model:
+            raise ValueError('native model differs from its invocation')
+        invocation = claim_native_launch(invocation, command, binary=binary, disabled_servers=disabled_servers)
     environment = _command_environment()
+    deadline = time.monotonic() + timeout_seconds
+    if binary_identity is not None and trusted_binary_identity(binary) != binary_identity:
+        raise ValueError('native installation changed before process creation')
     try:
         process = subprocess.Popen(command, cwd=root, env=environment, shell=False, stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0, start_new_session=True)
@@ -263,8 +295,10 @@ def native_session(root: Path, *, binary: BinaryPin, model: str, writable: bool 
         raise NativeSessionError(InspectionFailure('spawn', 'spawn_error', type(error).__name__, error.errno, None, None, None)) from None
     exchange, original = None, None
     try:
-        exchange = _SessionExchange(process, time.monotonic() + timeout_seconds, max_output_bytes, command, environment)
-        evidence = exchange.preflight(root, model, writable, disabled_servers)
+        exchange = _SessionExchange(process, deadline, max_output_bytes, command, environment)
+        exchange.binary_identity = binary_identity
+        evidence = exchange.preflight(root, model, writable, disabled_servers, developer_instructions)
+        exchange.invocation = bind_session(invocation, evidence.session_id) if invocation is not None else None
         yield exchange, evidence
         exchange.stage = 'shutdown'
         exchange.finish()

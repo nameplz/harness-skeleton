@@ -7,7 +7,7 @@ import unittest
 from evals.runtime_fixtures import materialize_fixture
 from evals.native_runtime import build_exec_command, worker_prompt
 from evals.runtime_invocation import bind_session, claim_launch, issue_invocation, write_frozen_source
-from evals.runtime_trace import _rows, completed_native_events, load_runtime_trace, read_protected_artifact, validation_observed
+from evals.runtime_trace import _rows, completed_native_events, load_runtime_trace, read_host_artifact, read_protected_artifact, validation_observed
 
 
 class RuntimeTraceTests(unittest.TestCase):
@@ -126,6 +126,26 @@ class RuntimeTraceTests(unittest.TestCase):
                 read_protected_artifact(fixture.root / 'alias/protected.json', fixture,
                                         hashlib.sha256(artifact.read_bytes()).hexdigest())
 
+
+
+class ProtectedArtifactLinkTests(unittest.TestCase):
+    def test_artifact_read_limit_is_checked_before_reading(self):
+        with TemporaryDirectory() as temp:
+            root=Path(temp).resolve()
+            fixture=materialize_fixture('documentation',root/'candidate',condition='baseline')
+            artifact=root/'outside.txt';artifact.write_bytes(b'x'*1024)
+            with self.assertRaises(ValueError):read_host_artifact(artifact,fixture,max_bytes=100)
+            self.assertEqual(b'x'*1024,read_host_artifact(artifact,fixture,max_bytes=1024))
+
+    def test_external_hardlink_to_candidate_is_rejected(self):
+        import os
+        with TemporaryDirectory() as temp:
+            root=Path(temp).resolve()
+            fixture=materialize_fixture('documentation',root/'candidate',condition='baseline')
+            source=fixture.root/'README.md';target=root/'external.txt'
+            os.link(source,target)
+            with self.assertRaises(ValueError):
+                read_protected_artifact(target,fixture,hashlib.sha256(source.read_bytes()).hexdigest())
 
 if __name__ == '__main__':
     unittest.main()

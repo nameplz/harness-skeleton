@@ -18,7 +18,12 @@ from evals.runtime_trace import json_object, open_no_symlink
 from scripts.command_runner import _command_environment, _terminate_process_group
 
 FEATURES = ('apps', 'plugins', 'hooks', 'multi_agent', 'remote_plugin',
-            'enable_mcp_apps', 'skill_mcp_dependency_install', 'code_mode')
+            'enable_mcp_apps', 'skill_mcp_dependency_install', 'code_mode',
+            'api_key_cyber_access_programs', 'api_key_model_discovery', 'auth_elicitation',
+            'background_paginated_rollout_migration', 'codex_apps_mcp_2026_07_28',
+            'default_mode_request_user_input', 'external_migration', 'goals', 'js_repl',
+            'mcp_2026_07_28', 'memories', 'mentions_v2', 'network_proxy', 'remote_control',
+            'terminal_resize_reflow', 'tool_suggest', 'windows_sandbox_service')
 SAFE_NAME = re.compile(r'[A-Za-z0-9_-]{1,128}\Z')
 NOTIFICATIONS = frozenset({'remoteControl/status/changed', 'configWarning'})
 PROJECT_WARNING = ('Project-local config, hooks, and exec policies are disabled in the following folders '
@@ -42,10 +47,28 @@ def verify_binary(binary: BinaryPin) -> None:
         raise ValueError('invalid native binary pin')
     with os.fdopen(open_no_symlink(binary.path), 'rb') as stream:
         metadata = os.fstat(stream.fileno())
-        if not stat.S_ISREG(metadata.st_mode) or not 0 < metadata.st_size <= 256 * 1024 * 1024:
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1 or not 0 < metadata.st_size <= 256 * 1024 * 1024:
             raise ValueError('native binary is not bounded and regular')
         if hashlib.file_digest(stream, 'sha256').hexdigest() != binary.sha256:
             raise ValueError('native binary digest mismatch')
+        after = os.fstat(stream.fileno())
+        if _binary_identity(metadata) != _binary_identity(after):
+            raise ValueError('native binary changed during verification')
+
+
+def _binary_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    return (metadata.st_dev, metadata.st_ino, metadata.st_size, metadata.st_mtime_ns,
+            metadata.st_mode, metadata.st_uid, metadata.st_gid, metadata.st_nlink)
+
+
+def trusted_binary_identity(binary: BinaryPin) -> tuple[int, ...]:
+    """Require an installation the unprivileged operator cannot replace or chmod."""
+    verify_binary(binary)
+    for path in (binary.path, *binary.path.parents):
+        metadata = path.lstat()
+        if metadata.st_uid != 0 or metadata.st_mode & 0o022 or os.access(path, os.W_OK):
+            raise ValueError('native model launch requires a protected root-owned installation')
+    return _binary_identity(binary.path.lstat())
 
 
 @dataclass(frozen=True)
@@ -198,6 +221,8 @@ def project_config(reply: dict[str, Any]) -> ConfigProjection:
     servers, features = config.get('mcp_servers', {}), config.get('features', {})
     if not isinstance(servers, dict) or not isinstance(features, dict):
         raise ValueError('invalid native configuration shape')
+    if set(features) - set(FEATURES):
+        raise ValueError('unrecognized native capability feature')
     projected = []
     for name, settings in servers.items():
         if not isinstance(name, str) or not SAFE_NAME.fullmatch(name) or not isinstance(settings, dict):
@@ -255,12 +280,24 @@ class _ConfigExchange:
         raw = (json.dumps(value) + '\n').encode()
         if len(raw) > 65536 or self.process.stdin is None:
             raise ValueError('invalid configuration request')
+        stream = self.process.stdin
+        os.set_blocking(stream.fileno(), False)
+        self.selector.register(stream, selectors.EVENT_WRITE, 2)
+        offset = 0
         try:
-            # Only four small, fixed requests are sent; no untrusted request body is forwarded.
-            self.process.stdin.write(raw)
-            self.process.stdin.flush()
+            while offset < len(raw):
+                self.pump()
+                try:
+                    written = os.write(stream.fileno(), raw[offset:])
+                except BlockingIOError:
+                    continue
+                if not written:
+                    raise ValueError('native inspection input closed')
+                offset += written
         except (BrokenPipeError, OSError):
             raise ValueError('native inspection input closed') from None
+        finally:
+            self.selector.unregister(stream)
 
     def pump(self) -> None:
         remaining = self.deadline - time.monotonic()
@@ -269,6 +306,8 @@ class _ConfigExchange:
         if not self.selector.get_map():
             raise ValueError('native inspection ended before its response')
         for key, _ in self.selector.select(min(remaining, 0.1)):
+            if key.data == 2:
+                continue
             chunk = os.read(key.fileobj.fileno(), 65536)
             if not chunk:
                 self.selector.unregister(key.fileobj)
@@ -289,6 +328,14 @@ class _ConfigExchange:
             if len(self.warnings) >= 64:
                 raise ValueError('too many native configuration warnings')
             self.warnings.append(project_warning(message.get('params')))
+        elif method == 'remoteControl/status/changed':
+            params = message.get('params')
+            if not isinstance(params, dict) or set(params) - {'status', 'installationId', 'serverName', 'environmentId'} or \
+                    params.get('status') != 'disabled' or any(not isinstance(params.get(key), str) or
+                    not params[key] or len(params[key]) > 512 for key in ('installationId', 'serverName')) or \
+                    params.get('environmentId') is not None and (not isinstance(params['environmentId'], str) or
+                    len(params['environmentId']) > 512):
+                raise ValueError('active or invalid native remote control')
         self.notifications.add(method)
 
     def decode(self, raw: bytes) -> dict[str, Any]:

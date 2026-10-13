@@ -75,6 +75,7 @@ class Invocation:
     final_manifest_sha256: str | None = None
     session_id: str | None = None
     command_sha256: str | None = None
+    native_receipt_sha256: str | None = None
 
     @property
     def identity(self) -> dict[str, object]:
@@ -82,6 +83,8 @@ class Invocation:
                 'execution_root': str(self.execution_root), 'artifact_root': str(self.artifact_root),
                 'case': self.fixture.case, 'condition': self.fixture.condition, 'seed_head': self.fixture.seed_head,
                 'seed_manifest_sha256': _digest(self.fixture.seed_files), 'model': self.model,
+                'fixture_sha256': self.fixture.fixture_sha256, 'variant': self.fixture.variant,
+                'task_prompt_sha256': hashlib.sha256(self.fixture.prompt.encode()).hexdigest(),
                 'source_manifest_sha256': self.source.manifest_sha256, 'source_sha256': self.source.source_sha256,
                 'final_manifest_sha256': self.final_manifest_sha256}
 
@@ -145,6 +148,22 @@ def claim_launch(invocation: Invocation, command: tuple[str, ...]) -> Invocation
             not isinstance(command[-1], str) or not command[-1].strip() or \
             (invocation.kind == 'worker' and command[-1] != worker_prompt(invocation)):
         raise ValueError('launch command does not match its invocation')
+    return _claim_command(invocation, command)
+
+
+def claim_native_launch(invocation: Invocation, command: tuple[str, ...], *, binary, disabled_servers: tuple[str, ...]) -> Invocation:
+    from evals.native_session import build_session_command
+    verify_invocation(invocation.fixture, invocation)
+    expected = build_session_command(invocation.execution_root, binary=binary, disabled_servers=disabled_servers,
+                                     writable=invocation.kind == 'worker', invocation=invocation)
+    if command != expected:
+        raise ValueError('native launch command does not match its invocation')
+    return _claim_command(invocation, command)
+
+
+def _claim_command(invocation: Invocation, command: tuple[str, ...]) -> Invocation:
+    if invocation.session_id is not None or invocation.command_sha256 is not None:
+        raise ValueError('invocation launch is already claimed')
     raw = json.dumps(list(command)).encode()
     # Claim before spawning; a failed spawn still cannot reuse this invocation.
     try:

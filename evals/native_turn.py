@@ -259,7 +259,8 @@ class TurnCollector:
             raise ValueError('invalid native turn event') from None
 
     def _accept(self, message: dict) -> None:
-        if not isinstance(message, dict) or 'id' in message or set(message) - {'method', 'params'} or \
+        if not isinstance(message, dict) or 'id' in message or set(message) - {'method', 'params', 'emittedAtMs'} or \
+                'emittedAtMs' in message and not _integer(message['emittedAtMs']) or \
                 not isinstance(message.get('method'), str) or not isinstance(message.get('params'), dict) or \
                 message['params'].get('threadId') != self.thread_id:
             raise ValueError('invalid native turn notification or thread')

@@ -41,6 +41,15 @@ class NativeTurnTests(unittest.TestCase):
         c.notification(event("turn/completed", turn=turn(status, **extra)))
         return c.result()
 
+    def test_optional_native_emission_timestamp_preserved_and_validated(self):
+        c = self.ready()
+        message = {**event('turn/completed', turn=turn('completed')), 'emittedAtMs': 42}
+        c.notification(message)
+        self.assertEqual(42, json.loads(c.result().events_json[-1])['emittedAtMs'])
+        for timestamp in (True, -1, None, '42'):
+            with self.subTest(timestamp=timestamp), self.assertRaises(ValueError):
+                self.ready().notification({**message, 'emittedAtMs': timestamp})
+
     def test_failed_and_declined_commands_are_retained(self):
         for status, code in (("completed", 0), ("failed", 1), ("declined", None)):
             with self.subTest(status=status):

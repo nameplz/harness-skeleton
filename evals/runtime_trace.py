@@ -46,17 +46,30 @@ def open_no_symlink(path: Path) -> int:
         os.close(directory)
 
 
-def read_protected_artifact(path: Path, fixture: RuntimeFixture, digest: str) -> str:
+def read_host_artifact(path: Path, fixture: RuntimeFixture, *, max_bytes: int = 1024 * 1024) -> bytes:
+    if type(max_bytes) is not int or not 1 <= max_bytes <= 1024 * 1024:
+        raise ValueError('invalid artifact read limit')
     path = path.absolute()
     if path.is_symlink() or path.is_relative_to(fixture.root) or path.resolve().is_relative_to(fixture.root):
         raise ValueError("trace must be outside the candidate and not a symlink")
     # The operator must protect all parent directories with the measured native profile.
     with os.fdopen(open_no_symlink(path.resolve(strict=True)), "rb") as stream:
         metadata = os.fstat(stream.fileno())
-        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 1024 * 1024:
-            raise ValueError("trace is not bounded and regular")
-        raw = stream.read(1024 * 1024 + 1)
-    if len(raw) > 1024 * 1024 or hashlib.sha256(raw).hexdigest() != digest:
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1 or metadata.st_size > max_bytes or \
+                metadata.st_uid not in {0, os.getuid() if hasattr(os, 'getuid') else metadata.st_uid} or metadata.st_mode & 0o022:
+            raise ValueError("artifact must be bounded, regular, host-owned and unlinked")
+        raw = stream.read(max_bytes + 1)
+        after = os.fstat(stream.fileno())
+    identity = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns,
+                             item.st_mode, item.st_uid, item.st_gid, item.st_nlink)
+    if len(raw) > max_bytes or identity(metadata) != identity(after):
+        raise ValueError('artifact changed while reading')
+    return raw
+
+
+def read_protected_artifact(path: Path, fixture: RuntimeFixture, digest: str) -> str:
+    raw = read_host_artifact(path, fixture)
+    if hashlib.sha256(raw).hexdigest() != digest:
         raise ValueError("trace digest mismatch")
     return raw.decode("utf-8")
 
