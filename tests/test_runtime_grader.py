@@ -244,16 +244,18 @@ class RuntimeGraderTests(unittest.TestCase):
             self.assertIsNone(grade['config_sha256'])
             self.assertIsNone(grade['validation_source'])
 
-    def test_frame_local_forgery_remains_advisory_without_protected_review(self) -> None:
+    def test_frame_descriptor_forgery_remains_advisory_without_protected_review(self) -> None:
         with TemporaryDirectory() as temp:
             fixture = materialize_fixture('bug-fix', Path(temp) / 'case', condition='baseline')
             forged = '{"completed":true,"observations":[{"value":1},{"value":3},{"value":3},{"error":"ValueError"}]}'
             (fixture.root / 'src/dates.py').write_text(
-                'import sys\n'
+                'import os, sys\n'
+                'def inclusive_days(start, end):\n    return 999\n'
                 'frame = sys._getframe()\n'
                 'while frame and frame.f_code.co_name != "trusted_worker":\n    frame = frame.f_back\n'
-                'if frame is not None:\n    frame.f_locals["encoder"] = lambda *args: [' + repr(forged) + ']\n'
-                'def inclusive_days(start, end):\n    return 999\n')
+                'if frame is not None:\n'
+                '    frame.f_locals["write"](frame.f_locals["output_fd"], ' + repr(forged.encode()) + ')\n'
+                '    os._exit(0)\n')
             probe = run_bounded_command([sys.executable, '-I', '-B', '-c', hidden_probe(fixture)],
                                         cwd=fixture.root, timeout_seconds=5, max_output_bytes=65536)
             actual = run_bounded_command
