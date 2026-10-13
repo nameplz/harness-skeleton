@@ -9,8 +9,9 @@ from typing import Any
 
 from evals.native_runtime import PROFILE, runtime_readable_roots, sandbox_options, tool_environment
 from evals.runtime_fixtures import PROJECT_ROOT, RuntimeFixture
+from evals.runtime_invocation import Invocation
 from evals.runtime_trace import RuntimeTrace, validation_observed
-from evals.runtime_review import final_manifest, load_review_evidence, read_candidate_file, regular_files, review_matches, review_source_sha256
+from evals.runtime_review import final_manifest, load_review_evidence, read_candidate_file, regular_files, review_matches
 from scripts.command_runner import CommandResult, run_bounded_command
 from scripts.harness import load_config
 
@@ -143,16 +144,22 @@ def _applied_validation_passed(result: CommandResult | None, digest: str) -> boo
 
 
 def _scope_failures(fixture: RuntimeFixture) -> list[str]:
+    grafts = fixture.root / '.git/info/grafts'
+    if grafts.exists() or grafts.is_symlink():
+        return ['candidate Git identity unavailable']
     failures = []
     if not (fixture.root / ".git").is_dir():
         failures.append("candidate Git identity unavailable")
     else:
         for arguments, expected in ((["rev-parse", "--show-toplevel"], str(fixture.root)),
-                                    (["cat-file", "-t", fixture.seed_head], "commit")):
+                                    (["cat-file", "-t", fixture.seed_head], "commit"),
+                                    (["rev-parse", "--verify", "HEAD^{commit}"], None),
+                                    (["merge-base", "--is-ancestor", fixture.seed_head, "HEAD"], "")):
             result = run_bounded_command(["git", '--no-lazy-fetch', '--no-replace-objects',
                                           '-c', 'core.fsmonitor=false', *arguments], cwd=fixture.root,
                                          timeout_seconds=5, max_output_bytes=65536)
-            if result.returncode or result.timed_out or result.output_limited or result.output.strip() != expected:
+            if result.returncode or result.timed_out or result.output_limited or \
+                    (expected is not None and result.output.strip() != expected):
                 failures.append("candidate Git identity unavailable")
                 break
     # Candidate HEAD and ignore rules cannot change the host-owned initial snapshot.
@@ -169,6 +176,7 @@ def _scope_failures(fixture: RuntimeFixture) -> list[str]:
 
 def grade_fixture(fixture: RuntimeFixture, *, tool_trace: RuntimeTrace | None,
                   review_artifact: Path | None = None, review_sha256: str | None = None,
+                  review_invocations: tuple[Invocation, ...] = (),
                   suite_sha256: str | None = None,
                   trusted_config_root: Path | None = None) -> dict[str, Any]:
     config = None
@@ -238,12 +246,14 @@ def grade_fixture(fixture: RuntimeFixture, *, tool_trace: RuntimeTrace | None,
         try:
             if review_artifact is None or review_sha256 is None:
                 raise ValueError('review artifact path and digest must be supplied together')
-            review_evidence = load_review_evidence(fixture, review_artifact, review_sha256)
+            review_evidence = load_review_evidence(fixture, review_artifact, review_sha256,
+                                                  expected_invocations=review_invocations)
         except (OSError, UnicodeError, ValueError, TypeError):
             review_error = 'protected review evidence was unavailable, stale, or invalid'
     try:
+        sources = {launch.source.source_sha256 for launch in review_invocations if isinstance(launch, Invocation)}
         review = review_matches(fixture, review_evidence, config_sha256=applied_digest,
-                                suite_sha256=suite_sha256, source_sha256=review_source_sha256())
+                                suite_sha256=suite_sha256, source_sha256=next(iter(sources)) if len(sources) == 1 else None)
     except (OSError, UnicodeError, ValueError):
         review = None
         review_error = 'candidate identity was unavailable after the review'

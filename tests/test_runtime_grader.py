@@ -107,6 +107,35 @@ class RuntimeGraderTests(unittest.TestCase):
             shutil.rmtree(fixture.root / '.git')
             self.assertIn('candidate Git identity unavailable', _scope_failures(fixture))
 
+    def test_existing_seed_must_be_reachable_from_valid_current_head(self) -> None:
+        with TemporaryDirectory() as temp:
+            fixture = materialize_fixture('documentation', Path(temp) / 'case', condition='baseline')
+            self.assertEqual([], _scope_failures(fixture))
+            self.assertEqual(0, run_bounded_command(['git', 'checkout', '--orphan', 'unrelated'],
+                             cwd=fixture.root, timeout_seconds=5, max_output_bytes=65536).returncode)
+            self.assertIn('candidate Git identity unavailable', _scope_failures(fixture))
+            self.assertEqual(0, run_bounded_command(['git', '-c', 'user.name=Eval', '-c',
+                             'user.email=eval@example.invalid', 'commit', '-m', 'unrelated history'],
+                             cwd=fixture.root, timeout_seconds=5, max_output_bytes=65536).returncode)
+            self.assertIn('candidate Git identity unavailable', _scope_failures(fixture))
+            head = run_bounded_command(['git', 'rev-parse', 'HEAD'], cwd=fixture.root,
+                                       timeout_seconds=5, max_output_bytes=65536).output.strip()
+            self.assertEqual(0, run_bounded_command(['git', 'config', 'advice.graftFileDeprecated', 'false'],
+                             cwd=fixture.root, timeout_seconds=5, max_output_bytes=65536).returncode)
+            grafts = fixture.root / '.git/info/grafts'
+            grafts.write_text(f'{head} {fixture.seed_head}\n')
+            self.assertIn('candidate Git identity unavailable', _scope_failures(fixture))
+            grafts.unlink()
+            grafts.symlink_to('missing-graft')
+            self.assertIn('candidate Git identity unavailable', _scope_failures(fixture))
+            grafts.unlink()
+            self.assertEqual(0, run_bounded_command(['git', 'checkout', '--detach', fixture.seed_head],
+                             cwd=fixture.root, timeout_seconds=5, max_output_bytes=65536).returncode)
+            self.assertEqual(0, run_bounded_command(['git', '-c', 'user.name=Eval', '-c',
+                             'user.email=eval@example.invalid', 'commit', '--allow-empty', '-m', 'valid descendant'],
+                             cwd=fixture.root, timeout_seconds=5, max_output_bytes=65536).returncode)
+            self.assertEqual([], _scope_failures(fixture))
+
     def test_candidate_path_monkeypatch_cannot_validate_unchanged_resume_note(self) -> None:
         with TemporaryDirectory() as temp:
             fixture = materialize_fixture('session-resume', Path(temp) / 'case', condition='baseline')

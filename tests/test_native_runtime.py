@@ -3,14 +3,50 @@ import tomllib
 import unittest
 import sys
 import sysconfig
+import json
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from evals.native_runtime import build_exec_command, build_review_command, sandbox_options, runtime_readable_roots
+from evals.runtime_fixtures import materialize_fixture
+from evals.runtime_invocation import issue_invocation, write_frozen_source
+from evals.runtime_review import freeze_for_review
 
 
 class NativeRuntimeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = TemporaryDirectory()
+        self.root = Path(self.temp.name).resolve()
+        self.fixture = materialize_fixture('documentation', self.root / 'candidate', condition='baseline')
+
+    def tearDown(self) -> None:
+        snapshot = self.root / 'snapshot'
+        if snapshot.exists():
+            snapshot.chmod(0o755)
+            for path in snapshot.rglob('*'):
+                if path.is_dir(): path.chmod(0o755)
+        self.temp.cleanup()
+
+    def _invocation(self, *, review=False):
+        manifest = freeze_for_review(self.fixture, self.root / 'snapshot') if review else None
+        source = write_frozen_source(self.fixture, self.root / 'source.json')
+        return issue_invocation(self.fixture, self.root / 'launch', source, model='exact-model',
+                                kind='correctness' if review else 'worker',
+                                execution_root=self.root / 'snapshot' if review else self.fixture.root,
+                                final_manifest_sha256=manifest['sha256'] if manifest else None)
+
+    def test_missing_or_stale_source_preflight_cannot_build_a_model_command(self) -> None:
+        with self.assertRaises(ValueError):
+            build_exec_command(self.fixture.root, model='exact-model', writable=True)
+        invocation = self._invocation()
+        with patch('evals.runtime_invocation.source_file_hashes', return_value={}):
+            with self.assertRaises(ValueError):
+                build_exec_command(self.fixture.root, model='exact-model', writable=True, invocation=invocation)
+
     def test_review_disables_candidate_project_config_and_optional_connected_tools(self) -> None:
-        root = Path('/private/tmp/review-snapshot').resolve()
-        command = build_review_command(root, model='exact-model')
+        invocation = self._invocation(review=True)
+        root = invocation.execution_root
+        command = build_review_command(root, model='exact-model', invocation=invocation)
         overrides = [command[index + 1] for index, value in enumerate(command) if value == '-c']
         # CLI overrides merge in order; the final project trust setting must win.
         config = tomllib.loads('\n'.join(overrides[:-1]))
@@ -37,7 +73,8 @@ class NativeRuntimeTests(unittest.TestCase):
         self.assertEqual('read', filesystem[':workspace_roots']['.eval-home'])
 
     def test_exec_does_not_override_profile_with_legacy_sandbox_or_user_rules(self) -> None:
-        command = build_exec_command(Path('/private/tmp/fixture'), model='exact-model', writable=True)
+        invocation = self._invocation()
+        command = build_exec_command(self.fixture.root, model='exact-model', writable=True, invocation=invocation)
         self.assertIn('--ignore-user-config', command)
         self.assertIn('--ignore-rules', command)
         self.assertNotIn('--ephemeral', command)  # 0.162.1 cannot spawn a child without its parent rollout.
@@ -47,7 +84,10 @@ class NativeRuntimeTests(unittest.TestCase):
         self.assertIn('features.hooks=false', command)
         self.assertIn('features.apps=false', command)
         self.assertIn('features.plugins=false', command)
-        self.assertIn('projects={"/private/tmp/fixture"={trust_level="untrusted"}}', command)
+        self.assertIn('projects={' + json.dumps(str(self.fixture.root)) + '={trust_level="untrusted"}}', command)
+        settings = '\n'.join(command)
+        self.assertIn(invocation.nonce, settings)
+        self.assertIn(invocation.sha256, settings)
 
     def test_runtime_allowlist_does_not_grant_entire_interpreter_prefix(self) -> None:
         roots = runtime_readable_roots()
@@ -65,7 +105,7 @@ class NativeRuntimeTests(unittest.TestCase):
 
     def test_native_git_runtime_is_explicit_when_apple_toolchain_exists(self) -> None:
         toolchain = Path('/Library/Developer/CommandLineTools')
-        command = build_exec_command(Path('/private/tmp/fixture'), model='exact-model', writable=True)
+        command = build_exec_command(self.fixture.root, model='exact-model', writable=True, invocation=self._invocation())
         if toolchain.is_dir():
             self.assertNotIn(toolchain, runtime_readable_roots())
             self.assertIn(toolchain / 'usr/bin', runtime_readable_roots())

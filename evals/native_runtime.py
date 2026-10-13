@@ -6,6 +6,10 @@ import json
 from pathlib import Path
 import sys
 import sysconfig
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from evals.runtime_invocation import Invocation
 
 PROFILE = "harness-eval"
 
@@ -52,10 +56,17 @@ def tool_environment(root: Path) -> dict[str, str]:
             "PYTHONDONTWRITEBYTECODE": "1"}
 
 
-def build_exec_command(root: Path, *, model: str, writable: bool) -> tuple[str, ...]:
+def build_exec_command(root: Path, *, model: str, writable: bool, invocation: Invocation | None = None) -> tuple[str, ...]:
+    from evals.runtime_invocation import Invocation, verify_invocation
+    if not isinstance(invocation, Invocation):
+        raise ValueError('native model execution requires a host-issued invocation and source preflight')
+    verify_invocation(invocation.fixture, invocation)
     root = root.resolve()
+    if root != invocation.execution_root or model != invocation.model or writable != (invocation.kind == 'worker'):
+        raise ValueError('native command does not match its invocation')
     # Keep authentication in the CLI parent; tool children get synthetic HOME and no inherited secrets.
-    environment = tool_environment(root)
+    environment = {**tool_environment(root), 'HARNESS_EVAL_NONCE': invocation.nonce,
+                   'HARNESS_EVAL_INVOCATION_SHA256': invocation.sha256}
     values = "{" + ",".join(f"{json.dumps(key)}={json.dumps(value)}" for key, value in environment.items()) + "}"
     return (
         "codex", "exec", "--ignore-user-config", "--ignore-rules", "--strict-config",
@@ -70,8 +81,14 @@ def build_exec_command(root: Path, *, model: str, writable: bool) -> tuple[str, 
     )
 
 
-def build_review_command(root: Path, *, model: str) -> tuple[str, ...]:
+def build_review_command(root: Path, *, model: str, invocation: Invocation | None = None) -> tuple[str, ...]:
     # Review snapshots contain source only; no candidate hooks or delegated tool policy may execute.
-    return (*build_exec_command(root, model=model, writable=False), '--skip-git-repo-check',
+    return (*build_exec_command(root, model=model, writable=False, invocation=invocation), '--skip-git-repo-check',
             '-c', 'features.multi_agent=false', '-c', 'agents.enabled=false',
             '-c', 'projects.' + json.dumps(str(root.resolve())) + '.trust_level="untrusted"')
+
+
+def worker_prompt(invocation: Invocation) -> str:
+    return (invocation.fixture.prompt + '\nThis is a local-only isolated evaluation. '
+            'Do not create external issues, messages or publications. Preserve existing user work. '
+            f'Host invocation nonce: {invocation.nonce}; identity SHA256: {invocation.sha256}.')

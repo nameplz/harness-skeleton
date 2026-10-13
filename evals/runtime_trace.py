@@ -10,7 +10,10 @@ from pathlib import Path
 import shlex
 import stat
 import sys
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from evals.runtime_invocation import Invocation
 
 from evals.runtime_fixtures import RuntimeFixture
 
@@ -24,6 +27,8 @@ class RuntimeTrace:
     hooks: tuple[tuple[str, str, str], ...]
     audit_complete: bool = False
     forbidden_actions: tuple[str, ...] = ()
+    invocation_sha256: str | None = None
+    source_sha256: str | None = None
 
 
 def open_no_symlink(path: Path) -> int:
@@ -72,12 +77,33 @@ def _rows(text: str) -> tuple[dict[str, Any], ...]:
 
 
 def load_runtime_trace(fixture: RuntimeFixture, rollout: Path, hooks: Path, *,
-                       rollout_sha256: str, hook_sha256: str) -> RuntimeTrace:
+                       rollout_sha256: str, hook_sha256: str,
+                       expected_invocation: Invocation | None = None) -> RuntimeTrace:
+    from evals.runtime_invocation import Invocation, consume_invocation, verify_invocation
+    from evals.native_runtime import build_exec_command, worker_prompt
+    if not isinstance(expected_invocation, Invocation) or expected_invocation.kind != 'worker':
+        raise ValueError('trace requires its current host-issued worker invocation')
+    verify_invocation(fixture, expected_invocation, require_session=True)
+    if rollout.resolve() != expected_invocation.artifact_root / 'rollout.jsonl' or \
+            hooks.resolve() != expected_invocation.artifact_root / 'hooks.jsonl':
+        raise ValueError('trace artifacts are not in this invocation directory')
+    command_path = expected_invocation.artifact_root / 'command.json'
+    expected_command = [*build_exec_command(fixture.root, model=expected_invocation.model, writable=True,
+                                          invocation=expected_invocation), worker_prompt(expected_invocation)]
+    command_digest = hashlib.sha256(json.dumps(expected_command).encode()).hexdigest()
+    if json.loads(read_protected_artifact(command_path, fixture, command_digest)) != expected_command:
+        raise ValueError('trace command is not bound to the invocation')
     events = _rows(read_protected_artifact(rollout, fixture, rollout_sha256))
     observations = _rows(read_protected_artifact(hooks, fixture, hook_sha256))
     sessions = [event.get("thread_id") for event in events if event.get("type") == "thread.started"]
-    if len(sessions) != 1 or not isinstance(sessions[0], str) or not sessions[0]:
+    if sessions != [expected_invocation.session_id]:
         raise ValueError("trace has no unique native session")
+    if sum(event.get('type') == 'turn.completed' for event in events) != 1 or \
+            any(event.get('type') in {'turn.failed', 'error'} for event in events):
+        raise ValueError('trace has no unique successful native turn')
+    if any(row.get('invocation_nonce') != expected_invocation.nonce or
+           row.get('invocation_sha256') != expected_invocation.sha256 for row in observations):
+        raise ValueError('host observations contain missing or mixed invocation identities')
     commands = []
     for event in events:
         item = event.get("item")
@@ -93,7 +119,10 @@ def load_runtime_trace(fixture: RuntimeFixture, rollout: Path, hooks: Path, *,
         values = (event.get("session_id"), tool.get("workdir", tool.get("cwd", event.get("cwd"))), tool.get("command"))
         if all(isinstance(value, str) for value in values):
             recorded.append(values)
-    return RuntimeTrace(sessions[0], rollout_sha256, hook_sha256, tuple(commands), tuple(recorded))
+    consume_invocation(fixture, expected_invocation)
+    return RuntimeTrace(sessions[0], rollout_sha256, hook_sha256, tuple(commands), tuple(recorded),
+                        invocation_sha256=expected_invocation.sha256,
+                        source_sha256=expected_invocation.source.source_sha256)
 
 
 def _validation_command(command: str, root: Path) -> tuple[str, ...] | None:

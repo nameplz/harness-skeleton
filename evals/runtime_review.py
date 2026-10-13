@@ -10,8 +10,9 @@ from pathlib import Path
 import stat
 from typing import Any
 
-from evals.runtime_fixtures import PROJECT_ROOT, RuntimeFixture
+from evals.runtime_fixtures import RuntimeFixture
 from evals.native_runtime import build_review_command
+from evals.runtime_invocation import Invocation, consume_invocation, verify_invocation
 from evals.runtime_trace import _rows, json_object, open_no_symlink, read_protected_artifact
 
 MAX_FILE_BYTES = 1024 * 1024
@@ -85,13 +86,6 @@ def regular_files(root: Path) -> tuple[str, ...]:
     return tuple(entry['path'] for entry in _scan(root) if not entry['path'].startswith('.git/'))
 
 
-def review_source_sha256() -> str:
-    paths = (*sorted((PROJECT_ROOT / 'evals').glob('*.py')),
-             *sorted((PROJECT_ROOT / 'scripts').glob('*.py')), PROJECT_ROOT / '.codex/hooks/harness_hook.py')
-    return _digest(tuple((path.relative_to(PROJECT_ROOT).as_posix(), hashlib.sha256(path.read_bytes()).hexdigest())
-                         for path in paths))
-
-
 def freeze_for_review(fixture: RuntimeFixture, destination: Path) -> dict[str, Any]:
     if destination.exists() or destination.is_symlink() or destination.resolve().is_relative_to(fixture.root):
         raise ValueError('review snapshot requires a fresh directory outside the candidate')
@@ -135,7 +129,7 @@ def review_matches(fixture: RuntimeFixture, evidence: ReviewEvidence | None, *,
     return True if set(reviews) == required and all(reviews[role] == 'pass' for role in required) else None
 
 
-def review_prompt(fixture: RuntimeFixture, role: str, bindings: dict[str, str]) -> str:
+def review_prompt(fixture: RuntimeFixture, role: str, bindings: dict[str, str], *, invocation: Invocation) -> str:
     if role not in {'correctness', 'security'}:
         raise ValueError('invalid review role')
     return (
@@ -146,14 +140,16 @@ def review_prompt(fixture: RuntimeFixture, role: str, bindings: dict[str, str]) 
         'Use pass only after inspecting the relevant code and tests; use fail for defects and unknown for missing evidence. '
         'Host-owned task requirement: ' + fixture.prompt + '\n'
         'Return only a JSON object with these exact bindings and role, replacing status with pass, fail or unknown: '
-        + json.dumps({**bindings, 'role': role, 'status': 'unknown'}, sort_keys=True)
+        + json.dumps({**bindings, 'role': role, 'status': 'unknown',
+                      'invocation_nonce': invocation.nonce, 'invocation_sha256': invocation.sha256,
+                      'source_manifest_sha256': invocation.source.manifest_sha256}, sort_keys=True)
     )
 
 
 def _review_status(fixture: RuntimeFixture, record: dict[str, Any], snapshot: Path,
-                   bindings: dict[str, str]) -> tuple[str, str]:
+                   bindings: dict[str, str], invocation: Invocation) -> tuple[str, str]:
     fields = {'role', 'session_id', 'model', 'command_path', 'command_sha256', 'rollout_path',
-              'rollout_sha256', 'returncode', 'timed_out', 'output_limited'}
+              'rollout_sha256', 'returncode', 'timed_out', 'output_limited', 'invocation_nonce', 'invocation_sha256'}
     if not isinstance(record, dict) or set(record) != fields or record['role'] not in {'correctness', 'security'}:
         raise ValueError('invalid protected review record')
     if type(record['returncode']) is not int or record['returncode'] != 0 or \
@@ -161,9 +157,16 @@ def _review_status(fixture: RuntimeFixture, record: dict[str, Any], snapshot: Pa
         raise ValueError('review did not complete within its limits')
     if not all(isinstance(record[key], str) and record[key] for key in fields - {'returncode', 'timed_out', 'output_limited'}):
         raise ValueError('review identities must be nonempty text')
+    verify_invocation(fixture, invocation, require_session=True)
+    if (record['role'], record['session_id'], record['model'], record['invocation_nonce'], record['invocation_sha256'], snapshot) != (
+            invocation.kind, invocation.session_id, invocation.model, invocation.nonce, invocation.sha256, invocation.execution_root):
+        raise ValueError('review launch does not match its current invocation')
+    if Path(record['command_path']).resolve() != invocation.artifact_root / 'command.json' or \
+            Path(record['rollout_path']).resolve() != invocation.artifact_root / 'rollout.jsonl':
+        raise ValueError('review artifacts belong to another launch')
     command = json.loads(read_protected_artifact(Path(record['command_path']), fixture, record['command_sha256']))
-    prefix = build_review_command(snapshot, model=record['model'])
-    if not isinstance(command, list) or tuple(command[:-1]) != prefix or command[-1] != review_prompt(fixture, record['role'], bindings):
+    prefix = build_review_command(snapshot, model=record['model'], invocation=invocation)
+    if not isinstance(command, list) or tuple(command[:-1]) != prefix or command[-1] != review_prompt(fixture, record['role'], bindings, invocation=invocation):
         raise ValueError('review did not use the fixed read-only command')
     events = _rows(read_protected_artifact(Path(record['rollout_path']), fixture, record['rollout_sha256']))
     sessions = [event.get('thread_id') for event in events if event.get('type') == 'thread.started']
@@ -175,13 +178,16 @@ def _review_status(fixture: RuntimeFixture, record: dict[str, Any], snapshot: Pa
     messages = [event['item'].get('text') for event in events if event.get('type') == 'item.completed'
                 and isinstance(event.get('item'), dict) and event['item'].get('type') == 'agent_message']
     verdict = json_object(messages[-1]) if messages and isinstance(messages[-1], str) else {}
-    if set(verdict) != {*bindings, 'role', 'status'} or any(verdict.get(key) != value for key, value in bindings.items()) \
+    expected = {**bindings, 'invocation_nonce': invocation.nonce, 'invocation_sha256': invocation.sha256,
+                'source_manifest_sha256': invocation.source.manifest_sha256}
+    if set(verdict) != {*expected, 'role', 'status'} or any(verdict.get(key) != value for key, value in expected.items()) \
             or verdict.get('role') != record['role'] or verdict.get('status') not in {'pass', 'fail', 'unknown'}:
         raise ValueError('review verdict is not bound to the requested snapshot and validation')
     return record['role'], verdict['status']
 
 
-def load_review_evidence(fixture: RuntimeFixture, artifact: Path, digest: str) -> ReviewEvidence:
+def load_review_evidence(fixture: RuntimeFixture, artifact: Path, digest: str, *,
+                         expected_invocations: tuple[Invocation, ...] = ()) -> ReviewEvidence:
     envelope = json_object(read_protected_artifact(artifact, fixture, digest))
     fields = {'schema', 'manifest', 'snapshot_root', 'config_sha256', 'suite_sha256', 'source_sha256', 'reviews'}
     if set(envelope) != fields or type(envelope['schema']) is not int or envelope['schema'] != 1:
@@ -205,11 +211,23 @@ def load_review_evidence(fixture: RuntimeFixture, artifact: Path, digest: str) -
     records = envelope['reviews']
     if not isinstance(records, list) or not 1 <= len(records) <= 2:
         raise ValueError('review envelope needs one or two reviewer records')
-    statuses = tuple(_review_status(fixture, record, snapshot, bindings) for record in records)
+    launches = {launch.kind: launch for launch in expected_invocations if isinstance(launch, Invocation)}
+    roles = [record.get('role') for record in records if isinstance(record, dict)]
+    if any(not isinstance(role, str) or role not in {'correctness', 'security'} for role in roles):
+        raise ValueError('invalid review role')
+    if len(launches) != len(expected_invocations) or len(roles) != len(records) or \
+            set(roles) != set(launches) or len(set(roles)) != len(roles):
+        raise ValueError('review needs exactly its current parent-issued launches')
+    for launch in launches.values():
+        if launch.final_manifest_sha256 != manifest['sha256'] or launch.source.source_sha256 != bindings['source_sha256']:
+            raise ValueError('review source or final snapshot differs from its invocation')
+    statuses = tuple(_review_status(fixture, record, snapshot, bindings, launches[record['role']]) for record in records)
     if len({role for role, _ in statuses}) != len(statuses) or len({record['session_id'] for record in records}) != len(records):
         raise ValueError('review roles and sessions must be independent')
     if final_manifest(fixture) != manifest:
         raise ValueError('candidate changed while reading review evidence')
+    for launch in launches.values():
+        consume_invocation(fixture, launch)
     return ReviewEvidence(fixture.case, fixture.condition, fixture.seed_head, manifest['seed_manifest_sha256'],
                           manifest['sha256'], envelope['config_sha256'], envelope['suite_sha256'],
                           envelope['source_sha256'], digest, statuses)
