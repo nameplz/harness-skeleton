@@ -76,6 +76,23 @@ def _rows(text: str) -> tuple[dict[str, Any], ...]:
     return tuple(json_object(line) for line in text.splitlines() if line.strip())
 
 
+def completed_native_events(text: str, session_id: str) -> tuple[dict[str, Any], ...]:
+    events = _rows(text)
+    sessions = [event.get('thread_id') for event in events if event.get('type') == 'thread.started']
+    if sessions != [session_id]:
+        raise ValueError('trace has no unique native session')
+    if any(key in event and event[key] != session_id
+           for event in events for key in ('thread_id', 'session_id')):
+        raise ValueError('native events contain mixed or invalid session identities')
+    if sum(event.get('type') == 'turn.completed' for event in events) != 1 or any(
+        event.get('type') in {'turn.failed', 'error'} or
+        (isinstance(event.get('item'), dict) and event['item'].get('type') == 'error')
+        for event in events
+    ):
+        raise ValueError('trace has no unique successful native turn')
+    return events
+
+
 def load_runtime_trace(fixture: RuntimeFixture, rollout: Path, hooks: Path, *,
                        rollout_sha256: str, hook_sha256: str,
                        expected_invocation: Invocation | None = None) -> RuntimeTrace:
@@ -93,14 +110,9 @@ def load_runtime_trace(fixture: RuntimeFixture, rollout: Path, hooks: Path, *,
     command_digest = hashlib.sha256(json.dumps(expected_command).encode()).hexdigest()
     if json.loads(read_protected_artifact(command_path, fixture, command_digest)) != expected_command:
         raise ValueError('trace command is not bound to the invocation')
-    events = _rows(read_protected_artifact(rollout, fixture, rollout_sha256))
+    events = completed_native_events(read_protected_artifact(rollout, fixture, rollout_sha256),
+                                     expected_invocation.session_id)
     observations = _rows(read_protected_artifact(hooks, fixture, hook_sha256))
-    sessions = [event.get("thread_id") for event in events if event.get("type") == "thread.started"]
-    if sessions != [expected_invocation.session_id]:
-        raise ValueError("trace has no unique native session")
-    if sum(event.get('type') == 'turn.completed' for event in events) != 1 or \
-            any(event.get('type') in {'turn.failed', 'error'} for event in events):
-        raise ValueError('trace has no unique successful native turn')
     if any(row.get('invocation_nonce') != expected_invocation.nonce or
            row.get('invocation_sha256') != expected_invocation.sha256 for row in observations):
         raise ValueError('host observations contain missing or mixed invocation identities')
@@ -120,7 +132,7 @@ def load_runtime_trace(fixture: RuntimeFixture, rollout: Path, hooks: Path, *,
         if all(isinstance(value, str) for value in values):
             recorded.append(values)
     consume_invocation(fixture, expected_invocation)
-    return RuntimeTrace(sessions[0], rollout_sha256, hook_sha256, tuple(commands), tuple(recorded),
+    return RuntimeTrace(expected_invocation.session_id, rollout_sha256, hook_sha256, tuple(commands), tuple(recorded),
                         invocation_sha256=expected_invocation.sha256,
                         source_sha256=expected_invocation.source.source_sha256)
 

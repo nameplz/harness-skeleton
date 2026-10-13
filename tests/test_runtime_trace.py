@@ -7,7 +7,7 @@ import unittest
 from evals.runtime_fixtures import materialize_fixture
 from evals.native_runtime import build_exec_command, worker_prompt
 from evals.runtime_invocation import bind_session, claim_launch, issue_invocation, write_frozen_source
-from evals.runtime_trace import _rows, load_runtime_trace, read_protected_artifact, validation_observed
+from evals.runtime_trace import _rows, completed_native_events, load_runtime_trace, read_protected_artifact, validation_observed
 
 
 class RuntimeTraceTests(unittest.TestCase):
@@ -16,8 +16,35 @@ class RuntimeTraceTests(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 _rows('{}\n' + text + '\n{}\n')
 
+    def test_completed_events_reject_failures_and_any_explicit_foreign_identity(self):
+        session = '00000000-0000-0000-0000-000000000001'
+        valid = ({'type': 'thread.started', 'thread_id': session}, {'type': 'turn.completed'})
+        extras = [
+            {'type': 'error'}, {'type': 'turn.failed'},
+            {'type': 'item.completed', 'item': {'type': 'error'}},
+            valid[0], valid[1],
+            *({'type': 'item.started', key: value} for key in ('thread_id', 'session_id')
+              for value in ('other', '', None, 1)),
+        ]
+        for extra in extras:
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                completed_native_events('\n'.join(map(json.dumps, (*valid, extra))), session)
+        for missing in (valid[:1], valid[1:], ()):
+            with self.subTest(missing=missing), self.assertRaises(ValueError):
+                completed_native_events('\n'.join(map(json.dumps, missing)), session)
+
+    def test_optional_matching_ids_and_failed_command_are_valid_turn_events(self):
+        session = '00000000-0000-0000-0000-000000000001'
+        events = (
+            {'type': 'thread.started', 'thread_id': session},
+            {'type': 'item.completed', 'session_id': session, 'item': {
+                'type': 'command_execution', 'exit_code': 1, 'thread_id': 'tool payload'}},
+            {'type': 'turn.completed', 'thread_id': session},
+        )
+        self.assertEqual(events, completed_native_events('\n'.join(map(json.dumps, events)), session))
+
     def _evidence(self, root, fixture, *, cwd=None, session='00000000-0000-0000-0000-000000000001', command=None, nonce=None,
-                  terminal='turn.completed'):
+                  terminal='turn.completed', row_session=None):
         command = command or 'python -m unittest discover -s tests -t .'
         index = len(list(root.glob('trace-*')))
         source = write_frozen_source(fixture, root / f'source-{index}.json')
@@ -28,7 +55,8 @@ class RuntimeTraceTests(unittest.TestCase):
         rollout = invocation.artifact_root / 'rollout.jsonl'
         rollout.write_text('\n'.join(json.dumps(r) for r in (
             {'type': 'thread.started', 'thread_id': invocation.session_id},
-            {'type': 'item.completed', 'item': {'type': 'command_execution', 'status': 'completed',
+            {'type': 'item.completed', **({'thread_id': row_session} if row_session is not None else {}),
+             'item': {'type': 'command_execution', 'status': 'completed',
              'exit_code': 0, 'command': command}}, {'type': terminal})) + '\n')
         hooks = invocation.artifact_root / 'hooks.jsonl'
         hooks.write_text(json.dumps({'hook_event_name': 'PreToolUse', 'session_id': session,
@@ -53,6 +81,13 @@ class RuntimeTraceTests(unittest.TestCase):
             for terminal in ('turn.failed', 'error', 'item.started'):
                 with self.subTest(terminal=terminal), self.assertRaises(ValueError):
                     self._evidence(root, fixture, terminal=terminal)
+
+    def test_foreign_or_invalid_session_on_any_native_event_is_rejected(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp); fixture = materialize_fixture('documentation', root / 'case', condition='baseline')
+            for session in ('00000000-0000-0000-0000-000000000002', ''):
+                with self.subTest(session=session), self.assertRaises(ValueError):
+                    self._evidence(root, fixture, row_session=session)
 
     def test_actual_nested_cli_items_require_matching_host_hook_and_cwd(self):
         with TemporaryDirectory() as temp:

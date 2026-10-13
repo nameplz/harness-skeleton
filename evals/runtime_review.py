@@ -13,7 +13,7 @@ from typing import Any
 from evals.runtime_fixtures import RuntimeFixture
 from evals.native_runtime import build_review_command
 from evals.runtime_invocation import Invocation, consume_invocation, verify_invocation
-from evals.runtime_trace import _rows, json_object, open_no_symlink, read_protected_artifact
+from evals.runtime_trace import completed_native_events, json_object, open_no_symlink, read_protected_artifact
 
 MAX_FILE_BYTES = 1024 * 1024
 MAX_TREE_BYTES = 32 * MAX_FILE_BYTES
@@ -168,13 +168,8 @@ def _review_status(fixture: RuntimeFixture, record: dict[str, Any], snapshot: Pa
     prefix = build_review_command(snapshot, model=record['model'], invocation=invocation)
     if not isinstance(command, list) or tuple(command[:-1]) != prefix or command[-1] != review_prompt(fixture, record['role'], bindings, invocation=invocation):
         raise ValueError('review did not use the fixed read-only command')
-    events = _rows(read_protected_artifact(Path(record['rollout_path']), fixture, record['rollout_sha256']))
-    sessions = [event.get('thread_id') for event in events if event.get('type') == 'thread.started']
-    if sessions != [record['session_id']] or sum(event.get('type') == 'turn.completed' for event in events) != 1:
-        raise ValueError('review has no unique completed native session')
-    if any(event.get('type') == 'turn.failed' or
-           (isinstance(event.get('item'), dict) and event['item'].get('type') == 'error') for event in events):
-        raise ValueError('native review reported an error')
+    events = completed_native_events(
+        read_protected_artifact(Path(record['rollout_path']), fixture, record['rollout_sha256']), record['session_id'])
     messages = [event['item'].get('text') for event in events if event.get('type') == 'item.completed'
                 and isinstance(event.get('item'), dict) and event['item'].get('type') == 'agent_message']
     verdict = json_object(messages[-1]) if messages and isinstance(messages[-1], str) else {}
