@@ -20,7 +20,14 @@ from scripts.command_runner import _command_environment, _terminate_process_grou
 FEATURES = ('apps', 'plugins', 'hooks', 'multi_agent', 'remote_plugin',
             'enable_mcp_apps', 'skill_mcp_dependency_install', 'code_mode')
 SAFE_NAME = re.compile(r'[A-Za-z0-9_-]{1,128}\Z')
-NOTIFICATIONS = frozenset({'remoteControl/status/changed'})
+NOTIFICATIONS = frozenset({'remoteControl/status/changed', 'configWarning'})
+PROJECT_WARNING = ('Project-local config, hooks, and exec policies are disabled in the following folders '
+                   'until the project is trusted, but skills still load.\n')
+SOURCE_FIELDS = {
+    'packagedDefaults': ('file',), 'mdm': ('domain', 'key'), 'system': ('file',),
+    'enterpriseManaged': ('id', 'name'), 'user': ('file',), 'project': ('dotCodexFolder',),
+    'sessionFlags': (), 'legacyManagedConfigTomlFromFile': ('file',), 'legacyManagedConfigTomlFromMdm': (),
+}
 
 
 @dataclass(frozen=True)
@@ -59,10 +66,36 @@ class ConfigInspectionError(ValueError):
 
 
 @dataclass(frozen=True)
+class ConfigSource:
+    source_type: str
+    identity_sha256: str
+    version_sha256: str
+
+
+@dataclass(frozen=True)
+class ConfigLayer:
+    source: ConfigSource
+    config_sha256: str
+    disabled_reason_sha256: str | None
+
+
+@dataclass(frozen=True)
+class ConfigWarning:
+    category: str
+    payload_sha256: str
+    summary_sha256: str
+    details_present: bool
+    path_present: bool
+    range_present: bool
+
+
+@dataclass(frozen=True)
 class ConfigProjection:
     servers: tuple[tuple[str, bool], ...]
     features: tuple[tuple[str, bool | None], ...]
     catalog_reported: bool
+    layers: tuple[ConfigLayer, ...] | None
+    origins: tuple[tuple[str, ConfigSource], ...] | None
 
 
 @dataclass(frozen=True)
@@ -79,7 +112,83 @@ class ConfigInspection:
     stdout_bytes: int
     stderr_bytes: int
     notification_methods: tuple[str, ...]
+    warnings: tuple[ConfigWarning, ...]
     returncode: int
+
+
+def _sha(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+
+
+def _source(metadata: Any) -> ConfigSource:
+    if not isinstance(metadata, dict) or not isinstance(metadata.get('name'), dict) or \
+            not isinstance(metadata.get('version'), str) or not metadata['version']:
+        raise ValueError('invalid native configuration source')
+    name = metadata['name']
+    kind = name.get('type')
+    if not isinstance(kind, str) or kind not in SOURCE_FIELDS or any(
+            not isinstance(name.get(key), str) or not name[key] for key in SOURCE_FIELDS[kind]):
+        raise ValueError('invalid native configuration source identity')
+    if 'profile' in name and (kind != 'user' or name['profile'] is not None and not isinstance(name['profile'], str)):
+        raise ValueError('invalid native configuration profile')
+    return ConfigSource(kind, _sha(name), _sha(metadata['version']))
+
+
+def _layers(reply: dict[str, Any]) -> tuple[ConfigLayer, ...] | None:
+    layers = reply.get('layers')
+    if layers is None:
+        return None
+    if not isinstance(layers, list) or len(layers) > 128:
+        raise ValueError('invalid native configuration layers')
+    projected = []
+    for layer in layers:
+        source = _source(layer)
+        reason = layer.get('disabledReason')
+        if not isinstance(layer.get('config'), dict) or reason is not None and (
+                not isinstance(reason, str) or not reason):
+            raise ValueError('invalid native configuration layer')
+        projected.append(ConfigLayer(source, _sha(layer['config']), _sha(reason) if reason is not None else None))
+    return tuple(projected)
+
+
+def _origins(reply: dict[str, Any], settings: tuple[str, ...]) -> tuple[tuple[str, ConfigSource], ...] | None:
+    if 'origins' not in reply:
+        return None
+    origins = reply['origins']
+    if not isinstance(origins, dict):
+        raise ValueError('invalid native configuration origins')
+    projected = []
+    for setting in settings:
+        key = setting
+        while key:
+            if key in origins:
+                projected.append((setting, _source(origins[key])))
+                break
+            key = key.rpartition('.')[0]
+    return tuple(projected)
+
+
+def project_warning(payload: Any) -> ConfigWarning:
+    if not isinstance(payload, dict) or set(payload) - {'summary', 'details', 'path', 'range'} or \
+            not isinstance(payload.get('summary'), str) or not payload['summary']:
+        raise ValueError('invalid native configuration warning')
+    if any(payload.get(key) is not None and not isinstance(payload[key], str) for key in ('details', 'path')):
+        raise ValueError('invalid native configuration warning')
+    position_range = payload.get('range')
+    if position_range is not None:
+        if not isinstance(position_range, dict) or set(position_range) != {'start', 'end'}:
+            raise ValueError('invalid native configuration warning range')
+        for position in position_range.values():
+            if not isinstance(position, dict) or set(position) != {'line', 'column'} or any(
+                    type(value) is not int or value < 0 for value in position.values()):
+                raise ValueError('invalid native configuration warning range')
+    summary = payload['summary']
+    category = {'Invalid configuration; using defaults.': 'invalid_configuration',
+                'Error parsing rules; custom rules not applied.': 'rules_not_applied'}.get(summary, 'unclassified')
+    if summary.startswith(PROJECT_WARNING) and all(payload.get(key) is None for key in ('details', 'path', 'range')):
+        category = 'project_configuration_disabled'
+    return ConfigWarning(category, _sha(payload), _sha(summary), payload.get('details') is not None,
+                         payload.get('path') is not None, position_range is not None)
 
 
 def project_config(reply: dict[str, Any]) -> ConfigProjection:
@@ -99,8 +208,10 @@ def project_config(reply: dict[str, Any]) -> ConfigProjection:
         projected.append((name, enabled))
     if any(key in features and type(features[key]) is not bool for key in FEATURES):
         raise ValueError('invalid native feature state')
+    settings = (*(f'features.{key}' for key in FEATURES),
+                *(f'mcp_servers.{name}.enabled' for name, _ in sorted(projected)))
     return ConfigProjection(tuple(sorted(projected)), tuple((key, features.get(key)) for key in FEATURES),
-                            'mcp_servers' in config)
+                            'mcp_servers' in config, _layers(reply), _origins(reply, settings))
 
 
 def build_config_command(root: Path, *, binary: BinaryPin,
@@ -119,7 +230,7 @@ def build_config_command(root: Path, *, binary: BinaryPin,
             *(value for name in disabled_servers for value in ('-c', f'mcp_servers.{name}.enabled=false')),
             '-c', 'apps._default.enabled=false', '-c', 'check_for_update_on_startup=false',
             '-c', 'projects={' + json.dumps(str(root)) + '={trust_level="untrusted"}}',
-            'app-server', '--listen', 'stdio://')
+            '--strict-config', 'app-server', '--listen', 'stdio://')
 
 
 class _ConfigExchange:
@@ -132,6 +243,7 @@ class _ConfigExchange:
         self.counts = [0, 0]
         self.digests = [hashlib.sha256(), hashlib.sha256()]
         self.notifications: set[str] = set()
+        self.warnings: list[ConfigWarning] = []
         self.stage = 'initialize'
         for index, stream in enumerate((process.stdout, process.stderr)):
             if stream is None:
@@ -169,6 +281,22 @@ class _ConfigExchange:
             if index == 0:
                 self.buffer.extend(chunk)
 
+    def notification(self, message: dict[str, Any]) -> None:
+        method = message.get('method')
+        if not isinstance(method, str) or method not in NOTIFICATIONS or 'id' in message:
+            raise ValueError('unexpected native capability activity during configuration inspection')
+        if method == 'configWarning':
+            if len(self.warnings) >= 64:
+                raise ValueError('too many native configuration warnings')
+            self.warnings.append(project_warning(message.get('params')))
+        self.notifications.add(method)
+
+    def decode(self, raw: bytes) -> dict[str, Any]:
+        try:
+            return json_object(raw.decode('utf-8'))
+        except (ValueError, UnicodeError):
+            raise ValueError('invalid native inspection response') from None
+
     def receive(self, request_id: int) -> dict[str, Any]:
         while True:
             if b'\n' not in self.buffer:
@@ -176,15 +304,9 @@ class _ConfigExchange:
                 continue
             raw, _, tail = self.buffer.partition(b'\n')
             self.buffer = bytearray(tail)
-            try:
-                message = json_object(raw.decode('utf-8'))
-            except (ValueError, UnicodeError):
-                raise ValueError('invalid native inspection response') from None
+            message = self.decode(raw)
             if 'method' in message:
-                method = message['method']
-                if not isinstance(method, str) or method not in NOTIFICATIONS or 'id' in message:
-                    raise ValueError('unexpected native capability activity during configuration inspection')
-                self.notifications.add(method)
+                self.notification(message)
                 continue
             if type(message.get('id')) is not int or message['id'] != request_id or \
                     'error' in message or not isinstance(message.get('result'), dict):
@@ -202,7 +324,7 @@ class _ConfigExchange:
                              'explicitGatewayOauth': True, 'mcpServerOpenaiFormElicitation': False}})
         self.send({'method': 'initialized'})
         self.stage = 'config/read'
-        config = project_config(self.request(2, 'config/read', {'cwd': str(root.resolve()), 'includeLayers': False}))
+        config = project_config(self.request(2, 'config/read', {'cwd': str(root.resolve()), 'includeLayers': True}))
         self.stage = 'configRequirements/read'
         reply = self.request(3, 'configRequirements/read', {})
         if 'requirements' not in reply or reply['requirements'] is not None and not isinstance(reply['requirements'], dict):
@@ -222,15 +344,19 @@ class _ConfigExchange:
             hashlib.sha256(json.dumps(environment, sort_keys=True).encode()).hexdigest(),
             disabled_servers,
             *(digest.hexdigest() for digest in self.digests), *self.counts,
-            tuple(sorted(self.notifications)), self.process.returncode)
+            tuple(sorted(self.notifications)), tuple(self.warnings), self.process.returncode)
 
     def finish(self) -> None:
         if self.process.stdin is not None:
             self.process.stdin.close()
         while self.selector.get_map():
             self.pump()
-        if self.buffer.strip():
-            raise ValueError('unexpected trailing native inspection output')
+        while self.buffer.strip():
+            raw, separator, tail = self.buffer.partition(b'\n')
+            if not separator:
+                raise ValueError('unexpected trailing native inspection output')
+            self.buffer = bytearray(tail)
+            self.notification(self.decode(raw))
         try:
             self.process.wait(timeout=max(0.001, self.deadline - time.monotonic()))
         except subprocess.TimeoutExpired:

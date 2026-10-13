@@ -6,7 +6,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
-from evals.native_config import BinaryPin, ConfigInspectionError, build_config_command, inspect_native_config, project_config
+from evals.native_config import BinaryPin, ConfigInspectionError, build_config_command, inspect_native_config, project_config, project_warning
 
 
 class NativeConfigTests(unittest.TestCase):
@@ -53,7 +53,7 @@ class NativeConfigTests(unittest.TestCase):
         reply = {'config': {'mcp_servers': {'docs': {
             'enabled': False, 'url': 'https://secret.invalid/token', 'env': {'TOKEN': 'SENTINEL'}}},
             'features': {'apps': False, 'plugins': False}, 'developer_instructions': 'SENTINEL'},
-            'origins': {'mcp_servers': {'source': {'type': 'user', 'file': 'SENTINEL'}}}}
+            'origins': {'mcp_servers': {'name': {'type': 'user', 'file': '/SENTINEL/config.toml'}, 'version': 'v1'}}}
         projected = project_config(reply)
         self.assertEqual((('docs', False),), projected.servers)
         self.assertNotIn('SENTINEL', repr(projected))
@@ -67,6 +67,51 @@ class NativeConfigTests(unittest.TestCase):
             with self.subTest(config=config), self.assertRaises(ValueError) as caught:
                 project_config({'config': config, 'origins': {}})
             self.assertNotIn('SENTINEL', str(caught.exception))
+
+    def test_layer_and_setting_origins_are_sanitized_and_ordered(self):
+        user = {'name': {'type': 'user', 'file': '/SENTINEL/config.toml'}, 'version': 'SENTINEL'}
+        session = {'name': {'type': 'sessionFlags'}, 'version': 'v2'}
+        reply = {'config': {'mcp_servers': {'docs': {'enabled': False}}, 'features': {'apps': False}},
+                 'origins': {'features.apps': session, 'mcp_servers': user, 'unrelated': user},
+                 'layers': [{**user, 'config': {'secret': 'SENTINEL'}},
+                            {**session, 'config': {'features': {'apps': False}}}]}
+        result = project_config(reply)
+        self.assertEqual(('user', 'sessionFlags'), tuple(layer.source.source_type for layer in result.layers))
+        origins = dict(result.origins)
+        self.assertEqual('sessionFlags', origins['features.apps'].source_type)
+        self.assertEqual('user', origins['mcp_servers.docs.enabled'].source_type)
+        self.assertNotIn('unrelated', origins)
+        self.assertNotIn('SENTINEL', repr(result))
+        self.assertIsNone(project_config({'config': {}}).layers)
+
+    def test_malformed_layers_and_origins_fail_closed(self):
+        metadata = {'name': {'type': 'sessionFlags'}, 'version': 'v1'}
+        for extra in ({'layers': {}}, {'layers': [{**metadata, 'config': { }, 'disabledReason': 1}]},
+                      {'layers': [{'name': {'type': 'unknown'}, 'version': 'v1', 'config': {}}]},
+                      {'origins': []}, {'origins': {'features.apps': {'name': [], 'version': 'v1'}}}):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                project_config({'config': {'features': {'apps': False}}, **extra})
+
+    def test_warnings_are_classified_without_exposing_payloads(self):
+        warnings = (
+            ('Invalid configuration; using defaults.', 'invalid_configuration'),
+            ('Error parsing rules; custom rules not applied.', 'rules_not_applied'),
+            ('Project-local config, hooks, and exec policies are disabled in the following folders '
+             'until the project is trusted, but skills still load.\n    1. /SENTINEL/.codex\n       untrusted\n',
+             'project_configuration_disabled'),
+            ('SENTINEL unknown diagnostic', 'unclassified'),
+        )
+        for summary, category in warnings:
+            with self.subTest(category=category):
+                warning = project_warning({'summary': summary})
+                self.assertEqual(category, warning.category)
+                self.assertNotIn('SENTINEL', repr(warning))
+        warning = project_warning({'summary': warnings[2][0], 'details': 'SENTINEL'})
+        self.assertEqual('unclassified', warning.category)
+        for payload in ({'summary': 1}, {'summary': 'text', 'details': []},
+                        {'summary': 'text', 'range': {'start': {'line': True, 'column': 0}, 'end': {'line': 1, 'column': 1}}}):
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                project_warning(payload)
 
     def _server(self, root, behavior):
         script = root / 'server.py'
@@ -107,6 +152,20 @@ for line in sys.stdin:
             with patch('evals.native_config.build_config_command', return_value=argv):
                 result = inspect_native_config(root, binary=self._binary())
             self.assertEqual(('remoteControl/status/changed',), result.notification_methods)
+            self.assertNotIn('SENTINEL', repr(result))
+
+    def test_config_warning_is_collected_during_exchange_and_shutdown(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            behavior = "    print(json.dumps({'method': 'configWarning', 'params': {'summary': 'SENTINEL unknown warning'}}), flush=True)\n"
+            argv = self._server(root, behavior)
+            script = root / 'server.py'
+            script.write_text(script.read_text() + "print(json.dumps({'method': 'configWarning', 'params': {'summary': 'late SENTINEL'}}), flush=True)\n")
+            with patch('evals.native_config.build_config_command', return_value=argv):
+                result = inspect_native_config(root, binary=self._binary())
+            self.assertEqual(4, len(result.warnings))
+            self.assertTrue(all(warning.category == 'unclassified' for warning in result.warnings))
+            self.assertIn('configWarning', result.notification_methods)
             self.assertNotIn('SENTINEL', repr(result))
 
     def test_binary_recheck_failure_rejects_completed_exchange(self):
