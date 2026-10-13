@@ -12,6 +12,9 @@ from evals.runtime_fixtures import PROJECT_ROOT, RuntimeFixture
 from evals.runtime_invocation import Invocation
 from evals.runtime_trace import RuntimeTrace, validation_observed
 from evals.runtime_review import final_manifest, load_review_evidence, read_candidate_file, regular_files, review_matches
+from evals.native_collect import NativeReceipt
+from evals.native_grade import native_scope_failures, native_validation_observed, verified_worker_receipt
+from evals.native_review import NativeReviewRequest, load_native_review_evidence
 from scripts.command_runner import CommandResult, run_bounded_command
 from scripts.harness import load_config
 
@@ -175,10 +178,16 @@ def _scope_failures(fixture: RuntimeFixture) -> list[str]:
 
 
 def grade_fixture(fixture: RuntimeFixture, *, tool_trace: RuntimeTrace | None,
+                  native_receipt: NativeReceipt | None = None,
+                  native_review: NativeReviewRequest | None = None,
                   review_artifact: Path | None = None, review_sha256: str | None = None,
                   review_invocations: tuple[Invocation, ...] = (),
                   suite_sha256: str | None = None,
                   trusted_config_root: Path | None = None) -> dict[str, Any]:
+    cli_review = review_artifact is not None or review_sha256 is not None or bool(review_invocations)
+    if native_receipt is not None and (tool_trace is not None or cli_review) or \
+            native_review is not None and (native_receipt is None or not isinstance(native_review, NativeReviewRequest)):
+        raise ValueError('native and CLI evidence inputs must be unambiguous')
     config = None
     if trusted_config_root is not None:
         trusted_config_root = trusted_config_root.resolve()
@@ -229,7 +238,8 @@ def grade_fixture(fixture: RuntimeFixture, *, tool_trace: RuntimeTrace | None,
         functional = _functional_passed(fixture, probe)
     except (OSError, UnicodeError, ValueError):
         functional = False
-    trace_validation = validation_observed(tool_trace, fixture.root)
+    trace_validation = (native_validation_observed(fixture, native_receipt) if native_receipt is not None
+                        else validation_observed(tool_trace, fixture.root))
     applied_digest = (config.config_sha256 if config is not None and
                       _applied_config_observed(applied_validation, config.config_sha256) else None)
     validation_ok = None
@@ -239,9 +249,23 @@ def grade_fixture(fixture: RuntimeFixture, *, tool_trace: RuntimeTrace | None,
     audit_complete = isinstance(tool_trace, RuntimeTrace) and tool_trace.audit_complete
     if audit_complete:
         forbidden.extend(tool_trace.forbidden_actions)
+    if native_receipt is not None:
+        forbidden.extend(native_scope_failures(fixture, native_receipt))
     scope_ok = False if forbidden else (True if audit_complete else None)
     review_evidence = None
     review_error = None
+    if native_review is not None:
+        try:
+            worker = verified_worker_receipt(fixture, native_receipt)
+            if worker is None or native_review.bindings.config_sha256 != applied_digest or \
+                    native_review.bindings.suite_sha256 != suite_sha256 or \
+                    native_review.bindings.source_sha256 != worker.invocation.source.source_sha256:
+                raise ValueError('native review differs from applied validation and current worker')
+            review_evidence = load_native_review_evidence(fixture, native_review.invocations,
+                binary=native_review.binary, bindings=native_review.bindings,
+                disabled_servers=native_review.disabled_servers, instruction_sources=native_review.instruction_sources)
+        except (OSError, UnicodeError, ValueError, TypeError):
+            review_error = 'protected native review evidence was unavailable, stale, or invalid'
     if review_artifact is not None or review_sha256 is not None:
         try:
             if review_artifact is None or review_sha256 is None:
@@ -252,6 +276,8 @@ def grade_fixture(fixture: RuntimeFixture, *, tool_trace: RuntimeTrace | None,
             review_error = 'protected review evidence was unavailable, stale, or invalid'
     try:
         sources = {launch.source.source_sha256 for launch in review_invocations if isinstance(launch, Invocation)}
+        if native_receipt is not None and isinstance(native_receipt, NativeReceipt):
+            sources = {native_receipt.invocation.source.source_sha256}
         review = review_matches(fixture, review_evidence, config_sha256=applied_digest,
                                 suite_sha256=suite_sha256, source_sha256=next(iter(sources)) if len(sources) == 1 else None)
     except (OSError, UnicodeError, ValueError):

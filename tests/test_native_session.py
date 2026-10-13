@@ -93,6 +93,10 @@ for line in sys.stdin:
             "result['thread']['environments'][0]['environmentId']='remote'",
             "result['instructionSources']=[ROOT+'/AGENTS.md']",
             "result['sandbox']['networkAccess']=True",
+            "result['sandbox']['writableRoots']=[ROOT]",
+            "result['sandbox']['excludeTmpdirEnvVar']=False",
+            "result['sandbox']['excludeSlashTmp']=False",
+            "result['sandbox']['unexpectedCapability']=True",
             "result['model']='other'",
         )
         for change in changes:

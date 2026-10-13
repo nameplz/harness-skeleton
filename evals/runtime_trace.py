@@ -151,6 +151,8 @@ def load_runtime_trace(fixture: RuntimeFixture, rollout: Path, hooks: Path, *,
 
 
 def _validation_command(command: str, root: Path) -> tuple[str, ...] | None:
+    if not isinstance(command, str) or '\0' in command:
+        return None
     try:
         tokens = shlex.split(command)
         if len(tokens) == 3 and Path(tokens[0]).name in {"sh", "bash", "zsh"} and tokens[1] in {"-c", "-lc"}:
@@ -161,7 +163,11 @@ def _validation_command(command: str, root: Path) -> tuple[str, ...] | None:
         return None
     interpreter = Path(tokens[0])
     if interpreter.is_absolute():
-        if interpreter.resolve() != Path(sys.executable).resolve():
+        try:
+            matches = interpreter.resolve() == Path(sys.executable).resolve()
+        except (OSError, ValueError, UnicodeError):
+            return None
+        if not matches:
             return None
     elif tokens[0] not in {"python", "python3", Path(sys.executable).name}:
         return None

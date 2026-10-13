@@ -135,8 +135,9 @@ def _thread(reply: dict, root: Path, model: str, writable: bool) -> tuple[str, s
             reply.get('approvalPolicy') != 'never' or reply.get('approvalsReviewer') != 'user':
         raise ValueError('native thread differs from its requested local profile')
     sandbox = reply.get('sandbox')
+    sandbox_fields = {'type', 'networkAccess'} | ({'writableRoots', 'excludeTmpdirEnvVar', 'excludeSlashTmp'} if writable else set())
     if not isinstance(sandbox, dict) or sandbox.get('type') != ('workspaceWrite' if writable else 'readOnly') or \
-            sandbox.get('networkAccess') is not False:
+            set(sandbox) != sandbox_fields or sandbox.get('networkAccess') is not False:
         raise ValueError('native sandbox projection differs from its requested profile')
     if writable and (sandbox.get('writableRoots') not in ([], [str(root)]) or
                      sandbox.get('excludeTmpdirEnvVar') is not True or sandbox.get('excludeSlashTmp') is not True):

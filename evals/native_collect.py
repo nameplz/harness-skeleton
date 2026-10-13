@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from evals.native_config import BinaryPin, verify_binary
-from evals.native_runtime import worker_prompt
+from evals.native_review import ReviewBindings, canonical_prompt, verify_review_snapshot
 from evals.native_session import _uuid, build_session_command, native_session
 from evals.native_telemetry import validate_account
 from evals.native_turn import DELTAS, TurnCollector, TurnEvidence, _integer
@@ -34,7 +34,7 @@ def _json(value: object) -> bytes:
 
 
 def native_guidance(invocation: Invocation) -> str:
-    if invocation.fixture.condition == 'baseline':
+    if invocation.kind != 'worker' or invocation.fixture.condition == 'baseline':
         return ''
     from evals.runtime_fixtures import PROJECT_ROOT
     return '\n\n'.join((PROJECT_ROOT / path).read_text() for path in
@@ -42,7 +42,7 @@ def native_guidance(invocation: Invocation) -> str:
 
 
 def _policy(invocation: Invocation, binary: BinaryPin, servers: tuple[str, ...], client: str,
-            instructions: tuple[tuple[str, str], ...]) -> dict:
+            instructions: tuple[tuple[str, str], ...], bindings: ReviewBindings | None = None) -> dict:
     if not isinstance(instructions, tuple) or len(instructions) > 128 or any(
         not isinstance(row, tuple) or len(row) != 2 or any(not isinstance(v, str) or
         not re.fullmatch(r'[0-9a-f]{64}', v) for v in row) for row in instructions) or \
@@ -50,7 +50,8 @@ def _policy(invocation: Invocation, binary: BinaryPin, servers: tuple[str, ...],
         raise ValueError('invalid host instruction source allowlist')
     return {'schema': 1, 'invocation_sha256': invocation.sha256, 'source_sha256': invocation.source.source_sha256,
             'binary_sha256': binary.sha256, 'disabled_servers': list(servers), 'request_id': REQUEST_ID,
-            'client_id': client, 'prompt_sha256': _sha(worker_prompt(invocation).encode()),
+            'client_id': client, 'prompt_sha256': _sha(canonical_prompt(invocation, bindings).encode()),
+            'review_bindings': bindings.as_dict() if bindings is not None else None,
             'instruction_sources': [list(row) for row in instructions],
             'environment_sha256': _sha(json.dumps(_command_environment(), sort_keys=True).encode()),
             'guidance_sha256': _sha(native_guidance(invocation).encode())}
@@ -145,12 +146,15 @@ def _pop(exchange) -> dict:
 def collect_native_turn(invocation: Invocation, *, binary: BinaryPin,
                         disabled_servers: tuple[str, ...] = (), timeout_seconds: float = 300,
                         max_output_bytes: int = 1024 * 1024,
-                        instruction_sources: tuple[tuple[str, str], ...] = ()) -> NativeReceipt:
+                        instruction_sources: tuple[tuple[str, str], ...] = (),
+                        review_bindings: ReviewBindings | None = None) -> NativeReceipt:
     verify_invocation(invocation.fixture, invocation)
+    bindings = review_bindings
+    canonical_prompt(invocation, bindings)
     if invocation.kind != 'worker':
-        raise ValueError('native worker collection needs a worker invocation')
+        verify_review_snapshot(invocation, bindings)
     client = str(uuid4())
-    policy = _json(_policy(invocation, binary, disabled_servers, client, instruction_sources))
+    policy = _json(_policy(invocation, binary, disabled_servers, client, instruction_sources, bindings))
     root = invocation.artifact_root
     try:
         with (root / 'native-policy.json').open('xb') as stream:
@@ -159,23 +163,25 @@ def collect_native_turn(invocation: Invocation, *, binary: BinaryPin,
         raise ValueError('native invocation was already attempted') from None
     request = {'id': REQUEST_ID, 'method': 'turn/start', 'params': {
         'threadId': None, 'clientUserMessageId': client,
-        'input': [{'type': 'text', 'text': worker_prompt(invocation), 'text_elements': []}]}}
+        'input': [{'type': 'text', 'text': canonical_prompt(invocation, bindings), 'text_elements': []}]}}
     with (root / 'rpc.in.jsonl').open('xb') as incoming:
         with native_session(invocation.execution_root, binary=binary, model=invocation.model,
-                writable=True, disabled_servers=disabled_servers, timeout_seconds=timeout_seconds,
+                writable=invocation.kind == 'worker', disabled_servers=disabled_servers, timeout_seconds=timeout_seconds,
                 max_output_bytes=max_output_bytes, invocation=invocation,
                 developer_instructions=native_guidance(invocation)) as (exchange, session):
             if session.instruction_sources != instruction_sources:
                 raise ValueError('native instructions differ from host-approved sources')
-            dispatch = _run_turn(exchange, session.thread_id, invocation, client, request, incoming)
+            dispatch = _run_turn(exchange, session.thread_id, invocation, client, request, incoming, bindings)
         turn = dispatch.collector.result()  # Includes notifications drained during shutdown.
     verify_invocation(invocation.fixture, exchange.invocation, require_session=True)
+    if invocation.kind != 'worker':
+        verify_review_snapshot(exchange.invocation, bindings)
     return _seal(exchange, session, dispatch, turn, policy)
 
 
-def _run_turn(exchange, thread_id: str, invocation: Invocation, client: str, request: dict, incoming) -> _Dispatch:
+def _run_turn(exchange, thread_id: str, invocation: Invocation, client: str, request: dict, incoming, bindings: ReviewBindings | None) -> _Dispatch:
     root = invocation.artifact_root
-    dispatch = _Dispatch(thread_id, invocation.execution_root, worker_prompt(invocation), client)
+    dispatch = _Dispatch(thread_id, invocation.execution_root, canonical_prompt(invocation, bindings), client)
     def capture(raw: bytes, message: dict) -> None:
         # Account/config payloads stay private. This file is a filtered turn transport log.
         if 'method' not in message or message.get('method') in TURN_METHODS | BOOKKEEPING:
@@ -227,9 +233,14 @@ def _receipt(invocation: Invocation, turn: TurnEvidence, data: dict) -> NativeRe
         tuple(tuple(row) for row in data['telemetry']), data['returncode'], data['process_tree_cleanup_verified'])
 
 
-def load_native_turn(invocation: Invocation, *, binary: BinaryPin,
+def _read_native_turn(invocation: Invocation, *, binary: BinaryPin,
                      disabled_servers: tuple[str, ...] = (),
-                     instruction_sources: tuple[tuple[str, str], ...] = ()) -> NativeReceipt:
+                     instruction_sources: tuple[tuple[str, str], ...] = (),
+                     review_bindings: ReviewBindings | None = None) -> NativeReceipt:
+    bindings = review_bindings
+    canonical_prompt(invocation, bindings)
+    if invocation.kind != 'worker':
+        verify_review_snapshot(invocation, bindings)
     verify_invocation(invocation.fixture, invocation, require_session=True)
     verify_binary(binary)
     root, fixture = invocation.artifact_root, invocation.fixture
@@ -241,20 +252,20 @@ def load_native_turn(invocation: Invocation, *, binary: BinaryPin,
         raise ValueError('native installation identity changed')
     policy = json_object(read_protected_artifact(root / 'native-policy.json', fixture, data['policy_sha256']))
     client = policy.get('client_id')
-    if _uuid(client) != client or policy != _policy(invocation, binary, disabled_servers, client, instruction_sources) or \
+    if _uuid(client) != client or policy != _policy(invocation, binary, disabled_servers, client, instruction_sources, bindings) or \
             data['session']['instruction_sources'] != policy['instruction_sources'] or data['process_tree_cleanup_verified'] is not False:
         raise ValueError('native policy differs from invocation')
     command = build_session_command(invocation.execution_root, binary=binary, disabled_servers=disabled_servers,
-                                    writable=True, invocation=invocation)
+                                    writable=invocation.kind == 'worker', invocation=invocation)
     expected = json.dumps(list(command)).encode()
-    if invocation.kind != 'worker' or invocation.command_sha256 != _sha(expected):
+    if invocation.command_sha256 != _sha(expected):
         raise ValueError('native command differs from invocation')
     request = json_object(read_protected_artifact(root / 'rpc.out.jsonl', fixture, data['rpc_out_sha256']))
     expected_request = {'id': REQUEST_ID, 'method': 'turn/start', 'params': {'threadId': invocation.session_id,
-        'clientUserMessageId': client, 'input': [{'type': 'text', 'text': worker_prompt(invocation), 'text_elements': []}]}}
+        'clientUserMessageId': client, 'input': [{'type': 'text', 'text': canonical_prompt(invocation, bindings), 'text_elements': []}]}}
     if request != expected_request or data['returncode'] != 0:
         raise ValueError('native request or exit differs from invocation')
-    dispatch = _Dispatch(invocation.session_id, invocation.execution_root, worker_prompt(invocation), client)
+    dispatch = _Dispatch(invocation.session_id, invocation.execution_root, canonical_prompt(invocation, bindings), client)
     raw = read_protected_artifact(root / 'rpc.in.jsonl', fixture, data['rpc_in_sha256'])
     if not raw.endswith('\n'):
         raise ValueError('incomplete native transport line')
@@ -269,6 +280,15 @@ def load_native_turn(invocation: Invocation, *, binary: BinaryPin,
     turn = dispatch.collector.result()
     if data['turn_sha256'] != _sha(_json(asdict(turn))):
         raise ValueError('native turn projection changed')
-    receipt = _receipt(invocation, turn, data)
-    consume_invocation(fixture, invocation)
+    return _receipt(invocation, turn, data)
+
+
+def load_native_turn(invocation: Invocation, *, binary: BinaryPin,
+                     disabled_servers: tuple[str, ...] = (),
+                     instruction_sources: tuple[tuple[str, str], ...] = ()) -> NativeReceipt:
+    if invocation.kind != 'worker':
+        raise ValueError('worker loading cannot consume review evidence')
+    receipt = _read_native_turn(invocation, binary=binary, disabled_servers=disabled_servers,
+                               instruction_sources=instruction_sources)
+    consume_invocation(invocation.fixture, invocation)
     return receipt
