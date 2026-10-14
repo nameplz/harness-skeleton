@@ -28,6 +28,12 @@ def parse_args() -> argparse.Namespace:
 
 def check_event_file(event_path: Path) -> list[str]:
     event = json.loads(event_path.read_text(encoding="utf-8"))
+    return check_pr_event(event)
+
+
+def check_pr_event(event: dict) -> list[str]:
+    if not isinstance(event, dict):
+        return ["PR event must be a JSON object"]
     pull_request = event.get("pull_request")
     if not isinstance(pull_request, dict):
         return []

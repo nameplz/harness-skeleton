@@ -49,10 +49,10 @@ def open_no_symlink(path: Path, *, directory: bool = False) -> int:
 def read_host_artifact(path: Path, fixture: RuntimeFixture, *, max_bytes: int = 1024 * 1024) -> bytes:
     if type(max_bytes) is not int or not 1 <= max_bytes <= 1024 * 1024:
         raise ValueError('invalid artifact read limit')
-    from evals.runtime_boundary import require_boundary, require_disjoint
+    from evals.runtime_boundary import require_boundary, require_disjoint, fixture_protection
     require_boundary(fixture)
     path = path.absolute()
-    require_disjoint(fixture.protected_resource, path)
+    require_disjoint(fixture_protection(fixture), path)
     if path.is_symlink() or path.is_relative_to(fixture.root) or path.resolve().is_relative_to(fixture.root):
         raise ValueError("trace must be outside the candidate and not a symlink")
     # The operator must protect all parent directories with the measured native profile.

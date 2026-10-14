@@ -13,7 +13,8 @@ from typing import Any
 from evals.runtime_cases import case_spec
 from evals.runtime_limits import metadata_seed_rows, require_failure_fixture
 from scripts.eval_case_validation import metadata_observation
-from evals.runtime_boundary import observe_boundary, require_boundary, require_disjoint
+from evals.runtime_boundary import observe_boundary, require_boundary, require_disjoint, fixture_protection
+from evals.runtime_policy import policy_observation
 from evals.runtime_fixtures import RuntimeFixture
 from evals.native_runtime import build_review_command
 from evals.runtime_invocation import Invocation, consume_invocation, verify_invocation
@@ -100,6 +101,12 @@ def final_manifest(fixture: RuntimeFixture) -> dict[str, Any]:
         seed['protected_resource_binding_sha256'] = fixture.protected_resource.binding_sha256
     identity = {'schema': 1, 'case': fixture.case, 'condition': fixture.condition,
                 'seed_head': fixture.seed_head, 'seed_manifest_sha256': _digest(seed), 'files': files}
+    if fixture.policy_context is not None:
+        context = fixture.policy_context
+        identity['policy_context'] = {'structural_sha256': context.structural_sha256,
+                                      'binding_sha256': context.binding_sha256,
+                                      'checker_source_sha256': context.source_sha256,
+                                      'expected_workflow_sha256': context.expected_workflow_sha256}
     if fixture.metadata_only_seeds:
         identity['metadata_only_files'] = [entry for entry in scanned if entry.get('metadata_only')]
     if fixture.protected_resource is not None:
@@ -124,7 +131,7 @@ def regular_files(root: Path, *, metadata_only: tuple[str, ...] = ()) -> tuple[s
 
 
 def freeze_for_review(fixture: RuntimeFixture, destination: Path) -> dict[str, Any]:
-    require_disjoint(fixture.protected_resource, destination)
+    require_disjoint(fixture_protection(fixture), destination)
     if destination.exists() or destination.is_symlink() or destination.resolve().is_relative_to(fixture.root):
         raise ValueError('review snapshot requires a fresh directory outside the candidate')
     manifest = final_manifest(fixture)
@@ -187,6 +194,9 @@ def review_prompt(fixture: RuntimeFixture, role: str, bindings: dict[str, str], 
         + ('Oversized payload was not read or copied. Host metadata-only observation: '
            + json.dumps(final_manifest(fixture).get('metadata_only_files', []), sort_keys=True) + '\n'
            if fixture.metadata_only_seeds else '')
+        + ('Host-owned simulated policy observation (not real GitHub authorization): '
+           + json.dumps(policy_observation(fixture), sort_keys=True) + '\n'
+           if fixture.policy_context is not None else '')
         + 'Return only a JSON object with these exact bindings and role, replacing status with pass, fail or unknown: '
         + json.dumps({**bindings, 'role': role, 'status': 'unknown',
                       'invocation_nonce': invocation.nonce, 'invocation_sha256': invocation.sha256,
@@ -239,7 +249,7 @@ def load_review_evidence(fixture: RuntimeFixture, artifact: Path, digest: str, *
     if envelope['manifest'] != manifest or not isinstance(envelope['snapshot_root'], str):
         raise ValueError('review is stale or has no snapshot')
     raw_snapshot = Path(envelope['snapshot_root'])
-    require_disjoint(fixture.protected_resource, raw_snapshot)
+    require_disjoint(fixture_protection(fixture), raw_snapshot)
     snapshot = raw_snapshot.resolve(strict=True)
     if not raw_snapshot.is_absolute() or raw_snapshot.is_symlink() or snapshot.is_relative_to(fixture.root):
         raise ValueError('review snapshot must be outside candidate control')

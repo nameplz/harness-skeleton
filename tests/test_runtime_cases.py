@@ -77,7 +77,7 @@ class RuntimeCaseTests(unittest.TestCase):
                 self.assertEqual(base.fixture_sha256, harness.fixture_sha256)
                 self.assertEqual(base.preexisting_files, harness.preexisting_files)
                 self.assertNotEqual(base.fixture_sha256, unseen.fixture_sha256)
-            for case in ('external-response-loss', 'ci-pending', 'policy-change'):
+            for case in ('external-response-loss', 'ci-pending'):
                 target = root / case
                 with self.assertRaises(ValueError):
                     materialize_fixture(case, target, condition='baseline')
@@ -144,9 +144,11 @@ class RuntimeCaseTests(unittest.TestCase):
 
     def test_declared_security_cases_cannot_use_only_correctness_review(self):
         with TemporaryDirectory() as temp:
-            fixture = materialize_fixture('security-boundary', Path(temp) / 'candidate', condition='baseline')
             for case in ('security-boundary', 'policy-change'):
-                current = replace(fixture, case=case)
+                parent = Path(temp).resolve() / case
+                parent.mkdir(mode=0o700)
+                kwargs = {'policy_root': parent / 'policy-context'} if case == 'policy-change' else {}
+                current = materialize_fixture(case, parent / 'candidate', condition='baseline', **kwargs)
                 manifest = final_manifest(current)
                 evidence = ReviewEvidence(case, current.condition, current.seed_head,
                     manifest['seed_manifest_sha256'], manifest['sha256'], '1' * 64, '2' * 64,

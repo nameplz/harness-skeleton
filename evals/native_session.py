@@ -90,9 +90,9 @@ def build_session_command(root: Path, *, binary: BinaryPin, disabled_servers: tu
         environment = {**environment, 'HARNESS_EVAL_NONCE': invocation.nonce,
                        'HARNESS_EVAL_INVOCATION_SHA256': invocation.sha256}
     values = '{' + ','.join(json.dumps(key) + '=' + json.dumps(value) for key, value in environment.items()) + '}'
-    from evals.runtime_boundary import require_read_grants
+    from evals.runtime_boundary import require_read_grants, fixture_protection
     readable = runtime_readable_roots()
-    require_read_grants(invocation.fixture.protected_resource if invocation is not None else None, readable)
+    require_read_grants(fixture_protection(invocation.fixture) if invocation is not None else None, readable)
     return (*base[:-3], *sandbox_options(writable=writable, readable_roots=readable),
             '-c', 'approval_policy="never"', '-c', 'web_search="disabled"',
             '-c', 'model_reasoning_effort="high"', '-c', 'shell_environment_policy.set=' + values,

@@ -26,7 +26,7 @@ CASES = (
     FixtureSpec('bug-fix', 'T1', ('src/dates.py',)),
     FixtureSpec('public-contract', 'T2', ('src/prices.py', 'src/checkout.py', 'src/report.py')),
     FixtureSpec('security-boundary', 'T3', ('src/commands.py',), ('correctness', 'security')),
-    FixtureSpec('policy-change', 'T3', ('.github/workflows/project-ci.yml',), ('correctness', 'security')),
+    FixtureSpec('policy-change', 'T3', ('.github/workflows/project-ci.yml',), ('correctness', 'security'), preserve_git_control=True),
     FixtureSpec('large-file', 'T1', (), expected_validation_states=('size_limited',)),
     FixtureSpec('tool-timeout', 'T1', (), expected_validation_states=('timed_out',)),
     FixtureSpec('session-resume', 'T2', ('src/totals.py', 'task-note.md')),

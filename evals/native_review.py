@@ -66,8 +66,8 @@ def verify_review_snapshot(invocation: Invocation, bindings: ReviewBindings) -> 
     verify_invocation(invocation.fixture, invocation)
     manifest = final_manifest(invocation.fixture)
     snapshot = invocation.execution_root
-    from evals.runtime_boundary import require_disjoint
-    require_disjoint(invocation.fixture.protected_resource, snapshot)
+    from evals.runtime_boundary import require_disjoint, fixture_protection
+    require_disjoint(fixture_protection(invocation.fixture), snapshot)
     if manifest['sha256'] != bindings.final_manifest_sha256 or snapshot.is_relative_to(invocation.fixture.root):
         raise ValueError('review candidate or external snapshot changed')
     expected = [{**row, 'mode': row['mode'] & ~0o222} for row in manifest['files']]
