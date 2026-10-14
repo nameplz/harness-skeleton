@@ -89,6 +89,7 @@ class RuntimeCaseTests(unittest.TestCase):
         self.assertNotEqual(spec.sha256, replace(spec, allowed_changes=('other.py',)).sha256)
         self.assertNotEqual(spec.sha256, replace(spec, required_review_roles=('security',)).sha256)
         self.assertNotEqual(spec.sha256, replace(spec, preserve_git_control=True).sha256)
+        self.assertNotEqual(spec.sha256, replace(spec, expected_validation_states=('failed',)).sha256)
 
     def test_dirty_commit_cannot_hide_user_work_in_changed_head(self):
         with TemporaryDirectory() as temp:

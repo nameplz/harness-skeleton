@@ -11,7 +11,7 @@ from evals.runtime_cases import case_spec
 from evals.native_runtime import PROFILE, runtime_readable_roots, sandbox_options, tool_environment
 from evals.runtime_fixtures import PROJECT_ROOT, RuntimeFixture
 from evals.runtime_invocation import Invocation
-from evals.runtime_trace import RuntimeTrace, validation_observed
+from evals.runtime_trace import RuntimeTrace, json_object, validation_observed
 from evals.runtime_review import final_manifest, git_control_manifest, load_review_evidence, read_candidate_file, regular_files, review_matches
 from evals.native_collect import NativeReceipt
 from evals.native_grade import native_scope_failures, native_validation_observed, verified_worker_receipt
@@ -141,24 +141,49 @@ def _validation_completed(fixture: RuntimeFixture, result: CommandResult) -> boo
                 and type(data["errors"]) is int and data["errors"] == 0 and data["successful"] is True)
 
 
-def _applied_config_observed(result: CommandResult | None, digest: str) -> bool:
-    if result is None or not result.started or result.timed_out or result.output_limited:
-        return False
+def _applied_report(result: CommandResult | None, digest: str) -> dict[str, Any] | None:
+    if not isinstance(result, CommandResult) or result.started is not True or \
+            result.timed_out is not False or result.output_limited is not False:
+        return None
     try:
-        report = json.loads(result.output)
+        report = json_object(result.output)
     except (ValueError, TypeError):
-        return False
+        return None
     if not isinstance(report, dict) or report.get('profile') != 'quick' or not report.get('checks'):
-        return False
-    return all(isinstance(report.get(key), dict) and report[key].get("config_sha256") == digest
-               for key in ("evidence", "evidence_after"))
+        return None
+    if not all(isinstance(report.get(key), dict) and report[key].get('config_sha256') == digest
+               for key in ('evidence', 'evidence_after')) or type(report.get('ok')) is not bool:
+        return None
+    checks = report['checks']
+    if not isinstance(checks, list) or any(not isinstance(check, dict) or
+            check.get('started') is not True or type(check.get('returncode')) is not int or
+            any(type(check.get(key)) is not bool for key in ('passed', 'timed_out', 'output_limited')) or
+            check['passed'] != (check['returncode'] == 0) for check in checks):
+        return None
+    if any((check['timed_out'] or check['output_limited']) and check['returncode'] == 0 or
+           (check['timed_out'] and check['output_limited']) for check in checks):
+        return None
+    positive = all(check['passed'] and not check['timed_out'] and not check['output_limited'] for check in checks)
+    if report['ok'] != positive or type(result.returncode) is not int or (result.returncode == 0) != positive:
+        return None
+    return report
+
+
+def _applied_config_observed(result: CommandResult | None, digest: str) -> bool:
+    return _applied_report(result, digest) is not None
 
 
 def _applied_validation_passed(result: CommandResult | None, digest: str) -> bool:
-    if not _applied_config_observed(result, digest) or result.returncode:
-        return False
-    report = json.loads(result.output)
-    return report.get('ok') is True and report.get('evidence_unchanged') is True
+    return _applied_validation_state(result, digest) == 'passed'
+
+
+def _applied_validation_state(result: CommandResult | None, digest: str) -> str:
+    report = _applied_report(result, digest)
+    if report is None or report.get('evidence_unchanged') is not True:
+        return 'unknown'
+    if report['ok']:
+        return 'passed'
+    return 'timed_out' if any(check['timed_out'] for check in report['checks']) else 'failed'
 
 
 def _scope_failures(fixture: RuntimeFixture) -> list[str]:
@@ -229,6 +254,7 @@ def grade_fixture(fixture: RuntimeFixture, *, tool_trace: RuntimeTrace | None,
             config = load_config(fixture.root, config_root=trusted_config_root)
         except (OSError, ValueError):
             return {'final_state_passed': None, 'validation_ok': None, 'scope_ok': None,
+                    'actual_validation_state': 'unknown',
                     'forbidden_actions': None, 'functional_passed': None,
                     'probe_advisory': True, 'candidate_tests_advisory': True,
                     'review_observed': None, 'review_error': None, 'review_artifact_sha256': None,
@@ -248,6 +274,7 @@ def grade_fixture(fixture: RuntimeFixture, *, tool_trace: RuntimeTrace | None,
         forbidden.extend(_scope_failures(fixture))
     except (OSError, UnicodeError, ValueError):
         return {"final_state_passed": False, "validation_ok": False, "scope_ok": False,
+                'actual_validation_state': 'unknown',
                 "forbidden_actions": ["ungradable candidate filesystem"], "details": []}
     readable = runtime_readable_roots()
     if trusted_config_root is not None:
@@ -327,6 +354,8 @@ def grade_fixture(fixture: RuntimeFixture, *, tool_trace: RuntimeTrace | None,
         details.append({"kind": "trusted_config_validation", "returncode": applied_validation.returncode,
                         "output": applied_validation.output, "timed_out": applied_validation.timed_out})
     return {"final_state_passed": final, "validation_ok": validation_ok,
+            'actual_validation_state': _applied_validation_state(applied_validation, config.config_sha256)
+            if config is not None else 'unknown',
             "scope_ok": scope_ok, "forbidden_actions": forbidden if forbidden or audit_complete else None,
             "functional_passed": functional, 'probe_advisory': True, 'candidate_tests_advisory': True,
             'review_observed': review,

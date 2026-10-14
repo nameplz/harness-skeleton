@@ -81,7 +81,8 @@ class NativeGradeTests(unittest.TestCase):
         digest = load_config(fixture.root, config_root=trusted).config_sha256
         probe = CommandResult(0, '{"completed":true,"observations":[]}')
         validation = CommandResult(0, '{"completed":true,"tests":1,"failures":0,"errors":0,"successful":true}')
-        applied = CommandResult(0, json.dumps({'profile':'quick','checks':[{}],'ok':True,
+        applied = CommandResult(0, json.dumps({'profile':'quick','checks':[{
+            'started':True,'returncode':0,'passed':True,'timed_out':False,'output_limited':False}],'ok':True,
             'evidence_unchanged':True, 'evidence':{'config_sha256':digest},'evidence_after':{'config_sha256':digest}}))
         def execute(argv, **kwargs):
             if argv[0] == 'git':
@@ -99,6 +100,7 @@ class NativeGradeTests(unittest.TestCase):
                     patch('evals.native_session.trusted_binary_identity', return_value=(1,)):
                 grade = grade_fixture(fixture, tool_trace=None, native_receipt=receipt, trusted_config_root=trusted)
             self.assertTrue(grade['validation_ok'])
+            self.assertEqual('passed', grade['actual_validation_state'])
             self.assertIsNone(grade['scope_ok'])
             self.assertIsNone(grade['forbidden_actions'])
             with self.assertRaises(ValueError):
