@@ -12,6 +12,7 @@ import stat
 from uuid import UUID
 
 from evals.runtime_cases import case_spec
+from evals.runtime_boundary import observe_boundary, require_boundary, require_disjoint, requested_policy_sha256
 from evals.runtime_fixtures import PROJECT_ROOT, RuntimeFixture
 from evals.runtime_trace import json_object, open_no_symlink, read_protected_artifact
 
@@ -54,7 +55,9 @@ def load_frozen_source(fixture: RuntimeFixture, path: Path, digest: str) -> Froz
 
 
 def write_frozen_source(fixture: RuntimeFixture, path: Path) -> FrozenSource:
+    require_boundary(fixture)
     path = path.absolute()
+    require_disjoint(fixture.protected_resource, path)
     if path.is_relative_to(fixture.root) or path.resolve().is_relative_to(fixture.root):
         raise ValueError('source freeze must be outside candidate control')
     record = {'schema': 1, 'files_sha256': source_file_hashes()}
@@ -80,7 +83,7 @@ class Invocation:
 
     @property
     def identity(self) -> dict[str, object]:
-        return {'nonce': self.nonce, 'kind': self.kind, 'candidate_root': str(self.fixture.root),
+        identity = {'nonce': self.nonce, 'kind': self.kind, 'candidate_root': str(self.fixture.root),
                 'execution_root': str(self.execution_root), 'artifact_root': str(self.artifact_root),
                 'case': self.fixture.case, 'condition': self.fixture.condition, 'seed_head': self.fixture.seed_head,
                 'seed_manifest_sha256': _digest({'files': self.fixture.seed_files, 'modes': self.fixture.seed_modes}),
@@ -90,6 +93,12 @@ class Invocation:
                 'task_prompt_sha256': hashlib.sha256(self.fixture.prompt.encode()).hexdigest(),
                 'source_manifest_sha256': self.source.manifest_sha256, 'source_sha256': self.source.source_sha256,
                 'final_manifest_sha256': self.final_manifest_sha256}
+        if self.fixture.protected_resource is not None:
+            resource = self.fixture.protected_resource
+            identity['protected_resource_sha256'] = resource.structural_sha256
+            identity['protected_resource_binding_sha256'] = resource.binding_sha256
+            identity['requested_boundary_policy_sha256'] = resource.requested_policy_sha256
+        return identity
 
     @property
     def sha256(self) -> str:
@@ -99,14 +108,19 @@ class Invocation:
 def issue_invocation(fixture: RuntimeFixture, artifact_root: Path, source: FrozenSource, *, model: str,
                      kind: str = 'worker', execution_root: Path | None = None,
                      final_manifest_sha256: str | None = None) -> Invocation:
+    require_boundary(fixture)
     if source != load_frozen_source(fixture, source.path, source.manifest_sha256):
         raise ValueError('source identity changed before launch')
     if kind not in {'worker', 'correctness', 'security'} or not isinstance(model, str) or not model.strip():
         raise ValueError('invalid invocation kind or model')
     root = artifact_root.absolute()
+    require_disjoint(fixture.protected_resource, root)
+    if fixture.protected_resource is not None and observe_boundary(fixture.protected_resource).state != 'intact':
+        raise ValueError('protected resource identity changed before launch')
     if root.exists() or root.is_symlink() or root.is_relative_to(fixture.root) or root.resolve().is_relative_to(fixture.root):
         raise ValueError('invocation needs a fresh protected artifact directory')
     cwd = (execution_root or fixture.root).resolve(strict=True)
+    require_disjoint(fixture.protected_resource, cwd)
     if kind == 'worker' and (cwd != fixture.root or final_manifest_sha256 is not None):
         raise ValueError('worker invocation must use its candidate')
     if kind != 'worker' and (cwd.is_relative_to(fixture.root) or not isinstance(final_manifest_sha256, str)
@@ -119,10 +133,13 @@ def issue_invocation(fixture: RuntimeFixture, artifact_root: Path, source: Froze
 
 
 def verify_invocation(fixture: RuntimeFixture, invocation: Invocation, *, require_session: bool = False) -> None:
+    require_boundary(fixture)
     if not isinstance(invocation, Invocation) or invocation.fixture != fixture:
         raise ValueError('invocation is not for this fixture')
     if invocation.source != load_frozen_source(fixture, invocation.source.path, invocation.source.manifest_sha256):
         raise ValueError('invocation source changed')
+    if fixture.protected_resource is not None and fixture.protected_resource.requested_policy_sha256 != requested_policy_sha256():
+        raise ValueError('requested boundary policy changed')
     record_path = invocation.artifact_root / 'invocation.json'
     if json_object(read_protected_artifact(record_path, fixture, hashlib.sha256(
             (json.dumps(invocation.identity, indent=2) + '\n').encode()).hexdigest())) != invocation.identity:

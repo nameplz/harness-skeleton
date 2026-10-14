@@ -11,6 +11,7 @@ import stat
 from typing import Any
 
 from evals.runtime_cases import case_spec
+from evals.runtime_boundary import observe_boundary, require_boundary, require_disjoint
 from evals.runtime_fixtures import RuntimeFixture
 from evals.native_runtime import build_review_command
 from evals.runtime_invocation import Invocation, consume_invocation, verify_invocation
@@ -74,6 +75,7 @@ def _scan(root: Path) -> tuple[dict[str, Any], ...]:
 
 
 def final_manifest(fixture: RuntimeFixture) -> dict[str, Any]:
+    require_boundary(fixture)
     # Git metadata is resource-checked too; its integrity is graded separately.
     scanned = _scan(fixture.root)
     files = [entry for entry in scanned if not entry['path'].startswith('.git/')]
@@ -81,8 +83,14 @@ def final_manifest(fixture: RuntimeFixture) -> dict[str, Any]:
             'head': fixture.seed_head, 'fixture_sha256': fixture.fixture_sha256, 'files': fixture.seed_files,
             'modes': fixture.seed_modes, 'spec_sha256': case_spec(fixture.case).sha256,
             'git_control_files': fixture.git_control_files}
+    if fixture.protected_resource is not None:
+        seed['protected_resource_sha256'] = fixture.protected_resource.structural_sha256
+        seed['protected_resource_binding_sha256'] = fixture.protected_resource.binding_sha256
     identity = {'schema': 1, 'case': fixture.case, 'condition': fixture.condition,
                 'seed_head': fixture.seed_head, 'seed_manifest_sha256': _digest(seed), 'files': files}
+    if fixture.protected_resource is not None:
+        observed = observe_boundary(fixture.protected_resource)
+        identity['protected_resource'] = {'state': observed.state, 'sha256': observed.sha256}
     if fixture.git_control_files:
         identity['git_control_sha256'] = _digest(_git_entries(scanned))
     return {**identity, 'sha256': _digest(identity)}
@@ -102,6 +110,7 @@ def regular_files(root: Path) -> tuple[str, ...]:
 
 
 def freeze_for_review(fixture: RuntimeFixture, destination: Path) -> dict[str, Any]:
+    require_disjoint(fixture.protected_resource, destination)
     if destination.exists() or destination.is_symlink() or destination.resolve().is_relative_to(fixture.root):
         raise ValueError('review snapshot requires a fresh directory outside the candidate')
     manifest = final_manifest(fixture)
@@ -126,6 +135,10 @@ def review_matches(fixture: RuntimeFixture, evidence: ReviewEvidence | None, *,
                    source_sha256: str | None) -> bool | None:
     if not isinstance(evidence, ReviewEvidence) or None in (config_sha256, suite_sha256, source_sha256):
         return None
+    try:
+        require_boundary(fixture)
+    except ValueError:
+        return None
     manifest = final_manifest(fixture)
     actual = (fixture.case, fixture.condition, fixture.seed_head, manifest['seed_manifest_sha256'],
               manifest['sha256'], config_sha256, suite_sha256, source_sha256)
@@ -145,6 +158,7 @@ def review_matches(fixture: RuntimeFixture, evidence: ReviewEvidence | None, *,
 
 
 def review_prompt(fixture: RuntimeFixture, role: str, bindings: dict[str, str], *, invocation: Invocation) -> str:
+    require_boundary(fixture)
     if role not in {'correctness', 'security'}:
         raise ValueError('invalid review role')
     return (
@@ -206,6 +220,7 @@ def load_review_evidence(fixture: RuntimeFixture, artifact: Path, digest: str, *
     if envelope['manifest'] != manifest or not isinstance(envelope['snapshot_root'], str):
         raise ValueError('review is stale or has no snapshot')
     raw_snapshot = Path(envelope['snapshot_root'])
+    require_disjoint(fixture.protected_resource, raw_snapshot)
     snapshot = raw_snapshot.resolve(strict=True)
     if not raw_snapshot.is_absolute() or raw_snapshot.is_symlink() or snapshot.is_relative_to(fixture.root):
         raise ValueError('review snapshot must be outside candidate control')

@@ -78,11 +78,23 @@ class RuntimeCaseTests(unittest.TestCase):
                 self.assertEqual(base.preexisting_files, harness.preexisting_files)
                 self.assertNotEqual(base.fixture_sha256, unseen.fixture_sha256)
             for case in ('large-file', 'tool-timeout', 'external-response-loss', 'ci-pending',
-                         'policy-change', 'untrusted-instruction'):
+                         'policy-change'):
                 target = root / case
                 with self.assertRaises(ValueError):
                     materialize_fixture(case, target, condition='baseline')
                 self.assertFalse(target.exists())
+
+    def test_untrusted_case_pairs_materialize_with_explicit_boundary(self):
+        from evals.runtime_boundary import new_boundary_seed
+        with TemporaryDirectory() as temp:
+            root = Path(temp).resolve(); seed = new_boundary_seed(); fixtures = []
+            for condition in ('baseline', 'harness'):
+                parent = root / condition; parent.mkdir()
+                fixtures.append(materialize_fixture('untrusted-instruction', parent / 'candidate',
+                    condition=condition, protected_root=parent / 'protected', boundary_seed=seed))
+            self.assertEqual(fixtures[0].fixture_sha256, fixtures[1].fixture_sha256)
+            self.assertEqual(fixtures[0].prompt, fixtures[1].prompt)
+            self.assertIsNotNone(fixtures[0].protected_resource)
 
     def test_policy_identity_changes_with_scope_and_roles(self):
         spec = case_spec('public-contract')
@@ -134,7 +146,7 @@ class RuntimeCaseTests(unittest.TestCase):
     def test_declared_security_cases_cannot_use_only_correctness_review(self):
         with TemporaryDirectory() as temp:
             fixture = materialize_fixture('security-boundary', Path(temp) / 'candidate', condition='baseline')
-            for case in ('security-boundary', 'policy-change', 'untrusted-instruction'):
+            for case in ('security-boundary', 'policy-change'):
                 current = replace(fixture, case=case)
                 manifest = final_manifest(current)
                 evidence = ReviewEvidence(case, current.condition, current.seed_head,

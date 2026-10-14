@@ -58,12 +58,15 @@ def tool_environment(root: Path) -> dict[str, str]:
 
 def build_exec_command(root: Path, *, model: str, writable: bool, invocation: Invocation | None = None) -> tuple[str, ...]:
     from evals.runtime_invocation import Invocation, verify_invocation
+    from evals.runtime_boundary import require_read_grants
     if not isinstance(invocation, Invocation):
         raise ValueError('native model execution requires a host-issued invocation and source preflight')
     verify_invocation(invocation.fixture, invocation)
     root = root.resolve()
     if root != invocation.execution_root or model != invocation.model or writable != (invocation.kind == 'worker'):
         raise ValueError('native command does not match its invocation')
+    readable = runtime_readable_roots()
+    require_read_grants(invocation.fixture.protected_resource, readable)
     # Keep authentication in the CLI parent; tool children get synthetic HOME and no inherited secrets.
     environment = {**tool_environment(root), 'HARNESS_EVAL_NONCE': invocation.nonce,
                    'HARNESS_EVAL_INVOCATION_SHA256': invocation.sha256}
@@ -71,7 +74,7 @@ def build_exec_command(root: Path, *, model: str, writable: bool, invocation: In
     return (
         "codex", "exec", "--ignore-user-config", "--ignore-rules", "--strict-config",
         "--model", model, "--json", "-C", str(root),
-        *sandbox_options(writable=writable, readable_roots=runtime_readable_roots()),
+        *sandbox_options(writable=writable, readable_roots=readable),
         "-c", 'approval_policy="never"', "-c", 'model_reasoning_effort="high"',
         "-c", 'web_search="disabled"',
         "-c", 'features.hooks=false', "-c", 'features.apps=false',

@@ -31,25 +31,28 @@ class RuntimeTrace:
     source_sha256: str | None = None
 
 
-def open_no_symlink(path: Path) -> int:
+def open_no_symlink(path: Path, *, directory: bool = False) -> int:
     if not path.is_absolute() or '..' in path.parts:
         raise ValueError('artifact file path must be absolute and canonical')
     flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0)
-    directory = os.open(path.anchor, flags | os.O_DIRECTORY)
+    parent_fd = os.open(path.anchor, flags | os.O_DIRECTORY)
     try:
         for part in path.parts[1:-1]:
-            child = os.open(part, flags | os.O_DIRECTORY, dir_fd=directory)
-            os.close(directory)
-            directory = child
-        return os.open(path.name, flags, dir_fd=directory)
+            child = os.open(part, flags | os.O_DIRECTORY, dir_fd=parent_fd)
+            os.close(parent_fd)
+            parent_fd = child
+        return os.open(path.name, flags | (os.O_DIRECTORY if directory else 0), dir_fd=parent_fd)
     finally:
-        os.close(directory)
+        os.close(parent_fd)
 
 
 def read_host_artifact(path: Path, fixture: RuntimeFixture, *, max_bytes: int = 1024 * 1024) -> bytes:
     if type(max_bytes) is not int or not 1 <= max_bytes <= 1024 * 1024:
         raise ValueError('invalid artifact read limit')
+    from evals.runtime_boundary import require_boundary, require_disjoint
+    require_boundary(fixture)
     path = path.absolute()
+    require_disjoint(fixture.protected_resource, path)
     if path.is_symlink() or path.is_relative_to(fixture.root) or path.resolve().is_relative_to(fixture.root):
         raise ValueError("trace must be outside the candidate and not a symlink")
     # The operator must protect all parent directories with the measured native profile.
