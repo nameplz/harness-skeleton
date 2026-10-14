@@ -263,6 +263,16 @@ class _SessionExchange(_ConfigExchange):
             self.stage = 'mcpServerStatus/list'
             statuses.append(_mcp(self.request(request_id, 'mcpServerStatus/list', {
                 'threadId': identity, 'serverName': name, 'detail': 'full', 'cursor': None, 'limit': 1}), name))
+        self.stage = 'thread/start notification'
+        while not self.started:
+            while b'\n' not in self.buffer:
+                self.pump()
+            raw, _, tail = self.buffer.partition(b'\n')
+            self.buffer = bytearray(tail)
+            message = self.decode(bytes(raw))
+            if 'method' not in message:
+                raise ValueError('unexpected response while waiting for native thread start')
+            self.notification(message)
         return SessionEvidence(identity, session_id, model, writable, PROFILE, ':workspace' if writable else ':read-only',
             _sha(str(root)), _sha([str(root)]), ('local',), sources, config, tuple(statuses))
 

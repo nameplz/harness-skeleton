@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from evals.native_config import BinaryPin, FEATURES
-from evals.native_session import NativeSessionError, build_session_command, inspect_native_session
+from evals.native_session import NativeSessionError, build_session_command, inspect_native_session, native_session
 
 
 class NativeSessionTests(unittest.TestCase):
@@ -83,6 +83,34 @@ for line in sys.stdin:
             self.assertEqual(0, result.returncode)
             self.assertNotIn('SENTINEL', json.dumps(asdict(result)))
             self.assertNotIn('pro', result.auth_modes)
+
+    def test_delayed_start_is_consumed_before_session_is_yielded_to_turn_handler(self):
+        with TemporaryDirectory() as temp:
+            root=Path(temp).resolve()
+            command=self._server(root)
+            path=root/'fake-server.py'
+            path.write_text(path.read_text().replace('    if pending:',
+                "    if pending and method == 'mcpServerStatus/list':"))
+            forwarded=[]
+            with patch('evals.native_session.build_session_command',return_value=command):
+                with native_session(root,binary=self._binary(),model='gpt-6.1-sol',disabled_servers=('docs',)) as (exchange,evidence):
+                    self.assertEqual([evidence.thread_id],exchange.started)
+                    exchange.turn_handler=forwarded.append
+            self.assertEqual([],forwarded)
+
+    def test_missing_start_times_out_before_yielding_a_turn_capability(self):
+        with TemporaryDirectory() as temp:
+            root=Path(temp).resolve();command=self._server(root)
+            path=root/'fake-server.py';path.write_text(path.read_text().replace('    if pending:','    if False:'))
+            yielded=False
+            with patch('evals.native_session.build_session_command',return_value=command):
+                with self.assertRaises(NativeSessionError) as caught:
+                    with native_session(root,binary=self._binary(),model='gpt-6.1-sol',
+                            disabled_servers=('docs',),timeout_seconds=0.2):
+                        yielded=True
+            self.assertFalse(yielded)
+            self.assertEqual('timeout',caught.exception.failure.reason)
+            self.assertEqual('thread/start notification',caught.exception.failure.failure_stage)
 
     def test_invalid_roots_profile_environment_or_guidance_stop_before_mcp(self):
         changes = (
