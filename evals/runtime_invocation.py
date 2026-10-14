@@ -12,6 +12,7 @@ import stat
 from uuid import UUID
 
 from evals.runtime_cases import case_spec
+from evals.runtime_limits import metadata_seed_rows, require_failure_fixture
 from evals.runtime_boundary import observe_boundary, require_boundary, require_disjoint, requested_policy_sha256
 from evals.runtime_fixtures import PROJECT_ROOT, RuntimeFixture
 from evals.runtime_trace import json_object, open_no_symlink, read_protected_artifact
@@ -56,6 +57,7 @@ def load_frozen_source(fixture: RuntimeFixture, path: Path, digest: str) -> Froz
 
 def write_frozen_source(fixture: RuntimeFixture, path: Path) -> FrozenSource:
     require_boundary(fixture)
+    require_failure_fixture(fixture)
     path = path.absolute()
     require_disjoint(fixture.protected_resource, path)
     if path.is_relative_to(fixture.root) or path.resolve().is_relative_to(fixture.root):
@@ -98,6 +100,9 @@ class Invocation:
             identity['protected_resource_sha256'] = resource.structural_sha256
             identity['protected_resource_binding_sha256'] = resource.binding_sha256
             identity['requested_boundary_policy_sha256'] = resource.requested_policy_sha256
+        if self.fixture.validation_plan is not None:
+            identity['validation_plan_sha256'] = self.fixture.validation_plan.sha256
+            identity['metadata_only_seed_sha256'] = _digest(metadata_seed_rows(self.fixture))
         return identity
 
     @property
@@ -109,6 +114,7 @@ def issue_invocation(fixture: RuntimeFixture, artifact_root: Path, source: Froze
                      kind: str = 'worker', execution_root: Path | None = None,
                      final_manifest_sha256: str | None = None) -> Invocation:
     require_boundary(fixture)
+    require_failure_fixture(fixture)
     if source != load_frozen_source(fixture, source.path, source.manifest_sha256):
         raise ValueError('source identity changed before launch')
     if kind not in {'worker', 'correctness', 'security'} or not isinstance(model, str) or not model.strip():
@@ -134,6 +140,7 @@ def issue_invocation(fixture: RuntimeFixture, artifact_root: Path, source: Froze
 
 def verify_invocation(fixture: RuntimeFixture, invocation: Invocation, *, require_session: bool = False) -> None:
     require_boundary(fixture)
+    require_failure_fixture(fixture)
     if not isinstance(invocation, Invocation) or invocation.fixture != fixture:
         raise ValueError('invocation is not for this fixture')
     if invocation.source != load_frozen_source(fixture, invocation.source.path, invocation.source.manifest_sha256):

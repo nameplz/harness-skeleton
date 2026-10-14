@@ -77,8 +77,7 @@ class RuntimeCaseTests(unittest.TestCase):
                 self.assertEqual(base.fixture_sha256, harness.fixture_sha256)
                 self.assertEqual(base.preexisting_files, harness.preexisting_files)
                 self.assertNotEqual(base.fixture_sha256, unseen.fixture_sha256)
-            for case in ('large-file', 'tool-timeout', 'external-response-loss', 'ci-pending',
-                         'policy-change'):
+            for case in ('external-response-loss', 'ci-pending', 'policy-change'):
                 target = root / case
                 with self.assertRaises(ValueError):
                     materialize_fixture(case, target, condition='baseline')
