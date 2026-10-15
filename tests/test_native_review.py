@@ -35,7 +35,7 @@ class NativeReviewTests(unittest.TestCase):
                 path.chmod(0o755)
         snapshot.chmod(0o755)
 
-    def review(self, root, context, role='correctness', verdict_change=None, session=ID):
+    def review(self, root, context, role='correctness', verdict_change=None, session=ID, verdict_text=None):
         fixture, snapshot, source, bindings = context
         invocation = issue_invocation(fixture, root / role, source, model='test-model', kind=role,
             execution_root=snapshot, final_manifest_sha256=bindings.final_manifest_sha256)
@@ -49,7 +49,7 @@ class NativeReviewTests(unittest.TestCase):
         server = server.replace("'extends':':workspace'", "'extends':':read-only'")
         server = server.replace("'type':'workspaceWrite'", "'type':'readOnly'")
         server = server.replace(",'writableRoots':[],'excludeTmpdirEnvVar':True,'excludeSlashTmp':True", "")
-        server = server.replace("'text':'done'", "'text':" + repr(json.dumps(verdict)))
+        server = server.replace("'text':'done'", "'text':" + repr(json.dumps(verdict) if verdict_text is None else verdict_text))
         server = server.replace(ID, session)
         script.write_text(server)
         command = (sys.executable, '-I', '-B', str(script), str(snapshot), str(invocation.artifact_root))

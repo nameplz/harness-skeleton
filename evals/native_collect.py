@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
+from contextlib import ExitStack
 import hashlib
 import json
 import re
+import os
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,6 +18,10 @@ from evals.native_telemetry import validate_account
 from evals.native_turn import DELTAS, TurnCollector, TurnEvidence, _integer
 from evals.runtime_invocation import Invocation, consume_invocation, verify_invocation
 from evals.runtime_trace import json_object, read_host_artifact, read_protected_artifact
+from evals.runtime_remote import (RemoteBinding, remote_tools, write_remote_receipt,
+                                 load_remote_receipt)
+from evals.native_dynamic import (begin_dynamic, dynamic_item, dynamic_request,
+    dynamic_response_sent, finish_dynamic)
 from scripts.command_runner import _command_environment
 
 ACCOUNTS = frozenset({'account/updated', 'account/rateLimits/updated'})
@@ -48,13 +54,20 @@ def _policy(invocation: Invocation, binary: BinaryPin, servers: tuple[str, ...],
         not re.fullmatch(r'[0-9a-f]{64}', v) for v in row) for row in instructions) or \
             len({row[0] for row in instructions}) != len(instructions):
         raise ValueError('invalid host instruction source allowlist')
-    return {'schema': 1, 'invocation_sha256': invocation.sha256, 'source_sha256': invocation.source.source_sha256,
+    policy = {'schema': 1, 'invocation_sha256': invocation.sha256, 'source_sha256': invocation.source.source_sha256,
             'binary_sha256': binary.sha256, 'disabled_servers': list(servers), 'request_id': REQUEST_ID,
             'client_id': client, 'prompt_sha256': _sha(canonical_prompt(invocation, bindings).encode()),
             'review_bindings': bindings.as_dict() if bindings is not None else None,
             'instruction_sources': [list(row) for row in instructions],
             'environment_sha256': _sha(json.dumps(_command_environment(), sort_keys=True).encode()),
             'guidance_sha256': _sha(native_guidance(invocation).encode())}
+    if invocation.fixture.remote_context is not None:
+        context = invocation.fixture.remote_context
+        policy['remote'] = {'context_sha256': context.structural_sha256,
+            'binding_sha256': context.binding_sha256, 'protocol_sha256': context.protocol_sha256,
+            'source_sha256': context.source_sha256,
+            'dynamic_tools': remote_tools(context) if invocation.kind == 'worker' else []}
+    return policy
 
 
 @dataclass(frozen=True)
@@ -73,11 +86,18 @@ class NativeReceipt:
     telemetry: tuple[tuple[str, int], ...]
     returncode: int
     process_tree_cleanup_verified: bool = False
+    dynamic_json: str | None = None
 
 
 class _Dispatch:
-    def __init__(self, thread: str, root: Path, prompt: str, client: str):
-        self.collector = TurnCollector(thread, root, prompt)
+    def __init__(self, thread: str, root: Path, prompt: str, client: str, invocation: Invocation | None = None):
+        self.invocation = invocation
+        self.remote_context = (invocation.fixture.remote_context if invocation is not None
+                               and invocation.kind == 'worker' else None)
+        tools = tuple(row['name'] for row in remote_tools(self.remote_context)) if self.remote_context else ()
+        self.collector = TurnCollector(thread, root, prompt, dynamic_tools=tools)
+        self.dynamic = None
+        self.callback_replay = None
         self.client = client
         self.pending: tuple[dict, ...] = ()
         self.telemetry: tuple[tuple[str, int], ...] = ()
@@ -124,7 +144,28 @@ class _Dispatch:
         item = message['params'].get('item')
         if isinstance(item, dict) and item.get('type') == 'userMessage' and item.get('clientId') != self.client:
             raise ValueError('native user message differs from request identity')
+        is_dynamic = isinstance(item, dict) and item.get('type') == 'dynamicToolCall'
+        if is_dynamic:
+            if self.dynamic is None:
+                raise ValueError('native dynamic item has no bound remote capability')
+            self.dynamic = dynamic_item(self.dynamic, message)
         self.collector.notification(message)
+        if message['method'] == 'turn/started' and self.remote_context is not None:
+            if self.dynamic is not None:
+                raise ValueError('native remote turn was already bound')
+            invocation = self.invocation
+            binding = RemoteBinding(invocation.nonce, invocation.sha256, invocation.source.source_sha256,
+                invocation.session_id, self.collector.thread_id, self.collector.turn_id)
+            self.dynamic = begin_dynamic(self.remote_context, binding)
+        if is_dynamic and message['method'] == 'item/started' and self.callback_replay is not None:
+            self.callback_replay(self)
+
+    def server_request(self, raw: bytes, send) -> None:
+        if self.dynamic is None or not self.collector.bound or self.collector.status is not None or self.closed:
+            raise ValueError('native callback lacks a current remote worker turn')
+        updated, response = dynamic_request(self.dynamic, raw)
+        send(response)
+        self.dynamic = dynamic_response_sent(updated, response)
 
     def response(self, message: dict) -> None:
         if set(message) != {'id', 'result'} or type(message['id']) is not int or message['id'] != REQUEST_ID:
@@ -136,11 +177,16 @@ class _Dispatch:
 
 
 def _pop(exchange) -> dict:
+    _, message = _pop_raw(exchange)
+    return message
+
+
+def _pop_raw(exchange) -> tuple[bytes, dict]:
     while b'\n' not in exchange.buffer:
         exchange.pump()
     raw, _, tail = exchange.buffer.partition(b'\n')
     exchange.buffer = bytearray(tail)
-    return exchange.decode(bytes(raw))
+    return bytes(raw) + b'\n', exchange.decode(bytes(raw))
 
 
 def collect_native_turn(invocation: Invocation, *, binary: BinaryPin,
@@ -180,13 +226,38 @@ def collect_native_turn(invocation: Invocation, *, binary: BinaryPin,
 
 
 def _run_turn(exchange, thread_id: str, invocation: Invocation, client: str, request: dict, incoming, bindings: ReviewBindings | None) -> _Dispatch:
+    with ExitStack() as stack:
+        streams = None
+        if invocation.kind == 'worker' and invocation.fixture.remote_context is not None:
+            streams = tuple(stack.enter_context(os.fdopen(os.open(invocation.artifact_root / name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), 'wb'))
+                for name in ('dynamic-rpc.in.jsonl', 'dynamic-rpc.out.jsonl'))
+        return _exchange_turn(exchange, thread_id, invocation, client, request, incoming, bindings, streams)
+
+
+def _exchange_turn(exchange, thread_id, invocation, client, request, incoming, bindings, streams):
     root = invocation.artifact_root
-    dispatch = _Dispatch(thread_id, invocation.execution_root, canonical_prompt(invocation, bindings), client)
+    dispatch = _Dispatch(thread_id, invocation.execution_root, canonical_prompt(invocation, bindings), client,
+                         exchange.invocation)
+    dynamic_bytes = (0, 0)
+    def dynamic_write(index: int, raw: bytes) -> None:
+        nonlocal dynamic_bytes
+        if streams is None or len(raw) > 65536 or dynamic_bytes[index] + len(raw) > 65536:
+            raise ValueError('native dynamic transport exceeded its capability or byte limit')
+        streams[index].write(raw)
+        streams[index].flush()
+        dynamic_bytes = tuple(value + len(raw) if position == index else value
+                              for position, value in enumerate(dynamic_bytes))
     def capture(raw: bytes, message: dict) -> None:
         # Account/config payloads stay private. This file is a filtered turn transport log.
         if 'method' not in message or message.get('method') in TURN_METHODS | BOOKKEEPING:
             incoming.write(raw + b'\n')
             incoming.flush()
+        elif message.get('method') == 'item/tool/call':
+            dynamic_write(0, raw + b'\n')
+    def send_response(raw: bytes) -> None:
+        exchange.send_raw(raw)
+        dynamic_write(1, raw)
     exchange.raw_handler, exchange.turn_handler = capture, dispatch.notification
     exchange.stage = 'turn/run'
     request = {**request, 'params': {**request['params'], 'threadId': thread_id}}
@@ -197,8 +268,10 @@ def _run_turn(exchange, thread_id: str, invocation: Invocation, client: str, req
         outgoing.write(request_raw)
     exchange.send(request)
     while not dispatch.collector.bound or dispatch.collector.status is None:
-        message = _pop(exchange)
-        if 'method' in message:
+        raw, message = _pop_raw(exchange)
+        if 'method' in message and 'id' in message:
+            dispatch.server_request(raw, send_response)
+        elif 'method' in message:
             dispatch.notification(message)
         else:
             dispatch.response(message)
@@ -219,18 +292,85 @@ def _seal(exchange, session, dispatch: _Dispatch, turn: TurnEvidence, policy: by
         'environment_sha256': exchange.environment_sha256, 'session': asdict(session), 'telemetry': dispatch.telemetry,
         'binary_identity': exchange.binary_identity,
         'returncode': exchange.process.returncode, 'process_tree_cleanup_verified': False}
+    dynamic = finish_dynamic(dispatch.dynamic) if dispatch.dynamic is not None else None
+    if dynamic is not None:
+        metadata['dynamic'] = _seal_dynamic(exchange.invocation, dispatch, dynamic)
     raw = _json(metadata)
     with (root / 'turn.json').open('xb') as stream:
         stream.write(raw)
     bound = replace(exchange.invocation, native_receipt_sha256=_sha(raw))
-    return _receipt(bound, turn, metadata)
+    return _receipt(bound, turn, metadata, dynamic)
 
 
-def _receipt(invocation: Invocation, turn: TurnEvidence, data: dict) -> NativeReceipt:
+def _receipt(invocation: Invocation, turn: TurnEvidence, data: dict, dynamic=None) -> NativeReceipt:
     return NativeReceipt(invocation, turn, data['rpc_in_sha256'], data['rpc_out_sha256'], data['policy_sha256'],
         data['stdout_sha256'], data['stderr_sha256'], data['stdout_bytes'], data['stderr_bytes'],
         data['environment_sha256'], json.dumps(data['session'], sort_keys=True),
-        tuple(tuple(row) for row in data['telemetry']), data['returncode'], data['process_tree_cleanup_verified'])
+        tuple(tuple(row) for row in data['telemetry']), data['returncode'], data['process_tree_cleanup_verified'],
+        json.dumps(asdict(dynamic), sort_keys=True) if dynamic is not None else None)
+
+
+def _seal_dynamic(invocation: Invocation, dispatch: _Dispatch, evidence) -> dict:
+    root, fixture = invocation.artifact_root, invocation.fixture
+    if evidence.declaration_sha256 != fixture.remote_context.protocol_sha256:
+        raise ValueError('native dynamic declaration changed')
+    receipt = write_remote_receipt(dispatch.dynamic.remote, root / 'remote-receipt.json')
+    if receipt != evidence.remote_receipt:
+        raise ValueError('native remote receipt differs from lifecycle')
+    raw = _json(asdict(evidence))
+    if len(raw) > 1024 * 1024:
+        raise ValueError('native dynamic evidence exceeded its limit')
+    with (root / 'dynamic.json').open('xb') as stream:
+        stream.write(raw)
+    return {'evidence_sha256': _sha(raw), 'remote_receipt_sha256': receipt.sha256,
+            'rpc_in_sha256': _sha(read_host_artifact(root / 'dynamic-rpc.in.jsonl', fixture, max_bytes=65536)),
+            'rpc_out_sha256': _sha(read_host_artifact(root / 'dynamic-rpc.out.jsonl', fixture, max_bytes=65536))}
+
+
+def _replay_callbacks(invocation: Invocation, metadata: dict, dispatch: _Dispatch):
+    if dispatch.remote_context is None:
+        if metadata.get('dynamic') is not None:
+            raise ValueError('native dynamic evidence belongs only to remote workers')
+        return lambda: None
+    data = metadata.get('dynamic')
+    if not isinstance(data, dict) or set(data) != {'evidence_sha256', 'remote_receipt_sha256',
+                                                 'rpc_in_sha256', 'rpc_out_sha256'}:
+        raise ValueError('native dynamic evidence bindings unavailable')
+    root, fixture = invocation.artifact_root, invocation.fixture
+    raw = []
+    for name, key in (('dynamic-rpc.in.jsonl', 'rpc_in_sha256'), ('dynamic-rpc.out.jsonl', 'rpc_out_sha256')):
+        value = read_host_artifact(root / name, fixture, max_bytes=65536)
+        if _sha(value) != data[key]:
+            raise ValueError('native dynamic transport digest changed')
+        raw.append(value.splitlines(keepends=True))
+    if not raw[0] or len(raw[0]) != len(raw[1]) or len(raw[0]) > 16:
+        raise ValueError('native dynamic transport is incomplete or unbounded')
+    pairs = tuple(zip(*raw))
+    position = 0
+    def callback(current):
+        nonlocal position
+        if position >= len(pairs):
+            raise ValueError('native dynamic lifecycle exceeds recorded transport')
+        request, expected_response = pairs[position]
+        def sent(response):
+            if response != expected_response:
+                raise ValueError('native dynamic response bytes differ from recorded writes')
+        current.server_request(request, sent)
+        position += 1
+    dispatch.callback_replay = callback
+    def finish():
+        if position != len(pairs) or dispatch.dynamic is None:
+            raise ValueError('native dynamic transport was not fully consumed')
+        evidence = finish_dynamic(dispatch.dynamic)
+        original = read_protected_artifact(root / 'dynamic.json', fixture, data['evidence_sha256'])
+        if original.encode() != _json(asdict(evidence)):
+            raise ValueError('native dynamic evidence differs from raw transport replay')
+        receipt = load_remote_receipt(fixture.remote_context, dispatch.dynamic.binding,
+                                     root / 'remote-receipt.json', data['remote_receipt_sha256'])
+        if receipt != evidence.remote_receipt:
+            raise ValueError('native remote receipt differs from replay')
+        return evidence
+    return finish
 
 
 def _read_native_turn(invocation: Invocation, *, binary: BinaryPin,
@@ -265,7 +405,9 @@ def _read_native_turn(invocation: Invocation, *, binary: BinaryPin,
         'clientUserMessageId': client, 'input': [{'type': 'text', 'text': canonical_prompt(invocation, bindings), 'text_elements': []}]}}
     if request != expected_request or data['returncode'] != 0:
         raise ValueError('native request or exit differs from invocation')
-    dispatch = _Dispatch(invocation.session_id, invocation.execution_root, canonical_prompt(invocation, bindings), client)
+    dispatch = _Dispatch(invocation.session_id, invocation.execution_root, canonical_prompt(invocation, bindings), client,
+                         invocation)
+    finish_callbacks = _replay_callbacks(invocation, data, dispatch)
     raw = read_protected_artifact(root / 'rpc.in.jsonl', fixture, data['rpc_in_sha256'])
     if not raw.endswith('\n'):
         raise ValueError('incomplete native transport line')
@@ -280,7 +422,7 @@ def _read_native_turn(invocation: Invocation, *, binary: BinaryPin,
     turn = dispatch.collector.result()
     if data['turn_sha256'] != _sha(_json(asdict(turn))):
         raise ValueError('native turn projection changed')
-    return _receipt(invocation, turn, data)
+    return _receipt(invocation, turn, data, finish_callbacks())
 
 
 def load_native_turn(invocation: Invocation, *, binary: BinaryPin,

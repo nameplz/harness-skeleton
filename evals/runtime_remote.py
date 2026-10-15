@@ -149,6 +149,18 @@ def remote_tools(context: RemoteContext) -> list[dict]:
     return _recipe(context.case, context.variant)['tools']
 
 
+def require_remote_fixture(fixture) -> None:
+    context = fixture.remote_context
+    if fixture.case not in {'external-response-loss', 'ci-pending'}:
+        if context is not None:
+            raise ValueError('remote context belongs only to remote cases')
+        return
+    if not isinstance(context, RemoteContext) or context.candidate_root != fixture.root \
+            or context.case != fixture.case or context.variant != fixture.variant:
+        raise ValueError('remote fixture requires its exact host-owned context')
+    require_remote_context(context)
+
+
 @dataclass(frozen=True)
 class RemoteBinding:
     nonce: str

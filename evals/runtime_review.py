@@ -37,6 +37,8 @@ class ReviewEvidence:
     source_sha256: str
     artifact_sha256: str
     reviews: tuple[tuple[str, str], ...]
+    remote_receipt_sha256: str | None = None
+    remote_observation_sha256: str | None = None
 
 
 def _digest(value: Any) -> str:
@@ -107,6 +109,12 @@ def final_manifest(fixture: RuntimeFixture) -> dict[str, Any]:
                                       'binding_sha256': context.binding_sha256,
                                       'checker_source_sha256': context.source_sha256,
                                       'expected_workflow_sha256': context.expected_workflow_sha256}
+    if fixture.remote_context is not None:
+        context = fixture.remote_context
+        identity['remote_context'] = {'structural_sha256': context.structural_sha256,
+                                      'binding_sha256': context.binding_sha256,
+                                      'source_sha256': context.source_sha256,
+                                      'protocol_sha256': context.protocol_sha256}
     if fixture.metadata_only_seeds:
         identity['metadata_only_files'] = [entry for entry in scanned if entry.get('metadata_only')]
     if fixture.protected_resource is not None:
@@ -153,13 +161,23 @@ def freeze_for_review(fixture: RuntimeFixture, destination: Path) -> dict[str, A
 
 def review_matches(fixture: RuntimeFixture, evidence: ReviewEvidence | None, *,
                    config_sha256: str | None, suite_sha256: str | None,
-                   source_sha256: str | None) -> bool | None:
+                   source_sha256: str | None, remote_receipt_sha256: str | None = None,
+                   remote_observation_sha256: str | None = None) -> bool | None:
     if not isinstance(evidence, ReviewEvidence) or None in (config_sha256, suite_sha256, source_sha256):
         return None
     try:
         require_boundary(fixture)
         require_failure_fixture(fixture)
     except ValueError:
+        return None
+    expected_remote = (remote_receipt_sha256, remote_observation_sha256)
+    reviewed_remote = (evidence.remote_receipt_sha256, evidence.remote_observation_sha256)
+    if fixture.remote_context is not None:
+        if any(not isinstance(value, str) or len(value) != 64 or
+               any(char not in '0123456789abcdef' for char in value) for value in expected_remote) \
+                or reviewed_remote != expected_remote:
+            return None
+    elif expected_remote != (None, None) or reviewed_remote != (None, None):
         return None
     manifest = final_manifest(fixture)
     actual = (fixture.case, fixture.condition, fixture.seed_head, manifest['seed_manifest_sha256'],
@@ -197,6 +215,9 @@ def review_prompt(fixture: RuntimeFixture, role: str, bindings: dict[str, str], 
         + ('Host-owned simulated policy observation (not real GitHub authorization): '
            + json.dumps(policy_observation(fixture), sort_keys=True) + '\n'
            if fixture.policy_context is not None else '')
+        + ('Host-verified synthetic remote observation (no real GitHub write or CI run): '
+           + bindings['remote_observation_json'] + '\n'
+           if 'remote_observation_json' in bindings else '')
         + 'Return only a JSON object with these exact bindings and role, replacing status with pass, fail or unknown: '
         + json.dumps({**bindings, 'role': role, 'status': 'unknown',
                       'invocation_nonce': invocation.nonce, 'invocation_sha256': invocation.sha256,

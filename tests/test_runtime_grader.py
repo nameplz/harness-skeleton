@@ -6,7 +6,7 @@ from unittest.mock import patch
 import unittest
 
 from evals.runtime_fixtures import materialize_fixture
-from evals.runtime_grader import _scope_failures, grade_fixture, hidden_probe
+from evals.runtime_grader import _completed_data, _scope_failures, grade_fixture, hidden_probe
 from evals.runtime_trace import RuntimeTrace
 from evals.runtime_fixtures import VALIDATION_CONFIG
 from scripts.command_runner import run_bounded_command
@@ -14,6 +14,10 @@ from scripts.command_runner import CommandResult
 
 
 class RuntimeGraderTests(unittest.TestCase):
+    def test_deep_candidate_probe_output_is_unavailable(self) -> None:
+        output = '{"completed":true,"nested":' + '[' * 10000 + '0' + ']' * 10000 + '}'
+        self.assertIsNone(_completed_data(CommandResult(0, output)))
+
     def test_missing_or_invalid_trusted_config_is_unknown_without_execution(self) -> None:
         with TemporaryDirectory() as temp:
             root = Path(temp)

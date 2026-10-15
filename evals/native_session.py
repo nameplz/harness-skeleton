@@ -229,7 +229,7 @@ class _SessionExchange(_ConfigExchange):
         self.notifications.add(method)
 
     def preflight(self, root: Path, model: str, writable: bool, disabled_servers: tuple[str, ...],
-                  developer_instructions: str = '') -> SessionEvidence:
+                  developer_instructions: str = '', dynamic_tools: tuple[dict, ...] = ()) -> SessionEvidence:
         self.request(1, 'initialize', {'clientInfo': {'name': 'harness-native-session', 'version': '1'},
             'capabilities': {'experimentalApi': True, 'requestAttestation': False, 'extensions': {},
                             'explicitGatewayOauth': True, 'mcpServerOpenaiFormElicitation': False}})
@@ -251,7 +251,7 @@ class _SessionExchange(_ConfigExchange):
         self.stage = 'thread/start'
         reply = self.request(5, 'thread/start', {'model': model, 'cwd': str(root), 'runtimeWorkspaceRoots': [str(root)],
             'permissions': PROFILE, 'approvalPolicy': 'never', 'approvalsReviewer': 'user', 'developerInstructions': developer_instructions,
-            'dynamicTools': [], 'selectedCapabilityRoots': [],
+            'dynamicTools': list(dynamic_tools), 'selectedCapabilityRoots': [],
             'environments': [{'environmentId': 'local', 'cwd': str(root), 'runtimeWorkspaceRoots': [str(root)]}],
             'ephemeral': True, 'experimentalRawEvents': False, 'allowProviderModelFallback': False})
         identity, session_id, sources = _thread(reply, root, model, writable)
@@ -311,7 +311,10 @@ def native_session(root: Path, *, binary: BinaryPin, model: str, writable: bool 
     try:
         exchange = _SessionExchange(process, deadline, max_output_bytes, command, environment)
         exchange.binary_identity = binary_identity
-        evidence = exchange.preflight(root, model, writable, disabled_servers, developer_instructions)
+        from evals.runtime_remote import remote_tools
+        tools = (tuple(remote_tools(invocation.fixture.remote_context)) if invocation is not None
+                 and invocation.kind == 'worker' and invocation.fixture.remote_context is not None else ())
+        evidence = exchange.preflight(root, model, writable, disabled_servers, developer_instructions, tools)
         exchange.invocation = bind_session(invocation, evidence.session_id) if invocation is not None else None
         yield exchange, evidence
         exchange.stage = 'shutdown'

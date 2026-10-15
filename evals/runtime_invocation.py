@@ -103,6 +103,11 @@ class Invocation:
         if self.fixture.policy_context is not None:
             identity['policy_context_sha256'] = self.fixture.policy_context.structural_sha256
             identity['policy_context_binding_sha256'] = self.fixture.policy_context.binding_sha256
+        if self.fixture.remote_context is not None:
+            context = self.fixture.remote_context
+            identity['remote_context_sha256'] = context.structural_sha256
+            identity['remote_context_binding_sha256'] = context.binding_sha256
+            identity['remote_protocol_sha256'] = context.protocol_sha256
         if self.fixture.validation_plan is not None:
             identity['validation_plan_sha256'] = self.fixture.validation_plan.sha256
             identity['metadata_only_seed_sha256'] = _digest(metadata_seed_rows(self.fixture))

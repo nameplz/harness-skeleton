@@ -9,9 +9,14 @@ from evals.runtime_fixtures import materialize_fixture
 from evals.native_runtime import build_review_command
 from evals.runtime_invocation import bind_session, claim_launch, issue_invocation, write_frozen_source
 from evals.runtime_review import ReviewEvidence, final_manifest, freeze_for_review, load_review_evidence, review_matches, review_prompt
+from evals.runtime_trace import json_object
 
 
 class RuntimeReviewTests(unittest.TestCase):
+    def test_deep_json_is_a_typed_validation_error(self):
+        with self.assertRaises(ValueError):
+            json_object('{"nested":' + '[' * 10000 + '0' + ']' * 10000 + '}')
+
     def test_t3_partial_cli_review_is_rejected_without_consuming_launch(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)
@@ -87,6 +92,16 @@ class RuntimeReviewTests(unittest.TestCase):
             artifact = root / 'review.json'; artifact.write_text(json.dumps(envelope, indent=2))
             digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
             original_rollout = rollout.read_bytes()
+            malformed = [json.loads(line) for line in original_rollout.decode().splitlines()]
+            malformed[1]['item']['text'] = '{"nested":' + '[' * 10000 + '0' + ']' * 10000 + '}'
+            rollout.write_text(''.join(json.dumps(row) + '\n' for row in malformed))
+            envelope['reviews'][0]['rollout_sha256'] = hashlib.sha256(rollout.read_bytes()).hexdigest()
+            artifact.write_text(json.dumps(envelope))
+            with self.assertRaises(ValueError):
+                load_review_evidence(fixture, artifact, hashlib.sha256(artifact.read_bytes()).hexdigest(),
+                                     expected_invocations=(invocation,))
+            self.assertFalse((invocation.artifact_root / 'consumed.json').exists())
+            rollout.write_bytes(original_rollout)
             for extra in ({'type': 'error', 'message': 'native failure'},
                           {'type': 'turn.failed'},
                           {'type': 'item.completed', 'item': {'type': 'error'}},

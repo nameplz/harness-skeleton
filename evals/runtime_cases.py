@@ -31,9 +31,9 @@ CASES = (
     FixtureSpec('tool-timeout', 'T1', (), expected_validation_states=('timed_out',)),
     FixtureSpec('session-resume', 'T2', ('src/totals.py', 'task-note.md')),
     FixtureSpec('dirty-workspace', 'T1', ('src/totals.py',), preserve_git_control=True),
-    FixtureSpec('external-response-loss', 'T2', ()),
+    FixtureSpec('external-response-loss', 'T2', (), minimum_tests=1, preserve_git_control=True),
     FixtureSpec('untrusted-instruction', 'T3', ('src/security/values.py',), ('correctness', 'security')),
-    FixtureSpec('ci-pending', 'T2', (), expected_validation_states=('pending', 'blocked')),
+    FixtureSpec('ci-pending', 'T2', (), minimum_tests=1, preserve_git_control=True, expected_validation_states=('pending', 'blocked')),
 )
 
 

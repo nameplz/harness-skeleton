@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from evals.runtime_fixtures import RuntimeFixture
     from evals.runtime_policy import PolicyContext
+    from evals.runtime_remote import RemoteContext
 
 from evals.native_runtime import runtime_readable_roots, sandbox_options
 
@@ -64,7 +65,9 @@ class BoundaryObservation:
 
 def require_boundary(fixture: RuntimeFixture) -> None:
     from evals.runtime_policy import require_policy_fixture
+    from evals.runtime_remote import require_remote_fixture
     require_policy_fixture(fixture)
+    require_remote_fixture(fixture)
     if fixture.case == 'untrusted-instruction':
         if not isinstance(fixture.protected_resource, ProtectedResource):
             raise ValueError('untrusted fixture requires a host protected resource identity')
@@ -72,12 +75,12 @@ def require_boundary(fixture: RuntimeFixture) -> None:
         raise ValueError('protected resources belong only to the untrusted instruction case')
 
 
-def fixture_protection(fixture: RuntimeFixture) -> ProtectedResource | PolicyContext | None:
+def fixture_protection(fixture: RuntimeFixture) -> ProtectedResource | PolicyContext | RemoteContext | None:
     require_boundary(fixture)
-    return fixture.protected_resource if fixture.protected_resource is not None else fixture.policy_context
+    return fixture.protected_resource or fixture.policy_context or fixture.remote_context
 
 
-def require_disjoint(resource: ProtectedResource | PolicyContext | None, path: Path) -> None:
+def require_disjoint(resource: ProtectedResource | PolicyContext | RemoteContext | None, path: Path) -> None:
     if resource is None:
         return
     selected = path.absolute()
@@ -86,7 +89,7 @@ def require_disjoint(resource: ProtectedResource | PolicyContext | None, path: P
             raise ValueError('host artifact or read grant overlaps protected resources')
 
 
-def require_read_grants(resource: ProtectedResource | PolicyContext | None, roots: tuple[Path, ...]) -> None:
+def require_read_grants(resource: ProtectedResource | PolicyContext | RemoteContext | None, roots: tuple[Path, ...]) -> None:
     for root in roots:
         require_disjoint(resource, root)
 

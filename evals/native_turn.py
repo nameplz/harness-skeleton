@@ -74,10 +74,15 @@ def _usage(value: object) -> TokenUsage:
 class TurnCollector:
     """Finite parser only; the caller must prove launch and transport provenance."""
 
-    def __init__(self, thread_id: str, root: Path, prompt: str):
+    def __init__(self, thread_id: str, root: Path, prompt: str, *, dynamic_tools: tuple[str, ...] = ()):
         if not isinstance(root, Path) or not root.is_absolute() or '..' in root.parts or \
                 not _text(prompt) or not prompt.strip():
             raise ValueError('invalid native turn root or input')
+        if type(dynamic_tools) is not tuple or len(dynamic_tools) > 2 \
+                or any(not isinstance(name, str) or name not in {'remote_lookup', 'remote_create', 'ci_status', 'ci_override'}
+                       for name in dynamic_tools) or len(set(dynamic_tools)) != len(dynamic_tools):
+            raise ValueError('invalid host native dynamic tool declaration')
+        self.dynamic_tools = dynamic_tools
         self.thread_id, self.root, self.prompt = _uuid(thread_id), root, prompt
         self.turn_id: str | None = None
         self.bound = False
@@ -126,10 +131,13 @@ class TurnCollector:
             raise ValueError('invalid native turn response') from None
 
     def _item(self, value: object, *, finished: bool) -> dict:
-        if not isinstance(value, dict) or value.get('type') not in ITEM_TYPES or \
+        if not isinstance(value, dict) or value.get('type') not in (ITEM_TYPES | ({'dynamicToolCall'} if self.dynamic_tools else set())) or \
                 not isinstance(value.get('id'), str) or not 0 < len(value['id']) <= 256:
             raise ValueError('unexpected or invalid native item')
         kind = value['type']
+        if kind == 'dynamicToolCall' and (value.get('tool') not in self.dynamic_tools or
+                value.get('status') not in ({'completed', 'failed'} if finished else {'inProgress'})):
+            raise ValueError('undeclared native dynamic tool or invalid lifecycle')
         if kind in {'commandExecution', 'fileChange'} and value.get('status') not in (TERMINAL if finished else {'inProgress'}):
             raise ValueError('invalid native action status')
         if kind == 'commandExecution':

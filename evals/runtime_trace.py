@@ -82,7 +82,10 @@ def json_object(text: str) -> dict[str, Any]:
         if len({key for key, _ in pairs}) != len(pairs):
             raise ValueError('duplicate JSON object key')
         return dict(pairs)
-    value = json.loads(text, object_pairs_hook=unique_keys)
+    try:
+        value = json.loads(text, object_pairs_hook=unique_keys)
+    except RecursionError as error:
+        raise ValueError('JSON nesting exceeded the parser limit') from error
     if not isinstance(value, dict):
         raise ValueError('expected a JSON object')
     return value

@@ -278,8 +278,13 @@ class _ConfigExchange:
 
     def send(self, value: dict[str, Any]) -> None:
         raw = (json.dumps(value) + '\n').encode()
-        if len(raw) > 65536 or self.process.stdin is None:
+        self.send_raw(raw)
+
+    def send_raw(self, raw: bytes) -> None:
+        if type(raw) is not bytes or len(raw) > 65536 or not raw.endswith(b'\n') \
+                or raw.count(b'\n') != 1 or self.process.stdin is None:
             raise ValueError('invalid configuration request')
+        self.decode_request(raw)
         stream = self.process.stdin
         os.set_blocking(stream.fileno(), False)
         self.selector.register(stream, selectors.EVENT_WRITE, 2)
@@ -298,6 +303,14 @@ class _ConfigExchange:
             raise ValueError('native inspection input closed') from None
         finally:
             self.selector.unregister(stream)
+
+    @staticmethod
+    def decode_request(raw: bytes) -> None:
+        try:
+            value = json_object(raw.decode())
+            json.dumps(value, allow_nan=False)
+        except (UnicodeError, TypeError, RecursionError) as error:
+            raise ValueError('invalid native request JSON') from error
 
     def pump(self) -> None:
         remaining = self.deadline - time.monotonic()
