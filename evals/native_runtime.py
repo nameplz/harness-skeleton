@@ -14,12 +14,17 @@ if TYPE_CHECKING:
 PROFILE = "harness-eval"
 
 
-def runtime_readable_roots() -> tuple[Path, ...]:
+def runtime_readable_roots(*, native_binary: Path | None = None) -> tuple[Path, ...]:
+    if native_binary is not None and (not isinstance(native_binary, Path)
+            or not native_binary.is_absolute() or '..' in native_binary.parts):
+        raise ValueError('native reexecution requires an absolute binary path')
     python_paths = (Path(sys.executable).absolute().parent, Path(sys.executable).resolve().parent,
                     Path(sysconfig.get_path('stdlib')).resolve())
     apple_tools = Path("/Library/Developer/CommandLineTools/usr")
     git_paths = (apple_tools / 'bin', apple_tools / 'libexec/git-core')
-    return (*python_paths, *(path for path in git_paths if path.exists()))
+    # Linux bubblewrap re-executes this file inside the restricted filesystem.
+    native_paths = (native_binary,) if sys.platform == 'linux' and native_binary is not None else ()
+    return (*python_paths, *(path for path in git_paths if path.exists()), *native_paths)
 
 
 def sandbox_options(*, writable: bool, readable_roots: tuple[Path, ...] = ()) -> tuple[str, ...]:

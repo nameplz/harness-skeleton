@@ -1,6 +1,7 @@
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import hashlib
 import json
 import sys
@@ -71,6 +72,20 @@ for line in sys.stdin:
             self.assertIn('permissions.harness-eval.extends=":read-only"', command)
             self.assertTrue(any(value.startswith('shell_environment_policy.set=') and str(root / '.eval-home') in value for value in command))
             self.assertEqual(('app-server', '--listen', 'stdio://'), command[-3:])
+
+    def test_linux_command_includes_the_pinned_binary_for_inner_reexecution(self):
+        import tomllib
+        with TemporaryDirectory() as temp, patch('evals.native_runtime.sys',
+                SimpleNamespace(executable=sys.executable, platform='linux')):
+            root = Path(temp).resolve()
+            binary = self._binary()
+            command = build_session_command(root, binary=binary, disabled_servers=(), writable=False)
+            overrides = [command[index + 1] for index, value in enumerate(command) if value == '-c']
+            config = tomllib.loads('\n'.join(overrides))
+            filesystem = config['permissions']['harness-eval']['filesystem']
+            self.assertEqual('read', filesystem[str(binary.path)])
+            self.assertEqual('deny', filesystem[':root'])
+            self.assertFalse(config['permissions']['harness-eval']['network']['enabled'])
 
     def test_same_thread_named_inventory_and_local_environment_are_observed(self):
         with TemporaryDirectory() as temp:

@@ -5,6 +5,7 @@ import sys
 import sysconfig
 import json
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from evals.native_runtime import build_exec_command, build_review_command, sandbox_options, runtime_readable_roots
@@ -94,6 +95,19 @@ class NativeRuntimeTests(unittest.TestCase):
         self.assertNotIn(Path(sys.executable).resolve().parents[1], roots)
         self.assertIn(Path(sys.executable).resolve().parent, roots)
         self.assertIn(Path(sysconfig.get_path('stdlib')).resolve(), roots)
+
+    def test_linux_reexecution_grants_only_the_explicit_native_file(self) -> None:
+        binary = Path('/opt/owned-codex/bin/codex')
+        with patch('evals.native_runtime.sys', SimpleNamespace(executable=sys.executable, platform='linux')):
+            roots = runtime_readable_roots(native_binary=binary)
+            self.assertIn(binary, roots)
+            self.assertNotIn(binary.parent, roots)
+            self.assertNotIn(binary.parent.parent, roots)
+            self.assertNotIn(binary, runtime_readable_roots())
+            with self.assertRaises(ValueError):
+                runtime_readable_roots(native_binary=Path('relative/codex'))
+        with patch('evals.native_runtime.sys', SimpleNamespace(executable=sys.executable, platform='darwin')):
+            self.assertEqual(runtime_readable_roots(), runtime_readable_roots(native_binary=binary))
 
     def test_grader_profile_grants_no_write_workspace(self) -> None:
         options = sandbox_options(writable=False)
