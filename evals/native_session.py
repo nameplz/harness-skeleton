@@ -16,7 +16,7 @@ from uuid import UUID
 
 from evals.native_config import (BinaryPin, ConfigProjection, ConfigWarning, FEATURES,
                                 InspectionFailure, _ConfigExchange, _cleanup, _sha,
-                                build_config_command, project_config, trusted_binary_identity, verify_binary)
+                                build_config_command, project_config, trusted_binary_identity, trusted_supervised_binary_identity, verify_binary)
 from evals.native_runtime import PROFILE, runtime_readable_roots, sandbox_options, tool_environment
 from evals.runtime_trace import open_no_symlink
 from scripts.command_runner import _command_environment
@@ -177,8 +177,10 @@ def _config_matches(config: ConfigProjection, disabled_servers: tuple[str, ...])
 
 class _SessionExchange(_ConfigExchange):
     def __init__(self, process: subprocess.Popen[bytes], deadline: float, limit: int,
-                 command: tuple[str, ...], environment: dict[str, str]):
+                 command: tuple[str, ...], environment: dict[str, str], *, supervised: bool = False):
         super().__init__(process, deadline, limit)
+        self.supervised = supervised
+        self._inspection_complete = False
         self.command_sha256 = hashlib.sha256(json.dumps(command).encode()).hexdigest()
         self.environment_sha256 = hashlib.sha256(json.dumps(environment, sort_keys=True).encode()).hexdigest()
         self.auth_modes: set[str] = set()
@@ -188,6 +190,28 @@ class _SessionExchange(_ConfigExchange):
         self.invocation = None
         self.turn_handler = None
         self.raw_handler = None
+
+    def send_raw(self, raw: bytes) -> None:
+        if self.supervised and self._inspection_complete:
+            raise ValueError('supervised inspection does not permit further requests')
+        super().send_raw(raw)
+
+    def finish(self) -> None:
+        if self.supervised:
+            self.process.stdin.close()
+            while self.process.poll() is None:
+                remaining = self.deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ValueError('native inspection timed out')
+                if self.selector.get_map():
+                    self.pump()
+                else:
+                    try:
+                        self.process.wait(timeout=min(remaining, 0.1))
+                    except subprocess.TimeoutExpired:
+                        continue
+            self.process.finish_actor()
+        super().finish()
 
     def decode(self, raw: bytes) -> dict:
         message = super().decode(raw)
@@ -277,19 +301,41 @@ class _SessionExchange(_ConfigExchange):
             _sha(str(root)), _sha([str(root)]), ('local',), sources, config, tuple(statuses))
 
 
+def _cleanup_session(process, exchange, supervised: bool) -> BaseException | None:
+    failures = []
+    if supervised:
+        operations = (process.cleanup, exchange.selector.close) if exchange is not None else (process.cleanup,)
+    else:
+        operations = (lambda: _cleanup(process, exchange),)
+    for operation in operations:
+        try:
+            result = operation()
+            if isinstance(result, BaseException):
+                failures.append(result)
+        except BaseException as error:
+            failures.append(error)
+    if len(failures) == 1:
+        return failures[0]
+    return BaseExceptionGroup('native session cleanup failed', failures) if failures else None
+
+
 @contextmanager
 def native_session(root: Path, *, binary: BinaryPin, model: str, writable: bool = False,
                    disabled_servers: tuple[str, ...] = (), timeout_seconds: float = 30,
                    max_output_bytes: int = 1024 * 1024, invocation=None,
-                   developer_instructions: str = '') -> Iterator[tuple[_SessionExchange, SessionEvidence]]:
+                   developer_instructions: str = '', supervised: bool = False) -> Iterator[tuple[_SessionExchange, SessionEvidence]]:
     """Trusted host context: retain the gated process for a subsequent bound collector."""
+    if type(supervised) is not bool or supervised and invocation is not None:
+        # shortcut: supervised invocations require policy/receipt replay binding in the next unit.
+        raise ValueError('supervised inspection does not yet accept bound invocations')
     if os.name != 'posix' or not isinstance(model, str) or not model.strip() or len(model) > 128 or \
             type(timeout_seconds) not in (int, float) or not 0 < timeout_seconds <= 300 or \
             type(max_output_bytes) is not int or not 1 <= max_output_bytes <= 1024 * 1024 or \
             not isinstance(developer_instructions, str) or len(developer_instructions.encode()) > 32768:
         raise ValueError('invalid native session limits or model')
     verify_binary(binary)
-    binary_identity = trusted_binary_identity(binary) if invocation is not None else None
+    binary_guard = trusted_supervised_binary_identity if supervised else trusted_binary_identity
+    binary_identity = binary_guard(binary) if invocation is not None or supervised else None
     root = root.resolve(strict=True)
     command = build_session_command(root, binary=binary, disabled_servers=disabled_servers,
                                     writable=writable, invocation=invocation)
@@ -300,22 +346,30 @@ def native_session(root: Path, *, binary: BinaryPin, model: str, writable: bool 
         invocation = claim_native_launch(invocation, command, binary=binary, disabled_servers=disabled_servers)
     environment = _command_environment()
     deadline = time.monotonic() + timeout_seconds
-    if binary_identity is not None and trusted_binary_identity(binary) != binary_identity:
+    if binary_identity is not None and binary_guard(binary) != binary_identity:
         raise ValueError('native installation changed before process creation')
     try:
-        process = subprocess.Popen(command, cwd=root, env=environment, shell=False, stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0, start_new_session=True)
+        if supervised:
+            from evals.native_supervisor import start_supervised
+            process = start_supervised(command, cwd=root, environment=environment,
+                admission_timeout_seconds=min(timeout_seconds, 10))
+        else:
+            process = subprocess.Popen(command, cwd=root, env=environment, shell=False, stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0, start_new_session=True)
     except OSError as error:
         raise NativeSessionError(InspectionFailure('spawn', 'spawn_error', type(error).__name__, error.errno, None, None, None)) from None
     exchange, original = None, None
     try:
-        exchange = _SessionExchange(process, deadline, max_output_bytes, command, environment)
+        exchange = _SessionExchange(process, deadline, max_output_bytes, command, environment, supervised=supervised)
         exchange.binary_identity = binary_identity
         from evals.runtime_remote import remote_tools
         tools = (tuple(remote_tools(invocation.fixture.remote_context)) if invocation is not None
                  and invocation.kind == 'worker' and invocation.fixture.remote_context is not None else ())
         evidence = exchange.preflight(root, model, writable, disabled_servers, developer_instructions, tools)
         exchange.invocation = bind_session(invocation, evidence.session_id) if invocation is not None else None
+        exchange._inspection_complete = True
+        if supervised:
+            process.stdin.close()  # Inspection is complete; shut down every duplicate socket write endpoint.
         yield exchange, evidence
         exchange.stage = 'shutdown'
         exchange.finish()
@@ -323,23 +377,31 @@ def native_session(root: Path, *, binary: BinaryPin, model: str, writable: bool 
             raise ValueError('native thread start notification unavailable')
         exchange.stage = 'binary recheck'
         verify_binary(binary)
-    except Exception as error:
+        if binary_identity is not None and binary_guard(binary) != binary_identity:
+            raise ValueError('native installation changed during the session')
+    except BaseException as error:
         original = error
     finally:
-        cleanup = _cleanup(process, exchange)
+        cleanup = _cleanup_session(process, exchange, supervised)
+    interrupted = [error for error in (original, cleanup) if error is not None and not isinstance(error, Exception)]
+    if interrupted:
+        failures = [error for error in (original, cleanup) if error is not None]
+        if len(failures) == 1:
+            raise failures[0]
+        raise BaseExceptionGroup('native session interrupted', failures) from None
     if original is not None or cleanup is not None:
         reason = {'native inspection timed out': 'timeout', 'native inspection output limit exceeded': 'output_limit'}.get(
             str(original), 'exchange_error' if original else 'cleanup_error')
         raise NativeSessionError(InspectionFailure(exchange.stage if exchange and original else 'cleanup', reason,
             type(original).__name__ if original else None, getattr(original, 'errno', None),
-            type(cleanup).__name__ if cleanup else None, getattr(cleanup, 'errno', None), process.poll())) from None
+            type(cleanup).__name__ if cleanup else None, getattr(cleanup, 'errno', None), process.returncode)) from None
 
 
 def inspect_native_session(root: Path, *, binary: BinaryPin, model: str, writable: bool = False,
                            disabled_servers: tuple[str, ...] = (), timeout_seconds: float = 30,
-                           max_output_bytes: int = 1024 * 1024) -> SessionInspection:
+                           max_output_bytes: int = 1024 * 1024, supervised: bool = False) -> SessionInspection:
     with native_session(root, binary=binary, model=model, writable=writable, disabled_servers=disabled_servers,
-                        timeout_seconds=timeout_seconds, max_output_bytes=max_output_bytes) as (exchange, evidence):
+                        timeout_seconds=timeout_seconds, max_output_bytes=max_output_bytes, supervised=supervised) as (exchange, evidence):
         pass
     return SessionInspection(evidence, binary.sha256, exchange.command_sha256, exchange.environment_sha256,
         *(digest.hexdigest() for digest in exchange.digests), *exchange.counts, tuple(sorted(exchange.auth_modes)),

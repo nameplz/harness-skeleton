@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import errno
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ import time
 from typing import Any
 
 from evals.runtime_trace import json_object, open_no_symlink
+from evals.native_cgroup import _require_root_linux
 from scripts.command_runner import _command_environment, _terminate_process_group
 
 FEATURES = ('apps', 'plugins', 'hooks', 'multi_agent', 'remote_plugin',
@@ -69,6 +71,29 @@ def trusted_binary_identity(binary: BinaryPin) -> tuple[int, ...]:
         if metadata.st_uid != 0 or metadata.st_mode & 0o022 or os.access(path, os.W_OK):
             raise ValueError('native model launch requires a protected root-owned installation')
     return _binary_identity(binary.path.lstat())
+
+
+def trusted_supervised_binary_identity(binary: BinaryPin) -> tuple[int, ...]:
+    """Root observer only; fixed UID2000 actor cannot write this pinned installation."""
+    _require_root_linux()
+    verify_binary(binary)
+    before = _binary_identity(binary.path.lstat())
+    for path in (binary.path, *binary.path.parents):
+        metadata = path.lstat()
+        if metadata.st_uid != 0 or metadata.st_mode & 0o022:
+            raise ValueError('supervised native launch requires a protected root-owned installation')
+        for name in ('system.posix_acl_access', 'system.posix_acl_default'):
+            try:
+                os.getxattr(path, name, follow_symlinks=False)
+            except OSError as error:
+                if error.errno != errno.ENODATA:
+                    raise ValueError('supervised native installation ACL unavailable') from None
+            else:
+                raise ValueError('supervised native installation must not have extended ACLs')
+    after = _binary_identity(binary.path.lstat())
+    if after != before:
+        raise ValueError('supervised native installation changed during validation')
+    return after
 
 
 @dataclass(frozen=True)

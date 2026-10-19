@@ -264,8 +264,10 @@ Successful host observation is not complete task acceptance. Response-loss still
 ### Root Linux launcher qualification (2026-10-19)
 
 `evals/native_supervisor.py` and its standalone `native_guardian.py` helper add an
-opt-in launcher primitive. It is **not yet called by `native_session` or the trial
-collector** and does not change readiness, receipts, or grader gates. The operator
+opt-in launcher primitive. `native_session(..., supervised=True)` now uses it for
+explicit session inspection. Bound invocations and the trial collector are still
+rejected on that backend until policy/receipt replay binding is implemented;
+readiness, receipts, and grader gates remain unchanged. The operator
 must run from a protected root Linux installation with the existing dedicated
 UID/GID 2000, unified cgroups, init PID/cgroup namespaces and systemd 255. The
 launcher serializes that UID with a root-only `/run/harness-eval-supervisor.lock`
@@ -317,3 +319,54 @@ before changing that flag. Pilot/full model trials remain 0/24 and 0/72.
 
 The IPC design follows [systemd255 StandardInput/Output](https://www.freedesktop.org/software/systemd/man/255/systemd.exec.html#StandardInput=)
 and [OpenFile](https://www.freedesktop.org/software/systemd/man/255/systemd.service.html#OpenFile=).
+
+
+### Supervised native session inspection
+
+Immediately after preflight, inspection closes stdin and half-closes the RPC
+connection. Raw stdin and duplicate socket descriptors cannot send further
+requests; stdout/stderr remain open for terminal status and the final drain.
+
+`native_session` and `inspect_native_session` accept an explicit boolean
+`supervised=True` on a protected root Linux installation. After preflight the
+supervised exchange blocks all further `send`, `request` and `send_raw` calls
+before transport writes, including `turn/start`. This API serves trusted host callers. The default direct
+backend retains its unprivileged binary guard and process-group cleanup. The
+supervised backend uses `trusted_supervised_binary_identity`: it requires Linux
+root, verifies the pinned binary bytes and regular/single-link file, checks
+root-owned installation ancestry without group/other write, rejects all extended
+POSIX access/default ACLs, fails if ACL inspection is unavailable, and compares
+inode metadata across validation. The guard is checked before process creation
+and after the session. Root's own write access does not establish UID2000 access;
+the direct guard's `os.access` check is not removed or bypassed.
+
+The supervised exchange closes stdin, pumps bounded output while waiting for the
+actor's own terminal status, finishes the actor tree/guardian lifecycle, then
+drains final output and validates normal shutdown. This ordering handles detached
+descendants retaining stdout. If output closes before actor exit, it waits only
+within the remaining session deadline. Cleanup always invokes the supervisor,
+never the proxy's process group, and closes the selector. Interruptions and
+secondary cleanup failures are retained; ordinary failures still expose only
+safe typed metadata. Failure reporting reads the cached actor return code rather
+than polling an already-closed status socket.
+
+Actual model-free guest qualification observed read-only/worker profiles, disabled
+named MCP inventory, normal shutdown, KeyboardInterrupt and forced deadline
+expiry. Launcher cgroup-empty/guardian/proxy proofs are available to the trusted
+caller after the context. They are not a bound evaluation receipt. In this
+intermediate delivery unit, `supervised=True` explicitly rejects `invocation`:
+root-owned source/policy/artifacts, actor-accessible execution workspace, backend
+policy and protected lifecycle replay must be integrated together before allowing
+supervised collection. This keeps existing trial receipts' cleanup flag false and
+OS action audit/readiness unknown. No model turn, inference or credential transfer
+is needed for these inspections.
+
+
+The qualified control-plane filesystem boundary is a trusted root-controlled
+Linux ext4/tmpfs installation with POSIX ACL semantics, no host-shared, NFS/SMB or
+idmapped mounts, and no hostile root administrator. In this boundary the ACL mask
+is reflected in group mode bits: root-owned `&022 == 0` checks and descriptor
+sealing prevent named-user write grants, while private0700/0600 masks deny access.
+The pinned actor binary guard intentionally uses the stricter no-extended-ACL
+profile. Other filesystem/ACL semantics remain unqualified. See the kernel's
+[mode conversion and permission checks](https://raw.githubusercontent.com/torvalds/linux/v6.8/fs/posix_acl.c).

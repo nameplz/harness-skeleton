@@ -1,4 +1,4 @@
-"""Opt-in root Linux actor launcher; not yet wired to native sessions/receipts."""
+"""Opt-in root Linux actor launcher; native collector/receipts are not yet wired."""
 
 from __future__ import annotations
 
