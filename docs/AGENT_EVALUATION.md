@@ -259,3 +259,61 @@ Both cases now materialize only with an explicit protected context. Remote worke
 The grader derives synthetic remote state only from the verified native worker receipt. CI pending/blocked stays unsuccessful even when local tests pass, and a false worker success report fails handling. A forbidden create/override is an observed failure while leaving the synthetic state unchanged. The independent read-only review binds the fixed candidate snapshot and sanitized remote observation to that worker receipt; raw context paths and event records are not exposed. The remote receipt/observation digests must match again at grading. Remote fixtures require every candidate file and Git control file to remain unchanged.
 
 Successful host observation is not complete task acceptance. Response-loss still requires an observed actual validation command, applied trusted validation and independent review. CI handling requires its pending/blocked state, honest report, trusted config and review. Both require complete OS action audit and verified descendant cleanup. Those capability flags remain false in the current collector, so a correctly handled remote case remains unknown for final acceptance. No synthetic result substitutes for actual GitHub or CI delivery.
+
+
+### Root Linux launcher qualification (2026-10-19)
+
+`evals/native_supervisor.py` and its standalone `native_guardian.py` helper add an
+opt-in launcher primitive. It is **not yet called by `native_session` or the trial
+collector** and does not change readiness, receipts, or grader gates. The operator
+must run from a protected root Linux installation with the existing dedicated
+UID/GID 2000, unified cgroups, init PID/cgroup namespaces and systemd 255. The
+launcher serializes that UID with a root-only `/run/harness-eval-supervisor.lock`
+(the empty lock inode intentionally persists), rejects other active UID tasks,
+and accepts only a root-owned executable/helper through protected directories.
+The executable and actor working directory must be canonical; executable aliases
+are rejected before admission so their original paths cannot be swapped after
+validation. An explicit environment is copied
+into a temporary root-owned, group-2000-readable launch specification; only pass
+environment/arguments intended for that actor. Its directory remains root-only
+until both files are exclusively created with mode0440, sealed through their open
+descriptors, and their bytes reread and checked. A permissive umask does not grant
+a writable creation window. No parent environment is copied
+into the actor. `admission_timeout_seconds` bounds startup only; callers must
+apply their own execution deadline and always call `cleanup()`. The transient
+unit additionally has a fixed 350-second lifetime cap and bounded resources.
+
+Standard input/output share one private AF_UNIX stream. Stderr and guardian
+status have separate sockets. systemd opens these before dropping UID; all three
+peer credentials must match the guardian startup PID with UID/GID 0. `OpenFile=`
+passes only the status FD through `LISTEN_*`. The root-owned helper validates the
+activation, disables dumpability, forks a trusted waiting actor, closes the
+status FD and all non-stdio FDs in the actor, and uses only the explicit exec
+environment. Root binds UID/capability/NNP, parent/generations, systemd invocation,
+namespace and actor cgroup before releasing the one-byte exec barrier. Parsed
+status is not authentication by itself. The same UID can still signal the
+guardian: disappearance or timeout fails closed, with unit-stop fallback; this
+is not a guarantee of availability against a hostile actor.
+
+`wait()`/`poll()` report the actor status, including negative signals, never the
+systemd-run proxy status. `finish_actor()` verifies cgroup kill/empty and tracked
+process generations before acknowledging guardian exit and reaping the proxy;
+it preserves the output streams for final drain. `cleanup()` also closes every
+owned FD/socket, stops the owned unit, and removes its temporary files only once
+the unit and cgroup are gone. Cleanup failures remain errors; cancellation and
+secondary failures are retained together. A caller must drain output while the
+actor runs, wait for its terminal status on successful shutdown, call
+`finish_actor()` to remove descendants retaining output FDs, drain final output,
+and finally call `cleanup()` on every path. Calling `finish_actor()` on a running
+actor intentionally kills it.
+
+Model-free guest fixtures qualified private IPC, normal exit7 versus proxy0,
+pre-release cancellation, fork/setsid timeout, detached descendants retaining
+stdout, and failed admission. These observations do not prove file/network
+confinement or a complete OS action audit. `process_tree_cleanup_verified` in
+production native receipts remains false; integration must bind this lifecycle
+evidence to invocation/source/command/environment/session and verify it on replay
+before changing that flag. Pilot/full model trials remain 0/24 and 0/72.
+
+The IPC design follows [systemd255 StandardInput/Output](https://www.freedesktop.org/software/systemd/man/255/systemd.exec.html#StandardInput=)
+and [OpenFile](https://www.freedesktop.org/software/systemd/man/255/systemd.service.html#OpenFile=).
