@@ -22,7 +22,8 @@ from evals.runtime_boundary import observe_boundary, require_boundary, require_d
 from evals.runtime_policy import policy_observation
 from evals.runtime_fixtures import RuntimeFixture
 from evals.native_runtime import build_review_command
-from evals.runtime_invocation import Invocation, consume_invocation, verify_invocation
+from evals.runtime_invocation import Invocation, verify_invocation
+from evals.runtime_consumption import consume_reviews
 from evals.runtime_trace import completed_native_events, json_object, open_no_symlink, read_protected_artifact
 
 MAX_FILE_BYTES = 1024 * 1024
@@ -365,8 +366,7 @@ def load_review_evidence(fixture: RuntimeFixture, artifact: Path, digest: str, *
         raise ValueError('review roles and sessions must be independent')
     if final_manifest(fixture) != manifest:
         raise ValueError('candidate changed while reading review evidence')
-    for launch in launches.values():
-        consume_invocation(fixture, launch)
+    consume_reviews(fixture, tuple(launches.values()), review_digest=digest, kind='legacy')
     return ReviewEvidence(fixture.case, fixture.condition, fixture.seed_head, manifest['seed_manifest_sha256'],
                           manifest['sha256'], envelope['config_sha256'], envelope['suite_sha256'],
                           envelope['source_sha256'], digest, statuses)

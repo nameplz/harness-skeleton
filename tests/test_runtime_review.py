@@ -1,3 +1,4 @@
+from tests.test_runtime_consumption import review_consumed
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -51,7 +52,7 @@ class RuntimeReviewTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'required review roles'):
                 load_review_evidence(fixture, artifact, hashlib.sha256(artifact.read_bytes()).hexdigest(),
                                      expected_invocations=(launch,))
-            self.assertFalse((launch.artifact_root / 'consumed.json').exists())
+            self.assertFalse(review_consumed(launch))
             for path in snapshot.rglob('*'):
                 if path.is_dir():
                     path.chmod(0o755)
@@ -100,7 +101,7 @@ class RuntimeReviewTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_review_evidence(fixture, artifact, hashlib.sha256(artifact.read_bytes()).hexdigest(),
                                      expected_invocations=(invocation,))
-            self.assertFalse((invocation.artifact_root / 'consumed.json').exists())
+            self.assertFalse(review_consumed(invocation))
             rollout.write_bytes(original_rollout)
             for extra in ({'type': 'error', 'message': 'native failure'},
                           {'type': 'turn.failed'},
@@ -113,7 +114,7 @@ class RuntimeReviewTests(unittest.TestCase):
                 with self.subTest(extra=extra), self.assertRaises(ValueError):
                     load_review_evidence(fixture, artifact, hashlib.sha256(artifact.read_bytes()).hexdigest(),
                                          expected_invocations=(invocation,))
-                self.assertFalse((invocation.artifact_root / 'consumed.json').exists())
+                self.assertFalse(review_consumed(invocation))
             rollout.write_bytes(original_rollout)
             envelope['reviews'][0]['rollout_sha256'] = hashlib.sha256(original_rollout).hexdigest()
             original_command = command.read_bytes()

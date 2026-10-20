@@ -1,3 +1,4 @@
+from tests.test_runtime_consumption import review_consumed
 from dataclasses import replace
 import json
 from pathlib import Path
@@ -133,11 +134,11 @@ class NativeGradeTests(unittest.TestCase):
                 stale = grade_fixture(fixture, tool_trace=None, native_receipt=receipt, native_review=request,
                     trusted_config_root=trusted, suite_sha256='0' * 64)
                 self.assertIsNone(stale['review_observed'])
-                self.assertFalse((review.invocation.artifact_root / 'consumed.json').exists())
+                self.assertFalse(review_consumed(review.invocation))
                 reviewed = grade_fixture(fixture, tool_trace=None, native_receipt=receipt, native_review=request,
                     trusted_config_root=trusted, suite_sha256='2' * 64)
                 self.assertTrue(reviewed['review_observed'])
-                self.assertTrue((review.invocation.artifact_root / 'consumed.json').exists())
+                self.assertTrue(review_consumed(review.invocation))
 
     def test_invalid_and_external_file_action_paths_fail_without_host_path_errors(self):
         for path in ('bad\0path', '', '../outside.txt'):

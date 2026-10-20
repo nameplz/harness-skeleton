@@ -1,4 +1,4 @@
-"""Opt-in root Linux actor launcher; native collector/receipts are not yet wired."""
+"""Root Linux actor launcher for inspected sessions and bound native collection."""
 
 from __future__ import annotations
 

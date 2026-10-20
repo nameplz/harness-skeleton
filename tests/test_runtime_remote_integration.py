@@ -1,3 +1,4 @@
+from tests.test_runtime_consumption import review_consumed
 from dataclasses import replace
 import hashlib
 import json
@@ -233,7 +234,7 @@ class RuntimeRemoteIntegrationTests(unittest.TestCase):
                 self.assertIsNone(grade['review_observed'])
                 self.assertIsNotNone(grade['review_error'])
                 self.assertIsNone(grade['final_state_passed'])
-                self.assertFalse((reviewer.invocation.artifact_root/'consumed.json').exists())
+                self.assertFalse(review_consumed(reviewer.invocation))
             finally:
                 helper.unlock(snapshot)
 

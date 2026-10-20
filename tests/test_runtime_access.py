@@ -115,7 +115,7 @@ class RuntimeAccessTests(unittest.TestCase):
                 with self.subTest(value=value), self.assertRaises(ValueError):
                     metadata_observation(root, expected_uid=value)
 
-    def test_root_profile_execution_is_rejected_before_artifact_or_process_writes(self):
+    def test_invalid_root_profile_identity_is_rejected_before_artifact_or_process_writes(self):
         from evals.native_collect import collect_native_turn, load_native_turn
         from evals.native_session import native_session
         from evals.runtime_grader import grade_fixture
@@ -138,7 +138,7 @@ class RuntimeAccessTests(unittest.TestCase):
             with patch('evals.runtime_access._require_root_linux'), \
                     patch('evals.native_session.subprocess.Popen') as spawn:
                 for call in calls:
-                    with self.subTest(call=call), self.assertRaisesRegex(ValueError, 'lifecycle'):
+                    with self.subTest(call=call), self.assertRaises(ValueError):
                         call()
             self.assertEqual(before, tuple(invocation.artifact_root.iterdir()))
             spawn.assert_not_called()

@@ -96,7 +96,7 @@ Worker and reviewer commands mark their canonical projects untrusted and disable
 
 Runtime read grants cover interpreter binary directories, stdlib and native Git/helper directories rather than their entire installation prefixes; stdlib site-packages are explicitly denied. This is a local calibration, not a guarantee that every supported installation contains no sensitive data. Review launch prompts are canonical and include the host-owned task and validation bindings. Non-JSON log lines are rejected; operators must retain stdout JSON separately from startup diagnostics. Unavailable or invalid external validation configuration returns unknown grades with `trusted_config_unavailable` provenance and no applied digest. Candidate process cleanup, managed tool inventory and complete action auditing remain pre-pilot gates.
 
-Each native model command now requires a fresh host-issued `Invocation` and an external `FrozenSource`. The source freeze covers the exact evaluator/test/config/suite/guidance path set and bytes; changed, missing, added or symlinked source is rejected before a command can be built. The host creates a protected launch directory once, supplies the nonce and identity digest in the command environment, and calls `claim_launch` before spawning. Its atomic command receipt permits one launch attempt, including a failed spawn. The returned invocation retains the command digest; the host binds the fresh native session UUID there. Source and command verification repeat when loading evidence. Review records, canonical prompt/verdict, model, final snapshot and source digest must match the expected role-specific invocation. Trace records require the current invocation directory, canonical command, native session and nonce on host hook observations. Failed, incomplete or ambiguous worker turns cannot supply validation evidence. Loading valid evidence atomically consumes the launch; a second submission is rejected.
+Each native model command now requires a fresh host-issued `Invocation` and an external `FrozenSource`. The source freeze covers the exact evaluator/test/config/suite/guidance path set and bytes; changed, missing, added or symlinked source is rejected before a command can be built. The host creates a protected launch directory once, supplies the nonce and identity digest in the command environment, and calls `claim_launch` before spawning. Its atomic command receipt permits one launch attempt, including a failed spawn. The returned invocation retains the command digest; the host binds the fresh native session UUID there. Source and command verification repeat when loading evidence. Review records, canonical prompt/verdict, model, final snapshot and source digest must match the expected role-specific invocation. Trace records require the current invocation directory, canonical command, native session and nonce on host hook observations. Failed, incomplete or ambiguous worker turns cannot supply validation evidence. Worker loading atomically consumes its launch; review loaders atomically consume the complete review group. A second submission is rejected.
 
 The operator must first freeze the source that passed its checks and independent review and retain the expected manifest digest outside candidate control. `write_frozen_source` only captures bytes; it does not certify that they were reviewed or validated. The host recorder must claim the launch, bind the session obtained from the fresh native execution, preserve original stdout/hook bytes and pass the returned invocation objects directly; it must not reconstruct them from candidate-provided data or rebind old logs. These source and invocation checks provide provenance within a trusted, protected host. They do not authenticate the loaded Python interpreter, defend against a compromised host, or establish full action-audit coverage. The direct collector and actual native review/trace calibration must exercise this contract before pilot readiness is declared. Runtime MCP inventory and complete MCP exclusion remain unknown; static `mcp list` output and empty-table or name-based config overrides do not establish the tools available to `exec`.
 
@@ -137,7 +137,7 @@ After terminal events, the process is drained through shutdown and the binary/so
 
 The same-process collector accepts host-issued `correctness` and `security` invocations with immutable `ReviewBindings`: final-manifest, configuration, suite and frozen-source SHA-256 values. It constructs the canonical host review prompt; callers cannot substitute arbitrary review instructions. Reviewer guidance is empty for both conditions, and the separate native session uses the read-only profile. Its pinned read-only sandbox projection admits exactly `type` and `networkAccess`; writable-root, permissive temporary-directory and unknown capability fields are rejected. The external snapshot must still match the candidate's final manifest and contain only the expected files with write permissions removed from files and directories, before collection and again before loading. Native instruction-source allowlists remain explicit; candidate snapshot instructions are rejected as loaded instruction sources.
 
-`load_native_review_evidence` replays protected native receipts without consuming individual roles prematurely. It requires exactly correctness review, plus a distinct security session for security fixtures, a common snapshot, current launch/source/final/config/suite bindings, successful native completion and the last native `agentMessage` JSON verdict with exact nonce, invocation and role fields. Invalid or stale evidence is rejected before consuming any role; valid invocations are then consumed once. A `fail` verdict stays false and an `unknown` verdict stays unknown. This native adapter returns `ReviewEvidence` for final-manifest matching and never fabricates CLI rollout or hook records. Atomic consumption is per invocation within a trusted single host recorder, not a cross-process transaction over multiple reviewers.
+`load_native_review_evidence` replays protected native receipts without consuming individual roles prematurely. It requires exactly correctness review, plus a distinct security session for security fixtures, a common snapshot, current launch/source/final/config/suite bindings, successful native completion and the last native `agentMessage` JSON verdict with exact nonce, invocation and role fields. Invalid or stale evidence is rejected before consuming any role; valid invocations are then consumed once. A `fail` verdict stays false and an `unknown` verdict stays unknown. This native adapter returns `ReviewEvidence` for final-manifest matching and never fabricates CLI rollout or hook records. Both native and legacy reviewers use one atomic review-group consumption transaction, described below. Worker launches retain their per-invocation marker.
 
 `grade_fixture` accepts a separate native worker receipt and a `NativeReviewRequest` containing expected protected reviewer invocations, immutable bindings and binary/capability pins. It loads and verifies those receipts internally after matching applied configuration, suite and worker source; a caller-constructed `ReviewEvidence` cannot claim native review. CLI and native inputs cannot be combined ambiguously. Native validation observation rechecks the protected worker receipt and counts only a completed, zero-exit native `commandExecution` in the candidate cwd whose command matches the existing finite validation-command policy. Agent narrative is not validation evidence. The host still runs its independent functional/common-test/trusted-config probes; these remain advisory candidate-code observations and must match the applied config. Observed native file-change attempts outside the candidate can make scope fail. Missing OS auditing keeps scope unknown and forbidden actions null unless an actual failure was observed; native item lifecycle completeness does not make OS audit complete. These interfaces do not satisfy detached cleanup, effective confinement or live-evaluation readiness by themselves.
 
@@ -284,9 +284,8 @@ Successful host observation is not complete task acceptance. Response-loss still
 
 `evals/native_supervisor.py` and its standalone `native_guardian.py` helper add an
 opt-in launcher primitive. `native_session(..., supervised=True)` now uses it for
-explicit session inspection. Bound invocations and the trial collector are still
-rejected on that backend until policy/receipt replay binding is implemented;
-readiness, receipts, and grader gates remain unchanged. The operator
+explicit session inspection and the bound collector described below. Production
+audit/readiness and executable grader gates remain unchanged. The operator
 must run from a protected root Linux installation with the existing dedicated
 UID/GID 2000, unified cgroups, init PID/cgroup namespaces and systemd 255. The
 launcher serializes that UID with a root-only `/run/harness-eval-supervisor.lock`
@@ -347,8 +346,8 @@ connection. Raw stdin and duplicate socket descriptors cannot send further
 requests; stdout/stderr remain open for terminal status and the final drain.
 
 `native_session` and `inspect_native_session` accept an explicit boolean
-`supervised=True` on a protected root Linux installation. After preflight the
-supervised exchange blocks all further `send`, `request` and `send_raw` calls
+`supervised=True` on a protected root Linux installation. After preflight an
+inspection-only supervised exchange blocks further `send`, `request` and `send_raw` calls
 before transport writes, including `turn/start`. This API serves trusted host callers. The default direct
 backend retains its unprivileged binary guard and process-group cleanup. The
 supervised backend uses `trusted_supervised_binary_identity`: it requires Linux
@@ -372,13 +371,11 @@ than polling an already-closed status socket.
 Actual model-free guest qualification observed read-only/worker profiles, disabled
 named MCP inventory, normal shutdown, KeyboardInterrupt and forced deadline
 expiry. Launcher cgroup-empty/guardian/proxy proofs are available to the trusted
-caller after the context. They are not a bound evaluation receipt. In this
-intermediate delivery unit, `supervised=True` explicitly rejects `invocation`:
-root-owned source/policy/artifacts, actor-accessible execution workspace, backend
-policy and protected lifecycle replay must be integrated together before allowing
-supervised collection. This keeps existing trial receipts' cleanup flag false and
-OS action audit/readiness unknown. No model turn, inference or credential transfer
-is needed for these inspections.
+caller after the context. Inspection alone does not create a bound evaluation
+receipt; collection additionally requires the root-owned source/policy/artifacts,
+actor-accessible workspace and protected lifecycle replay described below.
+Production cleanup and OS action audit flags remain false, readiness unknown.
+No model turn, inference or credential transfer is needed for these inspections.
 
 
 The qualified control-plane filesystem boundary is a trusted root-controlled
@@ -456,9 +453,65 @@ remain in force; this does not prove cgroup-level descendant cleanup. No global
 or repository Git configuration is modified. Wildcard and control-character
 workspace paths are rejected.
 
-This preparation profile does not yet enable model collection. Native/legacy
-launch claims, native collection/replay, legacy trace loading and executable
-grading reject it before transport/artifact/process writes until protected
-supervisor lifecycle receipts and supervised validation are integrated. Pure
-snapshot/scope inspection remains available. No production audit, cleanup or
-readiness claim follows from ownership preparation alone.
+Ownership preparation alone does not enable actual evaluation. Native collection
+and replay additionally require the protected supervisor lifecycle receipt below.
+Legacy launch claims, legacy trace loading and executable grading remain rejected
+until supervised validation and action auditing are integrated. Snapshot/scope
+inspection remains available. No production audit, cleanup or readiness claim
+follows from ownership preparation alone.
+
+
+### Supervised bound collector lifecycle receipt
+
+The `linux-systemd-uid2000` native collector supports worker turns and separate
+readonly correctness/security turns using the admitted supervisor. Inspection-only
+sessions still half-close stdin after preflight and reject additional requests.
+A bound session permits one host turn and validated remote-worker callback replies.
+Legacy CLI collection and executable grading remain unavailable for this profile.
+
+Every collector artifact is root-private (directory0700, file0600). After final
+supervisor resource release, `supervisor.json` binds the invocation, frozen source,
+command, session, policy, canonical turn, environment and pinned binary digests
+to the actual admission and cleanup observation. The actor must exit normally,
+its observed generation must be present in a bounded sorted unique list, all
+residual task lists must be empty, the guardian must be reaped, the proxy must
+exit zero and the unit must be gone. A partial or mismatched cleanup cannot seal
+a successful turn. `turn.json` binds the protected lifecycle artifact digest.
+
+Worker and both review replay paths verify this same historical receipt without
+opening a deleted cgroup or comparing its execution boot with the current boot.
+Both review receipts must validate before either invocation is consumed. This
+receipt does not provide complete OS action auditing: production audit and
+`process_tree_cleanup_verified` remain false and runtime readiness remains unknown
+until action-audit and grading integration are qualified. Fixed SSE protocol
+checks do not count toward the required24 pilot or72 new full model trials.
+
+
+### Atomic review-group consumption
+
+Both review loaders validate every receipt, verdict and final snapshot before
+calling the shared group transaction. A group requires the complete role set,
+distinct sessions, one snapshot and the same full frozen-source identity. The
+canonical source manifest path hash is part of the host-issued invocation, so
+relocating identical source bytes cannot create a fresh consumption authority.
+
+The transaction locks the private source-parent directory descriptor with POSIX
+`flock`, revalidates the launches, and checks a bounded root/host-owned0600
+`.review-consumption.json` ledger. It maps each invocation digest to a digest of
+the complete group, loader kind and review-evidence digest. Any previously used
+invocation is rejected even if paired with a new role or another review digest.
+Legacy per-role `consumed.json` entries also reject reuse; new review groups use
+the ledger as their sole authority. Worker `consumed.json` behavior is unchanged.
+
+An immutable merged ledger is written to the reserved private0600
+`.review-consumption.tmp` file, flushed
+and fsynced, then replaced with one same-directory rename and a directory fsync.
+Interruption before the rename leaves the old authority intact; after the rename
+the whole group is consumed. A durability error is not reported as success and
+does not roll back an already visible commit. Advisory locking coordinates
+trusted host consumers; it does not protect against a compromised host. Unknown,
+malformed, oversized, linked or nonprivate authority files fail closed. A valid
+stale temporary file is removed under the same directory lock before retry; an
+unsafe stale entry is preserved and rejected. The fixed temporary name bounds
+orphans to one file per source parent. Existing invocations issued before the
+source-path binding change are intentionally invalidated and must be reissued.

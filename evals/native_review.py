@@ -14,7 +14,8 @@ from evals.runtime_cases import case_spec
 from evals.native_config import BinaryPin
 from evals.native_runtime import worker_prompt
 from evals.runtime_fixtures import RuntimeFixture
-from evals.runtime_invocation import Invocation, consume_invocation, verify_invocation
+from evals.runtime_invocation import Invocation, verify_invocation
+from evals.runtime_consumption import consume_reviews
 from evals.runtime_review import ReviewEvidence, _scan, final_manifest, review_prompt
 
 
@@ -167,12 +168,7 @@ def load_native_review_evidence(fixture: RuntimeFixture, invocations: tuple[Invo
     digest = hashlib.sha256(json.dumps({'bindings': bindings.as_dict(), 'receipts': sorted(
         (receipt.invocation.kind, receipt.invocation.sha256, receipt.invocation.native_receipt_sha256)
         for receipt in receipts)}, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-    # Validate every launch before consuming any. No failed/stale verdict can consume another role.
-    for launch in invocations:
-        if (launch.artifact_root / 'consumed.json').exists() or (launch.artifact_root / 'consumed.json').is_symlink():
-            raise ValueError('native review was already consumed')
-    for launch in invocations:
-        consume_invocation(fixture, launch)
+    consume_reviews(fixture, invocations, review_digest=digest, kind='native')
     return ReviewEvidence(fixture.case, fixture.condition, fixture.seed_head, manifest['seed_manifest_sha256'],
         manifest['sha256'], bindings.config_sha256, bindings.suite_sha256, bindings.source_sha256, digest, statuses,
         bindings.remote_receipt_sha256,

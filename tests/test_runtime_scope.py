@@ -1,3 +1,4 @@
+from tests.test_runtime_consumption import review_consumed
 from pathlib import Path
 from dataclasses import replace
 import os
@@ -121,7 +122,7 @@ class RuntimeScopeTests(unittest.TestCase):
                     verify_review_snapshot(invocation,bindings)
                 with self.assertRaisesRegex(ValueError,'metadata'):
                     load_review_evidence(fixture,artifact,hashlib.sha256(raw).hexdigest(),expected_invocations=(invocation,))
-                self.assertFalse((invocation.artifact_root/'consumed.json').exists())
+                self.assertFalse(review_consumed(invocation))
             finally:
                 if snapshot.exists():
                     for directory,_,_ in os.walk(snapshot):Path(directory).chmod(0o700)

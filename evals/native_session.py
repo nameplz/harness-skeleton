@@ -190,10 +190,39 @@ class _SessionExchange(_ConfigExchange):
         self.invocation = None
         self.turn_handler = None
         self.raw_handler = None
+        self._turn_sent = False
 
     def send_raw(self, raw: bytes) -> None:
         if self.supervised and self._inspection_complete:
             raise ValueError('supervised inspection does not permit further requests')
+        super().send_raw(raw)
+
+    def send_turn(self, raw: bytes) -> None:
+        if not self.supervised:
+            self.send_raw(raw)
+            return
+        from evals.runtime_trace import json_object
+        if type(raw) is not bytes:
+            raise ValueError('invalid supervised turn bytes')
+        request = json_object(raw.decode())
+        if not isinstance(request, dict) or not isinstance(request.get('params'), dict) or \
+                not self._inspection_complete or self.invocation is None or self._turn_sent or \
+                self.stage != 'turn/run' or request.get('method') != 'turn/start' or \
+                type(request.get('id')) is not int or request['id'] != 100 or \
+                request.get('params', {}).get('threadId') != self.invocation.session_id:
+            raise ValueError('supervised turn lacks its one-use bound invocation')
+        self._turn_sent = True
+        super().send_raw(raw)
+
+    def send_callback(self, raw: bytes) -> None:
+        if not self.supervised:
+            self.send_raw(raw)
+            return
+        from evals.runtime_trace import json_object
+        value = json_object(raw.decode())
+        if not self._turn_sent or self.stage != 'turn/run' or set(value) != {'id', 'result'} or \
+                self.invocation.kind != 'worker' or self.invocation.fixture.remote_context is None:
+            raise ValueError('supervised callback lacks a current bound turn')
         super().send_raw(raw)
 
     def finish(self) -> None:
@@ -325,12 +354,13 @@ def native_session(root: Path, *, binary: BinaryPin, model: str, writable: bool 
                    max_output_bytes: int = 1024 * 1024, invocation=None,
                    developer_instructions: str = '', supervised: bool = False) -> Iterator[tuple[_SessionExchange, SessionEvidence]]:
     """Trusted host context: retain the gated process for a subsequent bound collector."""
-    if type(supervised) is not bool or supervised and invocation is not None:
-        # shortcut: supervised invocations require policy/receipt replay binding in the next unit.
-        raise ValueError('supervised inspection does not yet accept bound invocations')
+    if type(supervised) is not bool:
+        raise ValueError('invalid supervised session backend')
     if invocation is not None:
-        from evals.runtime_access import require_direct
-        require_direct(invocation.fixture.execution_profile)
+        from evals.runtime_invocation import Invocation
+        from evals.runtime_access import require_profile
+        if not isinstance(invocation, Invocation) or supervised != require_profile(invocation.fixture.execution_profile):
+            raise ValueError('native backend differs from invocation execution profile')
     if os.name != 'posix' or not isinstance(model, str) or not model.strip() or len(model) > 128 or \
             type(timeout_seconds) not in (int, float) or not 0 < timeout_seconds <= 300 or \
             type(max_output_bytes) is not int or not 1 <= max_output_bytes <= 1024 * 1024 or \
@@ -371,7 +401,7 @@ def native_session(root: Path, *, binary: BinaryPin, model: str, writable: bool 
         evidence = exchange.preflight(root, model, writable, disabled_servers, developer_instructions, tools)
         exchange.invocation = bind_session(invocation, evidence.session_id) if invocation is not None else None
         exchange._inspection_complete = True
-        if supervised:
+        if supervised and invocation is None:
             process.stdin.close()  # Inspection is complete; shut down every duplicate socket write endpoint.
         yield exchange, evidence
         exchange.stage = 'shutdown'

@@ -1,3 +1,4 @@
+from tests.test_runtime_consumption import review_consumed
 from dataclasses import replace
 import json
 from pathlib import Path
@@ -89,14 +90,14 @@ class NativeReviewTests(unittest.TestCase):
                 receipt, command = self.review(root, context, verdict_change=change)
                 with self.assertRaises(ValueError):
                     self.load(context[0], (receipt,), {'correctness': command}, context[3])
-                self.assertFalse((receipt.invocation.artifact_root / 'consumed.json').exists())
+                self.assertFalse(review_consumed(receipt.invocation))
         with TemporaryDirectory() as temp:
             root = Path(temp).resolve(); context = self.setup(root)
             receipt, command = self.review(root, context)
             snapshot = context[1]; snapshot.chmod(0o755)
             with self.assertRaises(ValueError):
                 self.load(context[0], (receipt,), {'correctness': command}, context[3])
-            self.assertFalse((receipt.invocation.artifact_root / 'consumed.json').exists())
+            self.assertFalse(review_consumed(receipt.invocation))
 
     def test_security_requires_distinct_complete_roles_before_any_consumption(self):
         with TemporaryDirectory() as temp:
@@ -109,7 +110,7 @@ class NativeReviewTests(unittest.TestCase):
             tampered = replace(security, invocation=replace(security.invocation, native_receipt_sha256='0' * 64))
             with self.assertRaises(ValueError):
                 self.load(context[0], (correctness, tampered), commands, context[3])
-            self.assertFalse((correctness.invocation.artifact_root / 'consumed.json').exists())
+            self.assertFalse(review_consumed(correctness.invocation))
             evidence = self.load(context[0], (correctness, security), commands, context[3])
             self.assertEqual((('correctness', 'pass'), ('security', 'pass')), evidence.reviews)
 
@@ -119,7 +120,7 @@ class NativeReviewTests(unittest.TestCase):
             a, ca = self.review(root, context); b, cb = self.review(root, context, 'security')
             with self.assertRaises(ValueError):
                 self.load(context[0], (a, b), {'correctness': ca, 'security': cb}, context[3])
-            self.assertFalse((a.invocation.artifact_root / 'consumed.json').exists())
+            self.assertFalse(review_consumed(a.invocation))
         with TemporaryDirectory() as temp:
             root = Path(temp).resolve(); context = self.setup(root)
             receipt, command = self.review(root, context)

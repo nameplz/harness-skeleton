@@ -97,6 +97,7 @@ class Invocation:
                 'fixture_sha256': self.fixture.fixture_sha256, 'variant': self.fixture.variant,
                 'task_prompt_sha256': hashlib.sha256(self.fixture.prompt.encode()).hexdigest(),
                 'source_manifest_sha256': self.source.manifest_sha256, 'source_sha256': self.source.source_sha256,
+                'source_manifest_path_sha256': _digest(str(self.source.path)),
                 'final_manifest_sha256': self.final_manifest_sha256}
         if self.fixture.protected_resource is not None:
             resource = self.fixture.protected_resource
@@ -201,7 +202,7 @@ def claim_launch(invocation: Invocation, command: tuple[str, ...]) -> Invocation
 
 
 def claim_native_launch(invocation: Invocation, command: tuple[str, ...], *, binary, disabled_servers: tuple[str, ...]) -> Invocation:
-    require_direct(invocation.fixture.execution_profile)
+    require_profile(invocation.fixture.execution_profile)
     from evals.native_session import build_session_command
     verify_invocation(invocation.fixture, invocation)
     expected = build_session_command(invocation.execution_root, binary=binary, disabled_servers=disabled_servers,

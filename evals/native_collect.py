@@ -22,6 +22,8 @@ from evals.runtime_remote import (RemoteBinding, remote_tools, write_remote_rece
                                  load_remote_receipt)
 from evals.native_dynamic import (begin_dynamic, dynamic_item, dynamic_request,
     dynamic_response_sent, finish_dynamic)
+from evals.runtime_access import require_profile, host_output, write_host_file
+from evals.native_lifecycle import lifecycle_record, verify_lifecycle
 from scripts.command_runner import _command_environment
 
 ACCOUNTS = frozenset({'account/updated', 'account/rateLimits/updated'})
@@ -54,7 +56,8 @@ def _policy(invocation: Invocation, binary: BinaryPin, servers: tuple[str, ...],
         not re.fullmatch(r'[0-9a-f]{64}', v) for v in row) for row in instructions) or \
             len({row[0] for row in instructions}) != len(instructions):
         raise ValueError('invalid host instruction source allowlist')
-    policy = {'schema': 1, 'invocation_sha256': invocation.sha256, 'source_sha256': invocation.source.source_sha256,
+    policy = {'schema': 1, 'execution_profile': invocation.fixture.execution_profile,
+            'invocation_sha256': invocation.sha256, 'source_sha256': invocation.source.source_sha256,
             'binary_sha256': binary.sha256, 'disabled_servers': list(servers), 'request_id': REQUEST_ID,
             'client_id': client, 'prompt_sha256': _sha(canonical_prompt(invocation, bindings).encode()),
             'review_bindings': bindings.as_dict() if bindings is not None else None,
@@ -87,6 +90,7 @@ class NativeReceipt:
     returncode: int
     process_tree_cleanup_verified: bool = False
     dynamic_json: str | None = None
+    supervisor_receipt_sha256: str | None = None
 
 
 class _Dispatch:
@@ -194,8 +198,7 @@ def collect_native_turn(invocation: Invocation, *, binary: BinaryPin,
                         max_output_bytes: int = 1024 * 1024,
                         instruction_sources: tuple[tuple[str, str], ...] = (),
                         review_bindings: ReviewBindings | None = None) -> NativeReceipt:
-    from evals.runtime_access import require_direct
-    require_direct(invocation.fixture.execution_profile)
+    supervised = require_profile(invocation.fixture.execution_profile)
     verify_invocation(invocation.fixture, invocation)
     bindings = review_bindings
     canonical_prompt(invocation, bindings)
@@ -205,18 +208,17 @@ def collect_native_turn(invocation: Invocation, *, binary: BinaryPin,
     policy = _json(_policy(invocation, binary, disabled_servers, client, instruction_sources, bindings))
     root = invocation.artifact_root
     try:
-        with (root / 'native-policy.json').open('xb') as stream:
-            stream.write(policy)
+        write_host_file(root / 'native-policy.json', policy, invocation.fixture.execution_profile)
     except FileExistsError:
         raise ValueError('native invocation was already attempted') from None
     request = {'id': REQUEST_ID, 'method': 'turn/start', 'params': {
         'threadId': None, 'clientUserMessageId': client,
         'input': [{'type': 'text', 'text': canonical_prompt(invocation, bindings), 'text_elements': []}]}}
-    with (root / 'rpc.in.jsonl').open('xb') as incoming:
+    with host_output(root / 'rpc.in.jsonl', invocation.fixture.execution_profile) as incoming:
         with native_session(invocation.execution_root, binary=binary, model=invocation.model,
                 writable=invocation.kind == 'worker', disabled_servers=disabled_servers, timeout_seconds=timeout_seconds,
                 max_output_bytes=max_output_bytes, invocation=invocation,
-                developer_instructions=native_guidance(invocation)) as (exchange, session):
+                developer_instructions=native_guidance(invocation), supervised=supervised) as (exchange, session):
             if session.instruction_sources != instruction_sources:
                 raise ValueError('native instructions differ from host-approved sources')
             dispatch = _run_turn(exchange, session.thread_id, invocation, client, request, incoming, bindings)
@@ -231,8 +233,8 @@ def _run_turn(exchange, thread_id: str, invocation: Invocation, client: str, req
     with ExitStack() as stack:
         streams = None
         if invocation.kind == 'worker' and invocation.fixture.remote_context is not None:
-            streams = tuple(stack.enter_context(os.fdopen(os.open(invocation.artifact_root / name,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), 'wb'))
+            streams = tuple(stack.enter_context(host_output(invocation.artifact_root / name,
+                invocation.fixture.execution_profile))
                 for name in ('dynamic-rpc.in.jsonl', 'dynamic-rpc.out.jsonl'))
         return _exchange_turn(exchange, thread_id, invocation, client, request, incoming, bindings, streams)
 
@@ -258,7 +260,7 @@ def _exchange_turn(exchange, thread_id, invocation, client, request, incoming, b
         elif message.get('method') == 'item/tool/call':
             dynamic_write(0, raw + b'\n')
     def send_response(raw: bytes) -> None:
-        exchange.send_raw(raw)
+        exchange.send_callback(raw)
         dynamic_write(1, raw)
     exchange.raw_handler, exchange.turn_handler = capture, dispatch.notification
     exchange.stage = 'turn/run'
@@ -266,9 +268,8 @@ def _exchange_turn(exchange, thread_id, invocation, client, request, incoming, b
     request_raw = (json.dumps(request) + '\n').encode()
     if len(request_raw) > 65536:
         raise ValueError('native turn request exceeded its byte limit')
-    with (root / 'rpc.out.jsonl').open('xb') as outgoing:
-        outgoing.write(request_raw)
-    exchange.send(request)
+    write_host_file(root / 'rpc.out.jsonl', request_raw, invocation.fixture.execution_profile)
+    exchange.send_turn(request_raw)
     while not dispatch.collector.bound or dispatch.collector.status is None:
         raw, message = _pop_raw(exchange)
         if 'method' in message and 'id' in message:
@@ -297,9 +298,15 @@ def _seal(exchange, session, dispatch: _Dispatch, turn: TurnEvidence, policy: by
     dynamic = finish_dynamic(dispatch.dynamic) if dispatch.dynamic is not None else None
     if dynamic is not None:
         metadata['dynamic'] = _seal_dynamic(exchange.invocation, dispatch, dynamic)
+    if require_profile(exchange.invocation.fixture.execution_profile):
+        lifecycle = lifecycle_record(exchange.process, _lifecycle_bindings(exchange.invocation, metadata))
+        protected = _json(lifecycle)
+        write_host_file(root / 'supervisor.json', protected, exchange.invocation.fixture.execution_profile)
+        metadata['supervisor_receipt_sha256'] = _sha(protected)
+        recorded = json_object(read_protected_artifact(root / 'supervisor.json', exchange.invocation.fixture, _sha(protected)))
+        verify_lifecycle(recorded, _lifecycle_bindings(exchange.invocation, metadata), returncode=metadata['returncode'])
     raw = _json(metadata)
-    with (root / 'turn.json').open('xb') as stream:
-        stream.write(raw)
+    write_host_file(root / 'turn.json', raw, exchange.invocation.fixture.execution_profile)
     bound = replace(exchange.invocation, native_receipt_sha256=_sha(raw))
     return _receipt(bound, turn, metadata, dynamic)
 
@@ -309,7 +316,18 @@ def _receipt(invocation: Invocation, turn: TurnEvidence, data: dict, dynamic=Non
         data['stdout_sha256'], data['stderr_sha256'], data['stdout_bytes'], data['stderr_bytes'],
         data['environment_sha256'], json.dumps(data['session'], sort_keys=True),
         tuple(tuple(row) for row in data['telemetry']), data['returncode'], data['process_tree_cleanup_verified'],
-        json.dumps(asdict(dynamic), sort_keys=True) if dynamic is not None else None)
+        json.dumps(asdict(dynamic), sort_keys=True) if dynamic is not None else None,
+        data.get('supervisor_receipt_sha256'))
+
+
+def _lifecycle_bindings(invocation: Invocation, metadata: dict) -> dict:
+    session = read_host_artifact(invocation.artifact_root / 'session.json', invocation.fixture)
+    policy = json_object(read_protected_artifact(invocation.artifact_root / 'native-policy.json',
+                                               invocation.fixture, metadata['policy_sha256']))
+    return {'invocation_sha256': invocation.sha256, 'source_sha256': invocation.source.source_sha256,
+        'command_sha256': invocation.command_sha256, 'session_sha256': _sha(session),
+        'policy_sha256': metadata['policy_sha256'], 'turn_sha256': metadata['turn_sha256'],
+        'environment_sha256': metadata['environment_sha256'], 'binary_sha256': policy['binary_sha256']}
 
 
 def _seal_dynamic(invocation: Invocation, dispatch: _Dispatch, evidence) -> dict:
@@ -322,8 +340,7 @@ def _seal_dynamic(invocation: Invocation, dispatch: _Dispatch, evidence) -> dict
     raw = _json(asdict(evidence))
     if len(raw) > 1024 * 1024:
         raise ValueError('native dynamic evidence exceeded its limit')
-    with (root / 'dynamic.json').open('xb') as stream:
-        stream.write(raw)
+    write_host_file(root / 'dynamic.json', raw, fixture.execution_profile)
     return {'evidence_sha256': _sha(raw), 'remote_receipt_sha256': receipt.sha256,
             'rpc_in_sha256': _sha(read_host_artifact(root / 'dynamic-rpc.in.jsonl', fixture, max_bytes=65536)),
             'rpc_out_sha256': _sha(read_host_artifact(root / 'dynamic-rpc.out.jsonl', fixture, max_bytes=65536))}
@@ -379,8 +396,7 @@ def _read_native_turn(invocation: Invocation, *, binary: BinaryPin,
                      disabled_servers: tuple[str, ...] = (),
                      instruction_sources: tuple[tuple[str, str], ...] = (),
                      review_bindings: ReviewBindings | None = None) -> NativeReceipt:
-    from evals.runtime_access import require_direct
-    require_direct(invocation.fixture.execution_profile)
+    supervised = require_profile(invocation.fixture.execution_profile)
     bindings = review_bindings
     canonical_prompt(invocation, bindings)
     if invocation.kind != 'worker':
@@ -391,8 +407,9 @@ def _read_native_turn(invocation: Invocation, *, binary: BinaryPin,
     if invocation.native_receipt_sha256 is None:
         raise ValueError('native receipt has no external digest binding')
     data = json_object(read_protected_artifact(root / 'turn.json', fixture, invocation.native_receipt_sha256))
-    from evals.native_session import trusted_binary_identity
-    if data['binary_identity'] != list(trusted_binary_identity(binary)):
+    from evals.native_session import trusted_binary_identity, trusted_supervised_binary_identity
+    binary_guard = trusted_supervised_binary_identity if supervised else trusted_binary_identity
+    if data['binary_identity'] != list(binary_guard(binary)):
         raise ValueError('native installation identity changed')
     policy = json_object(read_protected_artifact(root / 'native-policy.json', fixture, data['policy_sha256']))
     client = policy.get('client_id')
@@ -404,6 +421,12 @@ def _read_native_turn(invocation: Invocation, *, binary: BinaryPin,
     expected = json.dumps(list(command)).encode()
     if invocation.command_sha256 != _sha(expected):
         raise ValueError('native command differs from invocation')
+    if supervised:
+        lifecycle = json_object(read_protected_artifact(root / 'supervisor.json', fixture,
+                                                       data.get('supervisor_receipt_sha256')))
+        verify_lifecycle(lifecycle, _lifecycle_bindings(invocation, data), returncode=data['returncode'])
+    elif data.get('supervisor_receipt_sha256') is not None:
+        raise ValueError('direct invocation cannot carry a supervisor receipt')
     request = json_object(read_protected_artifact(root / 'rpc.out.jsonl', fixture, data['rpc_out_sha256']))
     expected_request = {'id': REQUEST_ID, 'method': 'turn/start', 'params': {'threadId': invocation.session_id,
         'clientUserMessageId': client, 'input': [{'type': 'text', 'text': canonical_prompt(invocation, bindings), 'text_elements': []}]}}

@@ -7,6 +7,7 @@ from contextlib import closing, contextmanager
 import os
 from pathlib import Path
 import stat
+from typing import BinaryIO
 
 from evals.native_cgroup import _require_root_linux
 
@@ -197,17 +198,24 @@ def require_snapshot(root: Path) -> None:
             raise ValueError('review entries must remain root-owned, readable and read-only')
 
 
-def write_host_file(path: Path, raw: bytes, profile: str) -> None:
+@contextmanager
+def host_output(path: Path, profile: str) -> Iterator[BinaryIO]:
     if not require_profile(profile):
         with path.open('xb') as stream:
-            stream.write(raw)
+            yield stream
         return
     require_private_parent(path.parent)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'wb') as stream:
         os.fchmod(stream.fileno(), 0o600)
-        stream.write(raw)
+        require_private_file(path)
+        yield stream
     require_private_file(path)
+
+
+def write_host_file(path: Path, raw: bytes, profile: str) -> None:
+    with host_output(path, profile) as stream:
+        stream.write(raw)
 
 
 def require_direct(profile: str) -> None:
