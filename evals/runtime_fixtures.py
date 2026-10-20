@@ -15,6 +15,7 @@ from evals.runtime_access import (DIRECT_PROFILE, require_profile, expected_uid,
 from evals.runtime_policy import PolicyContext, create_policy_context, policy_recipe, preflight_policy
 from evals.runtime_remote import RemoteContext, create_remote_context, remote_tools
 from evals.runtime_cases import case_spec
+from evals.runtime_scope import EntryMetadata, tree_metadata, is_git
 from evals.runtime_limits import MetadataOnlySeed, ValidationPlan, validation_plan
 from scripts.eval_case_validation import MAX_INPUT_BYTES, digest as limits_digest, metadata_observation
 from evals.runtime_boundary import ProtectedResource, create_boundary, preflight_boundary
@@ -51,6 +52,8 @@ class RuntimeFixture:
     policy_context: PolicyContext | None = None
     remote_context: RemoteContext | None = None
     execution_profile: str = DIRECT_PROFILE
+    seed_metadata: tuple[EntryMetadata, ...] = ()
+    git_control_metadata: tuple[EntryMetadata, ...] = ()
 
 
 def _seed(case: str, variant: str) -> tuple[str, tuple[tuple[str, str], ...]]:
@@ -276,10 +279,16 @@ def _materialize_fixture(case: str, root: Path, *, condition: str, variant: str 
     seed_files = tuple(sorted((path.relative_to(root).as_posix(), hashlib.sha256(path.read_bytes()).hexdigest())
                               for path in seed_paths if path.relative_to(root).as_posix() not in omitted))
     seed_modes = tuple(sorted((path.relative_to(root).as_posix(), stat.S_IMODE(path.stat().st_mode)) for path in seed_paths))
+    metadata=tree_metadata(root)
+    seed_metadata=tuple(row for row in metadata if not is_git(row.path))
+    git_metadata=tuple(row for row in metadata if is_git(row.path)) if case_spec(case).preserve_git_control else ()
     product_paths = {path for path, _ in files}
+    product_parents={parent.as_posix() for path in product_paths for parent in Path(path).parents}
     product = {"case": case, "variant": variant, "execution_profile": execution_profile, "files": files,
                                        "spec_sha256": case_spec(case).sha256, "preexisting": preexisting,
-                                       "seed_modes": tuple(row for row in seed_modes if row[0] in product_paths)}
+                                       "seed_modes": tuple(row for row in seed_modes if row[0] in product_paths),
+                                       "seed_metadata": tuple(row for row in seed_metadata
+                                           if row.path in product_paths or row.path in product_parents)}
     if policy_context is not None:
         product["policy_context_sha256"] = policy_context.structural_sha256
     if remote_context is not None:
@@ -297,4 +306,5 @@ def _materialize_fixture(case: str, root: Path, *, condition: str, variant: str 
     if supervised:
         expose_workspace(root)
     return RuntimeFixture(root.resolve(), case, variant, condition, prompt, files, digest, seed_files, seed_head,
-                          seed_modes, preexisting, git_control, resource, metadata_seeds, plan, policy_context, remote_context, execution_profile)
+                          seed_modes, preexisting, git_control, resource, metadata_seeds, plan, policy_context, remote_context,
+                          execution_profile, seed_metadata, git_metadata)

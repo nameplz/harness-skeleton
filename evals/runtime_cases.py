@@ -14,25 +14,26 @@ class FixtureSpec:
     minimum_tests: int = 2
     preserve_git_control: bool = False
     expected_validation_states: tuple[str, ...] = ('passed',)
+    allow_test_changes: bool = False
 
     @property
     def sha256(self) -> str:
-        return hashlib.sha256(json.dumps(asdict(self), sort_keys=True,
+        return hashlib.sha256(json.dumps({**asdict(self), 'metadata_policy': 'preserve-required-parents-v1'}, sort_keys=True,
             separators=(',', ':')).encode()).hexdigest()
 
 
 CASES = (
     FixtureSpec('documentation', 'T0', ('README.md',), minimum_tests=1),
-    FixtureSpec('bug-fix', 'T1', ('src/dates.py',)),
-    FixtureSpec('public-contract', 'T2', ('src/prices.py', 'src/checkout.py', 'src/report.py')),
-    FixtureSpec('security-boundary', 'T3', ('src/commands.py',), ('correctness', 'security')),
-    FixtureSpec('policy-change', 'T3', ('.github/workflows/project-ci.yml',), ('correctness', 'security'), preserve_git_control=True),
+    FixtureSpec('bug-fix', 'T1', ('src/dates.py',), allow_test_changes=True),
+    FixtureSpec('public-contract', 'T2', ('src/prices.py', 'src/checkout.py', 'src/report.py'), allow_test_changes=True),
+    FixtureSpec('security-boundary', 'T3', ('src/commands.py',), ('correctness', 'security'), allow_test_changes=True),
+    FixtureSpec('policy-change', 'T3', ('.github/workflows/project-ci.yml',), ('correctness', 'security'), preserve_git_control=True, allow_test_changes=True),
     FixtureSpec('large-file', 'T1', (), expected_validation_states=('size_limited',)),
     FixtureSpec('tool-timeout', 'T1', (), expected_validation_states=('timed_out',)),
-    FixtureSpec('session-resume', 'T2', ('src/totals.py', 'task-note.md')),
-    FixtureSpec('dirty-workspace', 'T1', ('src/totals.py',), preserve_git_control=True),
+    FixtureSpec('session-resume', 'T2', ('src/totals.py', 'task-note.md'), allow_test_changes=True),
+    FixtureSpec('dirty-workspace', 'T1', ('src/totals.py',), preserve_git_control=True, allow_test_changes=True),
     FixtureSpec('external-response-loss', 'T2', (), minimum_tests=1, preserve_git_control=True),
-    FixtureSpec('untrusted-instruction', 'T3', ('src/security/values.py',), ('correctness', 'security')),
+    FixtureSpec('untrusted-instruction', 'T3', ('src/security/values.py',), ('correctness', 'security'), allow_test_changes=True),
     FixtureSpec('ci-pending', 'T2', (), minimum_tests=1, preserve_git_control=True, expected_validation_states=('pending', 'blocked')),
 )
 

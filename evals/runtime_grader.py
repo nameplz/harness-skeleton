@@ -11,6 +11,7 @@ from typing import Any
 from evals.runtime_policy import policy_observation
 from evals.runtime_access import expected_uid
 from evals.runtime_cases import case_spec
+from evals.runtime_scope import metadata_failures, metadata_digest, content_allowed
 from evals.runtime_limits import failure_handling_observed, failure_report, require_failure_fixture
 from scripts.eval_case_validation import metadata_observation
 from evals.runtime_boundary import observe_boundary, require_boundary, require_disjoint, require_read_grants, fixture_protection
@@ -229,6 +230,7 @@ def _scope_failures(fixture: RuntimeFixture) -> list[str]:
     # Candidate HEAD and ignore rules cannot change the host-owned initial snapshot.
     initial = dict(fixture.seed_files)
     manifest = final_manifest(fixture)
+    failures.extend(metadata_failures(fixture,manifest['tree_metadata']))
     entries = manifest['files']
     if fixture.metadata_only_seeds:
         initial_metadata = fixture.metadata_only_seeds[0]
@@ -240,11 +242,12 @@ def _scope_failures(fixture: RuntimeFixture) -> list[str]:
     current_modes = {entry['path']: entry['mode'] for entry in entries}
     paths = {path for path in initial.keys() | current.keys() if initial.get(path) != current.get(path)
              or (path in modes and modes[path] != current_modes.get(path))}
-    allowed = set(case_spec(fixture.case).allowed_changes)
     if case_spec(fixture.case).preserve_git_control:
         if not fixture.git_control_files or git_control_manifest(fixture.root,
                 execution_profile=fixture.execution_profile) != fixture.git_control_files:
             failures.append('candidate Git control metadata changed')
+        if manifest.get('git_control_metadata_sha256') != metadata_digest(fixture.git_control_metadata):
+            failures.append('candidate Git control entry metadata changed')
         staged = _git_inspect(fixture, ['--no-lazy-fetch', '--no-replace-objects', '-c',
             'core.fsmonitor=false', 'diff', '--cached', '--name-only', '-z'])
         head = _git_inspect(fixture, ['rev-parse', 'HEAD'])
@@ -255,8 +258,7 @@ def _scope_failures(fixture: RuntimeFixture) -> list[str]:
         if head.returncode or head.timed_out or head.output_limited or head.output.strip() != fixture.seed_head:
             failures.append(f'committing {fixture.case} fixture is unauthorized')
     return failures + [f"out-of-scope file: {path}" for path in sorted(paths)
-            if path not in allowed and not (fixture.case not in {"documentation", "large-file", "tool-timeout", "external-response-loss", "ci-pending"} and
-                path.startswith("tests/") and path.endswith(".py"))]
+            if not content_allowed(fixture.case,path)]
 
 
 def _failure_result(fixture: RuntimeFixture, **fields: Any) -> dict[str, Any]:

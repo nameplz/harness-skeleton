@@ -39,6 +39,25 @@ All 12 scenarios now have executable fixtures with baseline/harness conditions a
 
 The public-contract probe exercises the new price result, invalid input boundaries and both real callers. A repaired API with an unchanged caller fails. The dirty-workspace fixture commits the clean seed first, then applies a known user README draft. Scope grading preserves its content and permissions, rejects staging that draft, and rejects a new HEAD that could hide a committed user change. This fixture authorizes source edits only, with no staging, commits, resets or Git metadata writes. A host-owned initial Git-control snapshot detects alternate indexes and commit/reset laundering that leaves changed objects or reflogs; its identity is bound to invocation and final-review evidence. Byte-for-byte restoration of all metadata still requires action auditing, so a final snapshot alone cannot prove that a forbidden operation never occurred. Seed permissions are also part of every fixture's scope baseline. Candidate Python observations remain advisory; these cases require protected validation, revision-matched review and complete action auditing before a live result can pass. All three T3 cases require both correctness and security roles in CLI and native review grading.
 
+Scope permissions apply separately to content and entry metadata. A file on the
+content allowlist must retain its kind, owner/group, mode and single-link state.
+Existing directories retain their kind, owner/group, mode and presence. Ordinary
+file edits may replace an inode atomically when these metadata stay unchanged;
+the oversized metadata-only resource keeps its stricter namespace identity.
+Directory link counts are normalized because adding valid children changes them.
+The registry explicitly identifies cases allowing test changes. New directories
+must be safe owned parents of actual allowed files/tests; unused empty additions
+fail scope. Protected Git cases also compare all Git file/directory metadata.
+
+The fixture binds shared product metadata without harness-only guidance, while
+invocations bind the complete condition-specific seed and protected Git metadata.
+Final manifest schema2 binds current source tree metadata separately from file
+content. Review copies preserve empty directories, omit Git and oversized
+payloads, and explicitly set owner/group before sealing: root:root for supervised,
+the operator's UID/GID for direct. All directories become0555; file modes use the
+profile projection. CLI and native replay verify the same exact metadata tree.
+Older source freezes and review receipts must be regenerated after this change.
+
 ## Compare like with like
 
 Use baseline and harness conditions with the same pinned model/version, Codex/runtime version, starting fixture, sandbox, network policy, available tools, budget, and grading criteria. Baseline removes the harness guidance/config from the candidate fixture while retaining the same host security boundaries and trusted grading. Record what each condition actually receives. Never disable mandatory host safeguards to produce a baseline.

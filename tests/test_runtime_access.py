@@ -268,6 +268,8 @@ class RuntimeAccessTests(unittest.TestCase):
                         patch('evals.runtime_access.require_workspace'), \
                         patch('evals.runtime_review.require_readable_parent'), \
                         patch('evals.runtime_review.require_snapshot'), \
+                        patch('evals.runtime_review.snapshot_owner',return_value=(os.getuid(),os.getgid())), \
+                        patch('evals.runtime_scope.snapshot_owner',return_value=(os.getuid(),os.getgid())), \
                         patch('evals.runtime_review.actor_slot', return_value=guard(), create=True), \
                         patch('evals.runtime_review.read_candidate_file', side_effect=read), \
                         patch('evals.runtime_review.os.open', side_effect=open_file):

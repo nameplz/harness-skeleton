@@ -125,6 +125,8 @@ def verify_review_snapshot(invocation: Invocation, bindings: ReviewBindings) -> 
     if list(_scan(snapshot)) != expected or any(metadata.st_mode & 0o222
             for _, metadata in bounded_tree(snapshot) if stat.S_ISDIR(metadata.st_mode)):
         raise ValueError('review snapshot contents or read-only modes changed')
+    from evals.runtime_scope import verify_snapshot_metadata
+    verify_snapshot_metadata(invocation.fixture,snapshot,manifest)
     return manifest
 
 

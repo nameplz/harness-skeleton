@@ -14,6 +14,8 @@ from typing import Any
 from evals.runtime_access import (actor_slot, require_profile, expected_uid, require_readable_parent,
                                  require_snapshot, snapshot_file_mode, bounded_tree)
 from evals.runtime_cases import case_spec
+from evals.runtime_scope import (tree_metadata, is_git, metadata_digest, snapshot_owner,
+                                verify_snapshot_metadata)
 from evals.runtime_limits import metadata_seed_rows, require_failure_fixture
 from scripts.eval_case_validation import metadata_observation
 from evals.runtime_boundary import observe_boundary, require_boundary, require_disjoint, fixture_protection
@@ -109,7 +111,8 @@ def _final_manifest(fixture: RuntimeFixture) -> dict[str, Any]:
     files = [entry for entry in scanned if not entry['path'].startswith('.git/') and not entry.get('metadata_only')]
     seed = {'execution_profile': fixture.execution_profile, 'case': fixture.case, 'variant': fixture.variant, 'condition': fixture.condition,
             'head': fixture.seed_head, 'fixture_sha256': fixture.fixture_sha256, 'files': fixture.seed_files,
-            'modes': fixture.seed_modes, 'spec_sha256': case_spec(fixture.case).sha256,
+            'modes': fixture.seed_modes, 'metadata': fixture.seed_metadata,
+            'git_control_metadata': fixture.git_control_metadata, 'spec_sha256': case_spec(fixture.case).sha256,
             'git_control_files': fixture.git_control_files}
     if fixture.validation_plan is not None:
         seed['validation_plan_sha256'] = fixture.validation_plan.sha256
@@ -117,8 +120,10 @@ def _final_manifest(fixture: RuntimeFixture) -> dict[str, Any]:
     if fixture.protected_resource is not None:
         seed['protected_resource_sha256'] = fixture.protected_resource.structural_sha256
         seed['protected_resource_binding_sha256'] = fixture.protected_resource.binding_sha256
-    identity = {'schema': 1, 'execution_profile': fixture.execution_profile, 'case': fixture.case, 'condition': fixture.condition,
+    metadata=tree_metadata(fixture.root)
+    identity = {'schema': 2, 'execution_profile': fixture.execution_profile, 'case': fixture.case, 'condition': fixture.condition,
                 'seed_head': fixture.seed_head, 'seed_manifest_sha256': _digest(seed), 'files': files}
+    identity['tree_metadata']=[list(row) for row in metadata if not is_git(row.path)]
     if fixture.policy_context is not None:
         context = fixture.policy_context
         identity['policy_context'] = {'structural_sha256': context.structural_sha256,
@@ -138,6 +143,7 @@ def _final_manifest(fixture: RuntimeFixture) -> dict[str, Any]:
         identity['protected_resource'] = {'state': observed.state, 'sha256': observed.sha256}
     if fixture.git_control_files:
         identity['git_control_sha256'] = _digest(_git_entries(scanned))
+        identity['git_control_metadata_sha256'] = metadata_digest(tuple(row for row in metadata if is_git(row.path)))
     return {**identity, 'sha256': _digest(identity)}
 
 
@@ -160,16 +166,18 @@ def freeze_for_review(fixture: RuntimeFixture, destination: Path) -> dict[str, A
         return _freeze_for_review(fixture, destination)
 
 
-def _write_snapshot_file(path: Path, data: bytes, mode: int) -> None:
+def _write_snapshot_file(path: Path, data: bytes, mode: int, profile: str) -> None:
     fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'w+b') as stream:
+        uid,gid=snapshot_owner(profile)
+        os.fchown(stream.fileno(),uid,gid)
         stream.write(data)
         stream.flush()
         os.fchmod(stream.fileno(), mode & ~0o222)
         metadata = os.fstat(stream.fileno())
         stream.seek(0)
         if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1 or \
-                metadata.st_uid != os.getuid() or metadata.st_size != len(data) or \
+                (metadata.st_uid,metadata.st_gid) != (uid,gid) or metadata.st_size != len(data) or \
                 stat.S_IMODE(metadata.st_mode) != mode & ~0o222 or stream.read(len(data) + 1) != data:
             raise ValueError('review snapshot write verification failed')
 
@@ -182,20 +190,28 @@ def _freeze_for_review(fixture: RuntimeFixture, destination: Path) -> dict[str, 
         require_readable_parent(destination.parent)
     manifest = _final_manifest(fixture)
     destination.mkdir(parents=True, mode=0o700)
+    owner=snapshot_owner(fixture.execution_profile)
+    os.chown(destination,*owner,follow_symlinks=False)
+    destination.chmod(0o700)  # Clear any inherited SGID before creating children.
+    for row in manifest['tree_metadata']:
+        if row[1]=='directory' and row[0]!='.':
+            (destination/row[0]).mkdir(parents=True,exist_ok=True,mode=0o700)
     for entry in manifest['files']:
         data, mode = read_candidate_file(fixture.root / entry['path'])
         if hashlib.sha256(data).hexdigest() != entry['sha256'] or mode != entry['mode']:
             raise ValueError('candidate changed while copying the review snapshot')
         target = destination / entry['path']
         target.parent.mkdir(parents=True, exist_ok=True)
-        _write_snapshot_file(target, data, snapshot_file_mode(mode, fixture.execution_profile))
+        _write_snapshot_file(target, data, snapshot_file_mode(mode, fixture.execution_profile),fixture.execution_profile)
     if _final_manifest(fixture)['sha256'] != manifest['sha256']:
         raise ValueError('candidate changed before the review snapshot was fixed')
     for path, metadata in reversed(bounded_tree(destination.resolve())):
         if stat.S_ISDIR(metadata.st_mode):
+            os.chown(path,*owner,follow_symlinks=False)
             path.chmod(0o555)
     if require_profile(fixture.execution_profile):
         require_snapshot(destination)
+    verify_snapshot_metadata(fixture,destination.resolve(),manifest)
     return manifest
 
 
@@ -321,6 +337,7 @@ def load_review_evidence(fixture: RuntimeFixture, artifact: Path, digest: str, *
     if list(_scan(snapshot)) != expected or any(metadata.st_mode & 0o222
             for _, metadata in bounded_tree(snapshot) if stat.S_ISDIR(metadata.st_mode)):
         raise ValueError('review snapshot contents or read-only modes changed')
+    verify_snapshot_metadata(fixture,snapshot,manifest)
     bindings = {'final_manifest_sha256': manifest['sha256']}
     for key in ('config_sha256', 'suite_sha256', 'source_sha256'):
         value = envelope[key]
