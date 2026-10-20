@@ -515,3 +515,61 @@ stale temporary file is removed under the same directory lock before retry; an
 unsafe stale entry is preserved and rejected. The fixed temporary name bounds
 orphans to one file per source parent. Existing invocations issued before the
 source-path binding change are intentionally invalidated and must be reissued.
+
+### Bounded kernel-event decoding
+
+`native_audit_events` and `native_auparse` provide an in-memory completeness
+check above authenticated `native_audit_wire.KernelMessage` frames. They do not
+open an audit socket, install rules, attribute processes or classify actions.
+The production OS audit/cleanup flags remain false and readiness stays unknown.
+
+The decoder loads the pinned Ubuntu ARM64 libauparse3.1.2 library from a hashed,
+root-controlled open descriptor. Its public feed ABI is fixed to64-bit Linux
+ARM64, `AUSOURCE_FEED` and raw escape mode. Audit fields are interpreted by that
+library; the Python envelope parser only checks the timestamp/serial header.
+One receiver thread owns feed, synchronous callbacks, flush and destroy. Callback
+errors latch failure and escape only after C returns; ordinary errors expose no
+raw field text, while interrupts retain their type. Close/reentry from another
+thread or during a callback is rejected.
+
+Events use the complete seconds/milliseconds/serial identity and permit
+interleaving. Raw frame type counts must exactly equal the merged auparse
+callback counts. A PROCTITLE-triggered early callback is a partial segment,
+never proof of event completion. EOE is checked exactly once outside auparse;
+late records, extra callbacks, duplicate SYSCALLs and reused identities fail.
+Each syscall event requires one SYSCALL and exactly its declared contiguous,
+unique PATH item indexes. Failed calls remain observable. Kernel task exit can
+omit both `success` and `exit`; neither is synthesized, and a partial pair fails.
+
+An isolated CONFIG_CHANGE is the sole standalone event accepted without EOE.
+Linux6.8 rule-change records contain session information but can omit UID; this
+structural exception proves no actor or control-plane ownership. The future live
+collector must match control records to its exact rule/ACK/status lifecycle.
+Both adapter and ledger require complete supported control forms: add/remove
+rule operations require numeric `list` and `res`; `op=set` requires exactly one
+known numeric setting, its numeric `old` value and `res`. Missing/ambiguous fields,
+unknown operations, invalid list indexes and results outside0/1 fail closed.
+Unknown record types and standalone SECCOMP/io_uring events fail closed until
+their complete semantics are implemented and qualified.
+
+Hard bounds cover pending events4096, records/event64 (including EOE), total
+events131072, frames1048576 and raw payload bytes128MiB. Callers may lower them.
+Overflow, incomplete flush, remaining feed data or an empty stream never yields
+a summary. Trusted callbacks receive immutable ephemeral fields needed for
+later path/FD/endpoint classification. EXECVE values, PROCTITLE, comm, environment
+and buffer contents are never traversed. PATH/CWD/exe/socket bytes are hidden
+from repr and never included in the persistence projection. That projection
+contains only counts and domain-separated HMAC-SHA256 values under a fresh,
+unpersisted32-byte per-run key. Do not serialize the ephemeral dataclasses.
+
+Pinned ABI and format references: [auparse public header](https://raw.githubusercontent.com/linux-audit/audit-userspace/v3.1.2/auparse/auparse.h),
+[auparse enums](https://raw.githubusercontent.com/linux-audit/audit-userspace/v3.1.2/auparse/auparse-defs.h),
+[Linux syscall audit formatting](https://raw.githubusercontent.com/torvalds/linux/v6.8/kernel/auditsc.c),
+[Linux rule-change formatting](https://raw.githubusercontent.com/torvalds/linux/v6.8/kernel/auditfilter.c).
+[Linux status-change formatting](https://raw.githubusercontent.com/torvalds/linux/v6.8/kernel/audit.c)
+defines the separate `op=set` form without a rule-list field.
+Source-bound synthetic ABI and actual UID kernel-frame qualification are distinct
+from model trials and from complete action-audit attestation. Admission-before-
+release, RPC drain, loss/backlog/rule restoration, PID generations/cgroup/BPF,
+FD/path/network semantics, io_uring policy and protected receipt/grading
+integration remain required before the24+72 actual evaluation gate can open.
