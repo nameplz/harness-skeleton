@@ -328,6 +328,9 @@ def native_session(root: Path, *, binary: BinaryPin, model: str, writable: bool 
     if type(supervised) is not bool or supervised and invocation is not None:
         # shortcut: supervised invocations require policy/receipt replay binding in the next unit.
         raise ValueError('supervised inspection does not yet accept bound invocations')
+    if invocation is not None:
+        from evals.runtime_access import require_direct
+        require_direct(invocation.fixture.execution_profile)
     if os.name != 'posix' or not isinstance(model, str) or not model.strip() or len(model) > 128 or \
             type(timeout_seconds) not in (int, float) or not 0 < timeout_seconds <= 300 or \
             type(max_output_bytes) is not int or not 1 <= max_output_bytes <= 1024 * 1024 or \

@@ -34,7 +34,7 @@ class RuntimeTrace:
 def open_no_symlink(path: Path, *, directory: bool = False) -> int:
     if not path.is_absolute() or '..' in path.parts:
         raise ValueError('artifact file path must be absolute and canonical')
-    flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0)
+    flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0)
     parent_fd = os.open(path.anchor, flags | os.O_DIRECTORY)
     try:
         for part in path.parts[1:-1]:
@@ -55,7 +55,10 @@ def read_host_artifact(path: Path, fixture: RuntimeFixture, *, max_bytes: int = 
     require_disjoint(fixture_protection(fixture), path)
     if path.is_symlink() or path.is_relative_to(fixture.root) or path.resolve().is_relative_to(fixture.root):
         raise ValueError("trace must be outside the candidate and not a symlink")
-    # The operator must protect all parent directories with the measured native profile.
+    from evals.runtime_access import require_profile, require_private_file
+    if require_profile(fixture.execution_profile):
+        require_private_file(path)
+    # Direct callers protect parent directories with the measured native profile.
     with os.fdopen(open_no_symlink(path.resolve(strict=True)), "rb") as stream:
         metadata = os.fstat(stream.fileno())
         if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1 or metadata.st_size > max_bytes or \
@@ -119,6 +122,8 @@ def load_runtime_trace(fixture: RuntimeFixture, rollout: Path, hooks: Path, *,
     from evals.native_runtime import build_exec_command, worker_prompt
     if not isinstance(expected_invocation, Invocation) or expected_invocation.kind != 'worker':
         raise ValueError('trace requires its current host-issued worker invocation')
+    from evals.runtime_access import require_direct
+    require_direct(fixture.execution_profile)
     verify_invocation(fixture, expected_invocation, require_session=True)
     if rollout.resolve() != expected_invocation.artifact_root / 'rollout.jsonl' or \
             hooks.resolve() != expected_invocation.artifact_root / 'hooks.jsonl':

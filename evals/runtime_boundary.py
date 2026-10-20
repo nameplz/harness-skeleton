@@ -64,6 +64,9 @@ class BoundaryObservation:
 
 
 def require_boundary(fixture: RuntimeFixture) -> None:
+    from evals.runtime_access import require_profile, require_workspace
+    if require_profile(fixture.execution_profile):
+        require_workspace(fixture.root)
     from evals.runtime_policy import require_policy_fixture
     from evals.runtime_remote import require_remote_fixture
     require_policy_fixture(fixture)

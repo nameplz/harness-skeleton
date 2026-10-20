@@ -194,6 +194,8 @@ def collect_native_turn(invocation: Invocation, *, binary: BinaryPin,
                         max_output_bytes: int = 1024 * 1024,
                         instruction_sources: tuple[tuple[str, str], ...] = (),
                         review_bindings: ReviewBindings | None = None) -> NativeReceipt:
+    from evals.runtime_access import require_direct
+    require_direct(invocation.fixture.execution_profile)
     verify_invocation(invocation.fixture, invocation)
     bindings = review_bindings
     canonical_prompt(invocation, bindings)
@@ -377,6 +379,8 @@ def _read_native_turn(invocation: Invocation, *, binary: BinaryPin,
                      disabled_servers: tuple[str, ...] = (),
                      instruction_sources: tuple[tuple[str, str], ...] = (),
                      review_bindings: ReviewBindings | None = None) -> NativeReceipt:
+    from evals.runtime_access import require_direct
+    require_direct(invocation.fixture.execution_profile)
     bindings = review_bindings
     canonical_prompt(invocation, bindings)
     if invocation.kind != 'worker':

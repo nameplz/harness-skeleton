@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import nullcontext
 import hashlib
 import json
 import os
@@ -10,6 +11,8 @@ from pathlib import Path
 import stat
 from typing import Any
 
+from evals.runtime_access import (actor_slot, require_profile, expected_uid, require_readable_parent,
+                                 require_snapshot, snapshot_file_mode, bounded_tree)
 from evals.runtime_cases import case_spec
 from evals.runtime_limits import metadata_seed_rows, require_failure_fixture
 from scripts.eval_case_validation import metadata_observation
@@ -45,53 +48,66 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
-def read_candidate_file(path: Path) -> tuple[bytes, int]:
-    metadata = path.lstat()
+def _candidate_metadata(metadata: os.stat_result) -> None:
+    if metadata.st_mode & 0o7000:
+        raise ValueError('candidate files must not carry special permission bits')
     if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1 or metadata.st_size > MAX_FILE_BYTES:
         raise ValueError('candidate file must be bounded, regular, and have no hard links')
+
+
+def read_candidate_file(path: Path) -> tuple[bytes, int]:
+    metadata = path.lstat()
+    _candidate_metadata(metadata)
+    identity = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns,
+        item.st_ctime_ns, item.st_mode, item.st_nlink, item.st_uid, item.st_gid)
     with os.fdopen(open_no_symlink(path), 'rb') as stream:
         before = os.fstat(stream.fileno())
+        _candidate_metadata(before)
+        if identity(metadata) != identity(before):
+            raise ValueError('candidate file changed before taking the snapshot')
         data = stream.read(MAX_FILE_BYTES + 1)
         after = os.fstat(stream.fileno())
-    identity = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_mode)
     if len(data) > MAX_FILE_BYTES or identity(metadata) != identity(before) or identity(before) != identity(after):
         raise ValueError('candidate file changed while taking the snapshot')
     return data, stat.S_IMODE(metadata.st_mode)
 
 
-def _scan(root: Path, *, metadata_only: tuple[str, ...] = ()) -> tuple[dict[str, Any], ...]:
+def _scan(root: Path, *, metadata_only: tuple[str, ...] = (), metadata_owner: int | None = None) -> tuple[dict[str, Any], ...]:
     if not stat.S_ISDIR(root.lstat().st_mode):
         raise ValueError('snapshot root must be a directory and not a symlink')
     entries = []
     total = 0
-    for directory, dirs, names in os.walk(root, followlinks=False):
-        for name in dirs:
-            if not stat.S_ISDIR((Path(directory) / name).lstat().st_mode):
-                raise ValueError('candidate directory must not be a symlink')
-        for name in names:
-            path = Path(directory) / name
-            relative = path.relative_to(root).as_posix()
-            if relative in metadata_only:
-                observed = metadata_observation(root)
-                entries.append({'path': relative, **observed, 'metadata_only': True})
-                total += observed['size']
-            else:
-                data, mode = read_candidate_file(path)
-                total += len(data)
-                entries.append({'path': relative, 'mode': mode,
-                                'size': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
-            if len(entries) > MAX_TREE_FILES or total > MAX_TREE_BYTES:
-                raise ValueError('candidate tree exceeded its file or byte limit')
+    for path, metadata in bounded_tree(root):
+        if stat.S_ISDIR(metadata.st_mode):
+            continue
+        relative = path.relative_to(root).as_posix()
+        if relative in metadata_only:
+            observed = metadata_observation(root, expected_uid=metadata_owner)
+            entries.append({'path': relative, **observed, 'metadata_only': True})
+            total += observed['size']
+        else:
+            data, mode = read_candidate_file(path)
+            total += len(data)
+            entries.append({'path': relative, 'mode': mode,
+                            'size': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
+        if len(entries) > MAX_TREE_FILES or total > MAX_TREE_BYTES:
+            raise ValueError('candidate tree exceeded its file or byte limit')
     return tuple(sorted(entries, key=lambda entry: entry['path']))
 
 
 def final_manifest(fixture: RuntimeFixture) -> dict[str, Any]:
+    with actor_slot() if require_profile(fixture.execution_profile) else nullcontext():
+        return _final_manifest(fixture)
+
+
+def _final_manifest(fixture: RuntimeFixture) -> dict[str, Any]:
     require_boundary(fixture)
     require_failure_fixture(fixture)
     # Git metadata is resource-checked too; its integrity is graded separately.
-    scanned = _scan(fixture.root, metadata_only=tuple(seed.relative_path for seed in fixture.metadata_only_seeds))
+    scanned = _scan(fixture.root, metadata_only=tuple(seed.relative_path for seed in fixture.metadata_only_seeds),
+                    metadata_owner=expected_uid(fixture.execution_profile))
     files = [entry for entry in scanned if not entry['path'].startswith('.git/') and not entry.get('metadata_only')]
-    seed = {'case': fixture.case, 'variant': fixture.variant, 'condition': fixture.condition,
+    seed = {'execution_profile': fixture.execution_profile, 'case': fixture.case, 'variant': fixture.variant, 'condition': fixture.condition,
             'head': fixture.seed_head, 'fixture_sha256': fixture.fixture_sha256, 'files': fixture.seed_files,
             'modes': fixture.seed_modes, 'spec_sha256': case_spec(fixture.case).sha256,
             'git_control_files': fixture.git_control_files}
@@ -101,7 +117,7 @@ def final_manifest(fixture: RuntimeFixture) -> dict[str, Any]:
     if fixture.protected_resource is not None:
         seed['protected_resource_sha256'] = fixture.protected_resource.structural_sha256
         seed['protected_resource_binding_sha256'] = fixture.protected_resource.binding_sha256
-    identity = {'schema': 1, 'case': fixture.case, 'condition': fixture.condition,
+    identity = {'schema': 1, 'execution_profile': fixture.execution_profile, 'case': fixture.case, 'condition': fixture.condition,
                 'seed_head': fixture.seed_head, 'seed_manifest_sha256': _digest(seed), 'files': files}
     if fixture.policy_context is not None:
         context = fixture.policy_context
@@ -130,32 +146,56 @@ def _git_entries(entries: tuple[dict[str, Any], ...]) -> tuple[tuple[str, str, i
                  if entry['path'].startswith('.git/'))
 
 
-def git_control_manifest(root: Path) -> tuple[tuple[str, str, int], ...]:
-    return _git_entries(_scan(root))
+def git_control_manifest(root: Path, *, execution_profile: str = 'direct') -> tuple[tuple[str, str, int], ...]:
+    with actor_slot() if require_profile(execution_profile) else nullcontext():
+        return _git_entries(_scan(root))
 
 
-def regular_files(root: Path, *, metadata_only: tuple[str, ...] = ()) -> tuple[str, ...]:
-    return tuple(entry['path'] for entry in _scan(root, metadata_only=metadata_only) if not entry['path'].startswith('.git/'))
+def regular_files(root: Path, *, metadata_only: tuple[str, ...] = (), metadata_owner: int | None = None) -> tuple[str, ...]:
+    return tuple(entry['path'] for entry in _scan(root, metadata_only=metadata_only, metadata_owner=metadata_owner) if not entry['path'].startswith('.git/'))
 
 
 def freeze_for_review(fixture: RuntimeFixture, destination: Path) -> dict[str, Any]:
+    with actor_slot() if require_profile(fixture.execution_profile) else nullcontext():
+        return _freeze_for_review(fixture, destination)
+
+
+def _write_snapshot_file(path: Path, data: bytes, mode: int) -> None:
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'w+b') as stream:
+        stream.write(data)
+        stream.flush()
+        os.fchmod(stream.fileno(), mode & ~0o222)
+        metadata = os.fstat(stream.fileno())
+        stream.seek(0)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1 or \
+                metadata.st_uid != os.getuid() or metadata.st_size != len(data) or \
+                stat.S_IMODE(metadata.st_mode) != mode & ~0o222 or stream.read(len(data) + 1) != data:
+            raise ValueError('review snapshot write verification failed')
+
+
+def _freeze_for_review(fixture: RuntimeFixture, destination: Path) -> dict[str, Any]:
     require_disjoint(fixture_protection(fixture), destination)
     if destination.exists() or destination.is_symlink() or destination.resolve().is_relative_to(fixture.root):
         raise ValueError('review snapshot requires a fresh directory outside the candidate')
-    manifest = final_manifest(fixture)
-    destination.mkdir(parents=True)
+    if require_profile(fixture.execution_profile):
+        require_readable_parent(destination.parent)
+    manifest = _final_manifest(fixture)
+    destination.mkdir(parents=True, mode=0o700)
     for entry in manifest['files']:
         data, mode = read_candidate_file(fixture.root / entry['path'])
         if hashlib.sha256(data).hexdigest() != entry['sha256'] or mode != entry['mode']:
             raise ValueError('candidate changed while copying the review snapshot')
         target = destination / entry['path']
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
-        target.chmod(mode & ~0o222)
-    if final_manifest(fixture)['sha256'] != manifest['sha256']:
+        _write_snapshot_file(target, data, snapshot_file_mode(mode, fixture.execution_profile))
+    if _final_manifest(fixture)['sha256'] != manifest['sha256']:
         raise ValueError('candidate changed before the review snapshot was fixed')
-    for directory, _, _ in os.walk(destination, topdown=False):
-        Path(directory).chmod(0o555)
+    for path, metadata in reversed(bounded_tree(destination.resolve())):
+        if stat.S_ISDIR(metadata.st_mode):
+            path.chmod(0o555)
+    if require_profile(fixture.execution_profile):
+        require_snapshot(destination)
     return manifest
 
 
@@ -274,8 +314,12 @@ def load_review_evidence(fixture: RuntimeFixture, artifact: Path, digest: str, *
     snapshot = raw_snapshot.resolve(strict=True)
     if not raw_snapshot.is_absolute() or raw_snapshot.is_symlink() or snapshot.is_relative_to(fixture.root):
         raise ValueError('review snapshot must be outside candidate control')
-    expected = [{**entry, 'mode': entry['mode'] & ~0o222} for entry in manifest['files']]
-    if list(_scan(snapshot)) != expected or any(Path(directory).stat().st_mode & 0o222 for directory, _, _ in os.walk(snapshot)):
+    if require_profile(fixture.execution_profile):
+        require_snapshot(snapshot)
+    expected = [{**entry, 'mode': snapshot_file_mode(entry['mode'], fixture.execution_profile)}
+                for entry in manifest['files']]
+    if list(_scan(snapshot)) != expected or any(metadata.st_mode & 0o222
+            for _, metadata in bounded_tree(snapshot) if stat.S_ISDIR(metadata.st_mode)):
         raise ValueError('review snapshot contents or read-only modes changed')
     bindings = {'final_manifest_sha256': manifest['sha256']}
     for key in ('config_sha256', 'suite_sha256', 'source_sha256'):

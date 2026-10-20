@@ -370,3 +370,76 @@ sealing prevent named-user write grants, while private0700/0600 masks deny acces
 The pinned actor binary guard intentionally uses the stricter no-extended-ACL
 profile. Other filesystem/ACL semantics remain unqualified. See the kernel's
 [mode conversion and permission checks](https://raw.githubusercontent.com/torvalds/linux/v6.8/fs/posix_acl.c).
+
+
+### Linux actor fixture ownership
+
+`materialize_fixture(..., execution_profile="linux-systemd-uid2000")` is an
+explicit Linux root preparation path; the default remains `direct`. The operator
+selects a fresh canonical candidate under an existing root-owned `0700` parent.
+Its remaining ancestors must be root-controlled, non-writable by the actor and
+traversable by UID/GID2000. Use the qualified ext4/tmpfs guest boundary described
+above; shared/idmapped mounts and hostile root administrators are outside it.
+
+Root creates the seed, guidance, Git history and protected context. Before
+changing any owner, the complete bounded candidate tree is checked for symlinks,
+hard links, special files, special mode bits and public write access. Only that
+tree is handed to `2000:2000`; the parent remains private while the host captures
+the seed manifests, including post-handoff metadata for the oversized file.
+Finally the parent becomes root-owned `0710`, group2000, granting traversal and
+preventing actor replacement of siblings. The trusted operator serializes fixture
+preparation and actor execution.
+
+Source freezes and invocation records use separate root-private `0700` parents
+and exclusive `0600` files. Creation and reads check canonical root-controlled
+ancestry and file ownership/mode/link count. Protected policy, remote context and
+sentinel siblings retain their root-private permissions. The execution profile
+is included in fixture, invocation and final-manifest identities, so changing it
+cannot replay the same invocation. Review snapshots remain root-owned, readable
+by the actor and read-only, with protected, traversable ancestry. Parent traversal
+is configured explicitly; root's `os.access` is not used as actor permission proof.
+Candidate files carrying setuid, setgid or sticky bits are rejected before snapshot
+creation, including in the direct profile. Root-owned review roots and entries
+also reject these bits on replay, preventing an actor mode from becoming a
+privileged executable when copied by the trusted host.
+Supervised snapshot creation holds the same actor lock and idle checks. The root
+stays private (`0700`) throughout copying, including with umask zero. Exclusive,
+no-follow descriptor writes verify the content and final file modes before the
+directories are sealed and the root becomes readable (`0555`).
+Original candidate modes remain bound in the manifest. Supervised copies project
+regular files to `0444` and files with any execute bit to `0555`, so even an
+actor-owned `0600`/`0700` file stays readable after root takes ownership. Both
+review replay paths validate that same projection. Direct copies keep their
+existing mode with write bits removed.
+Seed, candidate and snapshot walks share descriptor-based no-follow traversal
+with at most 4096 total entries, depth32, 4096 relative path bytes and 32MiB of
+regular-file metadata size; candidate content retains the tighter per-file and
+file-count limits. Empty directories count toward the same bounds. Supervised
+candidate manifest and Git-control scans hold the actor idle lock, as snapshot
+creation does. Final file opens are nonblocking and verify regular single-link
+metadata before reading, including owner/group/link count and change time in
+the before/after identity. A FIFO replacement cannot block the observer.
+
+Host Git scope inspection also runs as UID/GID2000. Running Git as root with
+`safe.directory` could follow a candidate `include.path` into private host files;
+no such trust grant is added. The bounded command runner's explicit Linux-root
+`run_as_actor=True` mode uses root-controlled canonical executables and
+`setpriv` to clear supplementary groups/capabilities and set no-new-privileges.
+Both callback preflight and the final command use this identity. Public wrapped
+Git remains rejected; the dropper is added only after existing Git guards and
+rewrites. Direct callers retain their original behavior. See
+[setpriv's privilege controls](https://man7.org/linux/man-pages/man1/setpriv.1.html).
+
+Fixture preparation and each host Git inspection hold the launcher's root-only
+actor lock and verify the dedicated UID is idle before and after. Residual tasks
+fail the operation. Command timeout/output bounds and process-group cleanup
+remain in force; this does not prove cgroup-level descendant cleanup. No global
+or repository Git configuration is modified. Wildcard and control-character
+workspace paths are rejected.
+
+This preparation profile does not yet enable model collection. Native/legacy
+launch claims, native collection/replay, legacy trace loading and executable
+grading reject it before transport/artifact/process writes until protected
+supervisor lifecycle receipts and supervised validation are integrated. Pure
+snapshot/scope inspection remains available. No production audit, cleanup or
+readiness claim follows from ownership preparation alone.

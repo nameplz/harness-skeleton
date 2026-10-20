@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 
 from evals.runtime_cases import case_spec
 from evals.native_config import BinaryPin
@@ -115,9 +116,14 @@ def verify_review_snapshot(invocation: Invocation, bindings: ReviewBindings) -> 
     require_disjoint(fixture_protection(invocation.fixture), snapshot)
     if manifest['sha256'] != bindings.final_manifest_sha256 or snapshot.is_relative_to(invocation.fixture.root):
         raise ValueError('review candidate or external snapshot changed')
-    expected = [{**row, 'mode': row['mode'] & ~0o222} for row in manifest['files']]
-    if list(_scan(snapshot)) != expected or any(Path(directory).stat().st_mode & 0o222
-                                               for directory, _, _ in os.walk(snapshot)):
+    from evals.runtime_access import require_profile, require_snapshot
+    if require_profile(invocation.fixture.execution_profile):
+        require_snapshot(snapshot)
+    from evals.runtime_access import snapshot_file_mode, bounded_tree
+    expected = [{**row, 'mode': snapshot_file_mode(row['mode'], invocation.fixture.execution_profile)}
+                for row in manifest['files']]
+    if list(_scan(snapshot)) != expected or any(metadata.st_mode & 0o222
+            for _, metadata in bounded_tree(snapshot) if stat.S_ISDIR(metadata.st_mode)):
         raise ValueError('review snapshot contents or read-only modes changed')
     return manifest
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 import hashlib
 import json
@@ -9,6 +10,8 @@ from pathlib import Path
 import shutil
 import stat
 
+from evals.runtime_access import (DIRECT_PROFILE, require_profile, expected_uid, preflight_workspace,
+                                 handoff_workspace, expose_workspace, actor_slot, bounded_tree)
 from evals.runtime_policy import PolicyContext, create_policy_context, policy_recipe, preflight_policy
 from evals.runtime_remote import RemoteContext, create_remote_context, remote_tools
 from evals.runtime_cases import case_spec
@@ -47,6 +50,7 @@ class RuntimeFixture:
     validation_plan: ValidationPlan | None = None
     policy_context: PolicyContext | None = None
     remote_context: RemoteContext | None = None
+    execution_profile: str = DIRECT_PROFILE
 
 
 def _seed(case: str, variant: str) -> tuple[str, tuple[tuple[str, str], ...]]:
@@ -185,7 +189,21 @@ def _add_harness(root: Path, *, validation_config: str = VALIDATION_CONFIG) -> N
 
 def materialize_fixture(case: str, root: Path, *, condition: str, variant: str = "pilot",
                         protected_root: Path | None = None, boundary_seed: bytes | None = None,
-                        policy_root: Path | None = None, remote_root: Path | None = None) -> RuntimeFixture:
+                        policy_root: Path | None = None, remote_root: Path | None = None,
+                        execution_profile: str = DIRECT_PROFILE) -> RuntimeFixture:
+    with actor_slot() if require_profile(execution_profile) else nullcontext():
+        return _materialize_fixture(case, root, condition=condition, variant=variant,
+            protected_root=protected_root, boundary_seed=boundary_seed, policy_root=policy_root,
+            remote_root=remote_root, execution_profile=execution_profile)
+
+
+def _materialize_fixture(case: str, root: Path, *, condition: str, variant: str = "pilot",
+                        protected_root: Path | None = None, boundary_seed: bytes | None = None,
+                        policy_root: Path | None = None, remote_root: Path | None = None,
+                        execution_profile: str = DIRECT_PROFILE) -> RuntimeFixture:
+    supervised = require_profile(execution_profile)
+    if supervised:
+        preflight_workspace(root)
     if case not in SUPPORTED_CASES or condition not in {"baseline", "harness"} or variant not in {"pilot", "unseen"}:
         raise ValueError("unknown fixture, condition, or variant")
     policy_context = None
@@ -243,20 +261,23 @@ def materialize_fixture(case: str, root: Path, *, condition: str, variant: str =
         content = dict(files)["README.md"] + f"\nUser draft ({variant}): keep this unfinished paragraph.\n"
         _write(root, "README.md", content)
         preexisting = (("README.md", content),)
+    if supervised:
+        handoff_workspace(root)
     metadata_seeds = ()
     if case == 'large-file':
-        observed = metadata_observation(root)
+        observed = metadata_observation(root, expected_uid=expected_uid(execution_profile))
         structure = {'path': 'data/oversized.txt', 'size': observed['size'], 'mode': observed['mode'],
                      'seed_content_sha256': hashlib.sha256(dict(files)['data/oversized.txt'].encode()).hexdigest()}
         metadata_seeds = (MetadataOnlySeed('data/oversized.txt', observed['size'], observed['mode'],
                           limits_digest(structure), observed['metadata_sha256']),)
     omitted = {seed.relative_path for seed in metadata_seeds}
-    seed_paths = tuple(path for path in root.rglob("*") if path.is_file() and ".git" not in path.relative_to(root).parts)
+    seed_paths = tuple(path for path, metadata in bounded_tree(root)
+                       if stat.S_ISREG(metadata.st_mode) and ".git" not in path.relative_to(root).parts)
     seed_files = tuple(sorted((path.relative_to(root).as_posix(), hashlib.sha256(path.read_bytes()).hexdigest())
                               for path in seed_paths if path.relative_to(root).as_posix() not in omitted))
     seed_modes = tuple(sorted((path.relative_to(root).as_posix(), stat.S_IMODE(path.stat().st_mode)) for path in seed_paths))
     product_paths = {path for path, _ in files}
-    product = {"case": case, "variant": variant, "files": files,
+    product = {"case": case, "variant": variant, "execution_profile": execution_profile, "files": files,
                                        "spec_sha256": case_spec(case).sha256, "preexisting": preexisting,
                                        "seed_modes": tuple(row for row in seed_modes if row[0] in product_paths)}
     if policy_context is not None:
@@ -273,5 +294,7 @@ def materialize_fixture(case: str, root: Path, *, condition: str, variant: str =
     if case_spec(case).preserve_git_control:
         from evals.runtime_review import git_control_manifest
         git_control = git_control_manifest(root)
+    if supervised:
+        expose_workspace(root)
     return RuntimeFixture(root.resolve(), case, variant, condition, prompt, files, digest, seed_files, seed_head,
-                          seed_modes, preexisting, git_control, resource, metadata_seeds, plan, policy_context, remote_context)
+                          seed_modes, preexisting, git_control, resource, metadata_seeds, plan, policy_context, remote_context, execution_profile)

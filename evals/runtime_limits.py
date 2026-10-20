@@ -8,6 +8,7 @@ import shlex
 import sys
 from typing import TYPE_CHECKING, Any
 
+from evals.runtime_access import expected_uid
 from scripts.command_runner import CommandResult
 from scripts.eval_case_validation import (CASES, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, TIMEOUT_SECONDS,
                                          digest, metadata_observation, policy_sha256, source_sha256)
@@ -93,7 +94,8 @@ def failure_report(fixture: RuntimeFixture, result: CommandResult, *, nonce: str
     observation = report['observation']
     if fixture.case == 'large-file':
         try:
-            actual = {**metadata_observation(fixture.root), 'payload_bytes_read': 0, 'max_bytes': MAX_INPUT_BYTES}
+            actual = {**metadata_observation(fixture.root, expected_uid=expected_uid(fixture.execution_profile)),
+                      'payload_bytes_read': 0, 'max_bytes': MAX_INPUT_BYTES}
         except (OSError, ValueError):
             return None
         state = 'size_limited' if actual['size'] > MAX_INPUT_BYTES else 'failed'

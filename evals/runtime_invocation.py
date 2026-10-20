@@ -11,6 +11,8 @@ import secrets
 import stat
 from uuid import UUID
 
+from evals.runtime_access import (require_profile, require_private_parent, require_snapshot,
+                                 require_direct, write_host_file)
 from evals.runtime_cases import case_spec
 from evals.runtime_limits import metadata_seed_rows, require_failure_fixture
 from evals.runtime_boundary import observe_boundary, require_boundary, require_disjoint, requested_policy_sha256, fixture_protection
@@ -64,8 +66,7 @@ def write_frozen_source(fixture: RuntimeFixture, path: Path) -> FrozenSource:
         raise ValueError('source freeze must be outside candidate control')
     record = {'schema': 1, 'files_sha256': source_file_hashes()}
     raw = (json.dumps(record, indent=2) + '\n').encode()
-    with path.open('xb') as stream:
-        stream.write(raw)
+    write_host_file(path, raw, fixture.execution_profile)
     return load_frozen_source(fixture, path, hashlib.sha256(raw).hexdigest())
 
 
@@ -85,7 +86,7 @@ class Invocation:
 
     @property
     def identity(self) -> dict[str, object]:
-        identity = {'nonce': self.nonce, 'kind': self.kind, 'candidate_root': str(self.fixture.root),
+        identity = {'nonce': self.nonce, 'kind': self.kind, 'execution_profile': self.fixture.execution_profile, 'candidate_root': str(self.fixture.root),
                 'execution_root': str(self.execution_root), 'artifact_root': str(self.artifact_root),
                 'case': self.fixture.case, 'condition': self.fixture.condition, 'seed_head': self.fixture.seed_head,
                 'seed_manifest_sha256': _digest({'files': self.fixture.seed_files, 'modes': self.fixture.seed_modes}),
@@ -140,9 +141,17 @@ def issue_invocation(fixture: RuntimeFixture, artifact_root: Path, source: Froze
     if kind != 'worker' and (cwd.is_relative_to(fixture.root) or not isinstance(final_manifest_sha256, str)
                             or len(final_manifest_sha256) != 64):
         raise ValueError('review invocation needs a fixed external snapshot')
+    if require_profile(fixture.execution_profile):
+        require_private_parent(root.parent)
+        if kind != 'worker':
+            require_snapshot(cwd)
     root.mkdir(mode=0o700)
+    if require_profile(fixture.execution_profile):
+        root.chmod(0o700)
+        require_private_parent(root)
     invocation = Invocation(secrets.token_hex(32), kind, fixture, cwd, root.resolve(), source, model, final_manifest_sha256)
-    (invocation.artifact_root / 'invocation.json').write_text(json.dumps(invocation.identity, indent=2) + '\n')
+    write_host_file(invocation.artifact_root / 'invocation.json',
+                    (json.dumps(invocation.identity, indent=2) + '\n').encode(), fixture.execution_profile)
     return invocation
 
 
@@ -155,6 +164,8 @@ def verify_invocation(fixture: RuntimeFixture, invocation: Invocation, *, requir
         raise ValueError('invocation source changed')
     if fixture.protected_resource is not None and fixture.protected_resource.requested_policy_sha256 != requested_policy_sha256():
         raise ValueError('requested boundary policy changed')
+    if require_profile(fixture.execution_profile) and invocation.kind != 'worker':
+        require_snapshot(invocation.execution_root)
     record_path = invocation.artifact_root / 'invocation.json'
     if json_object(read_protected_artifact(record_path, fixture, hashlib.sha256(
             (json.dumps(invocation.identity, indent=2) + '\n').encode()).hexdigest())) != invocation.identity:
@@ -172,6 +183,7 @@ def verify_invocation(fixture: RuntimeFixture, invocation: Invocation, *, requir
 
 
 def claim_launch(invocation: Invocation, command: tuple[str, ...]) -> Invocation:
+    require_direct(invocation.fixture.execution_profile)
     from evals.native_runtime import build_exec_command, build_review_command, worker_prompt
     verify_invocation(invocation.fixture, invocation)
     if invocation.session_id is not None or invocation.command_sha256 is not None:
@@ -187,6 +199,7 @@ def claim_launch(invocation: Invocation, command: tuple[str, ...]) -> Invocation
 
 
 def claim_native_launch(invocation: Invocation, command: tuple[str, ...], *, binary, disabled_servers: tuple[str, ...]) -> Invocation:
+    require_direct(invocation.fixture.execution_profile)
     from evals.native_session import build_session_command
     verify_invocation(invocation.fixture, invocation)
     expected = build_session_command(invocation.execution_root, binary=binary, disabled_servers=disabled_servers,
@@ -202,8 +215,7 @@ def _claim_command(invocation: Invocation, command: tuple[str, ...]) -> Invocati
     raw = json.dumps(list(command)).encode()
     # Claim before spawning; a failed spawn still cannot reuse this invocation.
     try:
-        with (invocation.artifact_root / 'command.json').open('xb') as stream:
-            stream.write(raw)
+        write_host_file(invocation.artifact_root / 'command.json', raw, invocation.fixture.execution_profile)
     except FileExistsError as error:
         raise ValueError('invocation launch is already claimed') from error
     return replace(invocation, command_sha256=hashlib.sha256(raw).hexdigest())
@@ -224,8 +236,8 @@ def bind_session(invocation: Invocation, session_id: str) -> Invocation:
     record = {'invocation_sha256': invocation.sha256, 'session_id': session_id,
               'command_sha256': invocation.command_sha256}
     try:
-        with (invocation.artifact_root / 'session.json').open('x') as stream:
-            stream.write(json.dumps(record, sort_keys=True) + '\n')
+        write_host_file(invocation.artifact_root / 'session.json',
+                        (json.dumps(record, sort_keys=True) + '\n').encode(), invocation.fixture.execution_profile)
     except FileExistsError as error:
         raise ValueError('invocation session is already bound') from error
     return replace(invocation, session_id=session_id)
@@ -235,7 +247,7 @@ def consume_invocation(fixture: RuntimeFixture, invocation: Invocation) -> None:
     verify_invocation(fixture, invocation, require_session=True)
     # Atomic host-owned marker prevents concurrent or repeated grading of this launch.
     try:
-        with (invocation.artifact_root / 'consumed.json').open('x') as stream:
-            stream.write(json.dumps({'invocation_sha256': invocation.sha256}) + '\n')
+        write_host_file(invocation.artifact_root / 'consumed.json',
+                        (json.dumps({'invocation_sha256': invocation.sha256}) + '\n').encode(), fixture.execution_profile)
     except FileExistsError as error:
         raise ValueError('invocation evidence was already consumed') from error

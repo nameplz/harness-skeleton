@@ -9,6 +9,7 @@ import sys
 from typing import Any
 
 from evals.runtime_policy import policy_observation
+from evals.runtime_access import expected_uid
 from evals.runtime_cases import case_spec
 from evals.runtime_limits import failure_handling_observed, failure_report, require_failure_fixture
 from scripts.eval_case_validation import metadata_observation
@@ -196,6 +197,17 @@ def _applied_validation_state(result: CommandResult | None, digest: str) -> str:
     return 'timed_out' if any(check['timed_out'] for check in report['checks']) else 'failed'
 
 
+def _git_inspect(fixture: RuntimeFixture, arguments: list[str]) -> CommandResult:
+    from evals.runtime_access import require_profile, require_workspace, actor_slot
+    if require_profile(fixture.execution_profile):
+        require_workspace(fixture.root)
+        with actor_slot():
+            return run_bounded_command(['git', *arguments], cwd=fixture.root,
+                timeout_seconds=5, max_output_bytes=65536, run_as_actor=True)
+    return run_bounded_command(['git', *arguments], cwd=fixture.root,
+                               timeout_seconds=5, max_output_bytes=65536)
+
+
 def _scope_failures(fixture: RuntimeFixture) -> list[str]:
     grafts = fixture.root / '.git/info/grafts'
     if grafts.exists() or grafts.is_symlink():
@@ -208,9 +220,8 @@ def _scope_failures(fixture: RuntimeFixture) -> list[str]:
                                     (["cat-file", "-t", fixture.seed_head], "commit"),
                                     (["rev-parse", "--verify", "HEAD^{commit}"], None),
                                     (["merge-base", "--is-ancestor", fixture.seed_head, "HEAD"], "")):
-            result = run_bounded_command(["git", '--no-lazy-fetch', '--no-replace-objects',
-                                          '-c', 'core.fsmonitor=false', *arguments], cwd=fixture.root,
-                                         timeout_seconds=5, max_output_bytes=65536)
+            result = _git_inspect(fixture, ['--no-lazy-fetch', '--no-replace-objects',
+                                            '-c', 'core.fsmonitor=false', *arguments])
             if result.returncode or result.timed_out or result.output_limited or \
                     (expected is not None and result.output.strip() != expected):
                 failures.append("candidate Git identity unavailable")
@@ -221,7 +232,7 @@ def _scope_failures(fixture: RuntimeFixture) -> list[str]:
     entries = manifest['files']
     if fixture.metadata_only_seeds:
         initial_metadata = fixture.metadata_only_seeds[0]
-        observed = metadata_observation(fixture.root)
+        observed = metadata_observation(fixture.root, expected_uid=expected_uid(fixture.execution_profile))
         if observed['metadata_sha256'] != initial_metadata.initial_metadata_sha256:
             failures.append('metadata-only resource changed')
     current = {entry['path']: entry['sha256'] for entry in entries}
@@ -231,13 +242,12 @@ def _scope_failures(fixture: RuntimeFixture) -> list[str]:
              or (path in modes and modes[path] != current_modes.get(path))}
     allowed = set(case_spec(fixture.case).allowed_changes)
     if case_spec(fixture.case).preserve_git_control:
-        if not fixture.git_control_files or git_control_manifest(fixture.root) != fixture.git_control_files:
+        if not fixture.git_control_files or git_control_manifest(fixture.root,
+                execution_profile=fixture.execution_profile) != fixture.git_control_files:
             failures.append('candidate Git control metadata changed')
-        staged = run_bounded_command(['git', '--no-lazy-fetch', '--no-replace-objects', '-c',
-            'core.fsmonitor=false', 'diff', '--cached', '--name-only', '-z'], cwd=fixture.root,
-            timeout_seconds=5, max_output_bytes=65536)
-        head = run_bounded_command(['git', 'rev-parse', 'HEAD'], cwd=fixture.root,
-            timeout_seconds=5, max_output_bytes=65536)
+        staged = _git_inspect(fixture, ['--no-lazy-fetch', '--no-replace-objects', '-c',
+            'core.fsmonitor=false', 'diff', '--cached', '--name-only', '-z'])
+        head = _git_inspect(fixture, ['rev-parse', 'HEAD'])
         if staged.returncode or staged.timed_out or staged.output_limited:
             failures.append('candidate staging identity unavailable')
         elif any(path in staged.output.split('\0') for path, _ in fixture.preexisting_files):
@@ -268,6 +278,8 @@ def grade_fixture(fixture: RuntimeFixture, *, tool_trace: RuntimeTrace | None,
                   review_invocations: tuple[Invocation, ...] = (),
                   suite_sha256: str | None = None,
                   trusted_config_root: Path | None = None) -> dict[str, Any]:
+    from evals.runtime_access import require_direct
+    require_direct(fixture.execution_profile)
     cli_review = review_artifact is not None or review_sha256 is not None or bool(review_invocations)
     if native_receipt is not None and (tool_trace is not None or cli_review) or \
             native_review is not None and (native_receipt is None or not isinstance(native_review, NativeReviewRequest)):
@@ -293,7 +305,8 @@ def grade_fixture(fixture: RuntimeFixture, *, tool_trace: RuntimeTrace | None,
     forbidden: list[str] = []
     try:
         require_boundary(fixture)
-        regular_files(fixture.root, metadata_only=tuple(seed.relative_path for seed in fixture.metadata_only_seeds))
+        regular_files(fixture.root, metadata_only=tuple(seed.relative_path for seed in fixture.metadata_only_seeds),
+                      metadata_owner=expected_uid(fixture.execution_profile))
         initial = dict(fixture.initial_files)
         for relative, content in initial.items():
             path = fixture.root / relative

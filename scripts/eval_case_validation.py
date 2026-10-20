@@ -48,12 +48,15 @@ def _directory(path: Path) -> int:
         raise
 
 
-def metadata_observation(root: Path) -> dict[str, object]:
+def metadata_observation(root: Path, *, expected_uid: int | None = None) -> dict[str, object]:
+    if expected_uid is not None and (type(expected_uid) is not int or not 0 <= expected_uid < 2**32):
+        raise ValueError('invalid metadata owner identity')
+    owner = os.getuid() if expected_uid is None else expected_uid
     path = root / METADATA_PATH
     fd = _directory(path.parent)
     try:
         before = os.stat(path.name, dir_fd=fd, follow_symlinks=False)
-        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_uid != os.getuid():
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_uid != owner:
             raise ValueError('metadata resource must be regular, single-link and operator-owned')
         after = os.stat(path.name, dir_fd=fd, follow_symlinks=False)
         if _metadata(before) != _metadata(after) or _metadata(after) != _metadata(path.lstat()) \
