@@ -245,4 +245,3 @@ class NativeAuparseTests(unittest.TestCase):
                     native_auparse._library()
             self.assertEqual(1, len(calls))
             with self.assertRaises(OSError): os.fstat(calls[0])
-

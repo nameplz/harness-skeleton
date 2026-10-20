@@ -208,4 +208,3 @@ class NativeAuditEventTests(unittest.TestCase):
         with self.assertRaises(ValueError): self.complete(ledger)
         self.assertEqual([KEY], calls)
         with self.assertRaises(ValueError): ledger.finish()
-
