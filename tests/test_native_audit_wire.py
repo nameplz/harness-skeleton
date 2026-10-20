@@ -2,7 +2,7 @@ import socket
 import struct
 import unittest
 
-from evals.native_audit_wire import decode_control, decode_event
+from evals.native_audit_wire import decode_control, decode_event, decode_replace
 
 
 def frame(kind, payload, *, sequence=7, port=88, flags=0, legacy=False):
@@ -11,6 +11,16 @@ def frame(kind, payload, *, sequence=7, port=88, flags=0, legacy=False):
 
 
 class NativeAuditWireTests(unittest.TestCase):
+    def test_replace_notification_uses_standard_length_and_exact_current_pid(self):
+        packet=frame(1329,struct.pack('=i',1234),sequence=0,port=0)
+        self.assertIsNone(decode_replace(packet,expected_pid=1234))
+        for raw in (packet[:-1],packet+b'\0',frame(1329,struct.pack('=i',1235),sequence=0,port=0),
+                    frame(1329,struct.pack('=i',1234),sequence=1,port=0),
+                    frame(1329,struct.pack('=i',1234),sequence=0,port=0,flags=2),
+                    frame(1329,struct.pack('=i',1234),sequence=0,port=0,legacy=True)):
+            with self.assertRaises(ValueError):decode_replace(raw,expected_pid=1234)
+        with self.assertRaises(ValueError):decode_replace(packet,expected_pid=True)
+        with self.assertRaises(ValueError):decode_replace(packet,expected_pid=1234,address=(1,0))
     def test_legacy_unicast_length_is_payload_only_even_below_header_size(self):
         raw = frame(1320, b'audit:', sequence=0, port=0, legacy=True)
         message = decode_event(raw)
@@ -112,6 +122,7 @@ class NativeAuditWireTests(unittest.TestCase):
             with self.subTest(flags=flags):
                 message, = decode_control(frame(2, payload, flags=flags), sequence=7, port_id=88)
                 self.assertEqual(payload, message.payload)
+                self.assertEqual(flags, message.flags)
                 self.assertNotIn('sensitive-ack-tlv', repr(message))
         with self.assertRaises(ValueError):
             decode_control(frame(2, payload, flags=516), sequence=7, port_id=88)

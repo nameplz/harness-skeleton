@@ -24,6 +24,7 @@ class KernelMessage:
     kind: int
     sequence: int
     payload: bytes = field(repr=False)
+    flags: int = 0
 
 
 def _envelope(raw: bytes, address: tuple[int, int], flags: int,
@@ -56,6 +57,15 @@ def decode_event(raw: bytes, *, address: tuple[int, int] = (0, 0), flags: int = 
     return KernelMessage(kind, sequence, raw[HEADER.size:])
 
 
+def decode_replace(raw: bytes, *, expected_pid: int, address: tuple[int, int] = (0, 0),
+                   flags: int = 0, ancillary: Ancillary = ()) -> None:
+    """Validate the standard-length audit_replace liveness probe, not a log event."""
+    _envelope(raw, address, flags, ancillary)
+    if type(expected_pid) is not int or not 2 <= expected_pid < 2**31 or \
+            raw != HEADER.pack(20, 1329, 0, 0, 0) + struct.pack('=i', expected_pid):
+        raise ValueError('audit replacement probe identity or framing differs')
+
+
 def decode_control(raw: bytes, *, sequence: int, port_id: int,
                    address: tuple[int, int] = (0, 0), flags: int = 0,
                    ancillary: Ancillary = ()) -> tuple[KernelMessage, ...]:
@@ -76,7 +86,7 @@ def decode_control(raw: bytes, *, sequence: int, port_id: int,
         if size < HEADER.size or end > len(raw) or kind not in (2, 3, 1000, 1013) or \
                 message_flags not in allowed_flags or actual_sequence != sequence or origin != expected_origin:
             raise ValueError('audit control reply identity or framing differs')
-        result.append(KernelMessage(kind, actual_sequence, raw[offset + HEADER.size:end]))
+        result.append(KernelMessage(kind, actual_sequence, raw[offset + HEADER.size:end], message_flags))
         if end == len(raw):
             break
         aligned = offset + ((size + 3) & ~3)

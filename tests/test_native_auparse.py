@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 
 from evals.native_auparse import AuditDecoder
 from evals import native_auparse
+from evals import native_audit_library
 from tests.test_native_audit_events import KEY, message
 
 
@@ -224,7 +225,7 @@ class NativeAuparseTests(unittest.TestCase):
     def test_library_loader_pins_root_regular_bytes_before_loading_open_descriptor(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory).resolve() / 'parser.so'; path.write_bytes(b'pinned')
-            metadata = SimpleNamespace(st_mode=stat.S_IFREG|0o444, st_uid=0, st_size=6)
+            metadata = SimpleNamespace(st_mode=stat.S_IFREG|0o444, st_uid=0, st_size=6, st_dev=1, st_ino=2)
             loader = Mock(return_value='loaded'); calls = []
             def load(name, **kwargs):
                 calls.append(int(name.rsplit('/', 1)[1])); return loader(name, **kwargs)
@@ -232,16 +233,20 @@ class NativeAuparseTests(unittest.TestCase):
                     patch.object(native_auparse, 'LIBRARY_SHA256', hashlib.sha256(b'pinned').hexdigest()), \
                     patch('evals.native_cgroup._require_root_linux'), \
                     patch('evals.runtime_access._root_chain'), \
-                    patch.object(native_auparse.platform, 'machine', return_value='aarch64'), \
-                    patch.object(native_auparse.os, 'fstat', return_value=metadata), \
-                    patch.object(native_auparse.C, 'CDLL', side_effect=load):
+                    patch.dict(native_audit_library._loaded, {}, clear=True), \
+                    patch.object(native_audit_library.platform, 'machine', return_value='aarch64'), \
+                    patch.object(native_audit_library.os, 'fstat', return_value=metadata), \
+                    patch.object(native_audit_library.C, 'CDLL', side_effect=load):
+                self.assertEqual('loaded', native_auparse._library())
                 self.assertEqual('loaded', native_auparse._library())
                 with patch.object(native_auparse, 'LIBRARY_SHA256', '0'*64), self.assertRaises(ValueError):
                     native_auparse._library()
-                with patch.object(native_auparse.os, 'fstat', return_value=SimpleNamespace(
+                with patch.object(native_audit_library.os, 'fstat', return_value=SimpleNamespace(
                         st_mode=stat.S_IFREG|0o666, st_uid=0, st_size=6)), self.assertRaises(ValueError):
                     native_auparse._library()
-                with patch.object(native_auparse.platform, 'machine', return_value='x86_64'), self.assertRaises(ValueError):
+                with patch.object(native_audit_library.platform, 'machine', return_value='x86_64'), self.assertRaises(ValueError):
                     native_auparse._library()
+                for library, fd, identity in native_audit_library._loaded.values():os.close(fd)
+                native_audit_library._loaded.clear()
             self.assertEqual(1, len(calls))
             with self.assertRaises(OSError): os.fstat(calls[0])

@@ -139,7 +139,8 @@ class EventLedger:
     def _record(self, message: KernelMessage) -> bytes | None:
         if type(message) is not KernelMessage or type(message.kind) is not int or \
                 message.kind not in TYPE_NAMES or type(message.sequence) is not int or \
-                message.sequence != 0 or type(message.payload) is not bytes or \
+                message.sequence != 0 or type(message.flags) is not int or message.flags != 0 or \
+                type(message.payload) is not bytes or \
                 not 0 < len(message.payload) <= MAX_EVENT:
             raise ValueError('invalid audit event frame')
         body = message.payload.removesuffix(b'\0')

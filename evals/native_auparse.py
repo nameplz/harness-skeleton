@@ -7,12 +7,8 @@ Completeness is separate from PID/cgroup attribution and action classification.
 from __future__ import annotations
 
 import ctypes as C
-import hashlib
-import os
 from pathlib import Path
-import platform
 import re
-import stat
 import threading
 from typing import Callable
 
@@ -21,6 +17,7 @@ from evals.native_audit_events import (
     CONTROL_SETTINGS, validate_control,
 )
 from evals.native_audit_wire import KernelMessage
+from evals.native_audit_library import load_library
 
 LIBRARY = Path('/usr/lib/aarch64-linux-gnu/libauparse.so.0.0.0')
 LIBRARY_SHA256 = '77e749f8cd1843b65e47ce398f3fe3daead49f5af8df4f157cddd24d57d162c5'
@@ -44,26 +41,7 @@ INTERPRETED = frozenset(('exe', 'key', 'name', 'cwd'))
 
 
 def _library():
-    from evals.native_cgroup import _require_root_linux
-    from evals.runtime_access import _root_chain
-    from evals.runtime_trace import open_no_symlink
-    _require_root_linux()
-    if platform.machine() != 'aarch64':
-        raise ValueError('audit decoder requires pinned Linux ARM64 ABI')
-    _root_chain(LIBRARY.parent)
-    fd = open_no_symlink(LIBRARY)
-    try:
-        metadata = os.fstat(fd)
-        if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0 or metadata.st_mode & 0o022 or \
-                not 0 < metadata.st_size <= 2 * 1024 * 1024:
-            raise ValueError('audit parser library is not root-controlled')
-        with os.fdopen(os.dup(fd), 'rb') as stream:
-            digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-        if digest != LIBRARY_SHA256:
-            raise ValueError('audit parser library differs from pin')
-        return C.CDLL(f'/proc/self/fd/{fd}', use_errno=True)
-    finally:
-        os.close(fd)
+    return load_library(LIBRARY, LIBRARY_SHA256)
 
 
 def _bind(lib, name: str, result, args):

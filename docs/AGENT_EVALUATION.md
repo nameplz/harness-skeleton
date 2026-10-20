@@ -573,3 +573,88 @@ from model trials and from complete action-audit attestation. Admission-before-
 release, RPC drain, loss/backlog/rule restoration, PID generations/cgroup/BPF,
 FD/path/network semantics, io_uring policy and protected receipt/grading
 integration remain required before the24+72 actual evaluation gate can open.
+
+### Owned audit transport and rollback primitive
+
+`native_audit_control` validates fixed Linux6.8 Netlink transactions above wire
+framing. Root channels request capped ACKs, keep extended ACKs disabled, and
+require a zero errno, exact request-header echo and exactly20payload bytes.
+Uncapped replies, TLVs, stale identities, unexpected flags and trailing data
+fail closed. Status GET requires one44-byte status and ACK; rule dumps require
+multipart parts, one DONE and ACK, including empty dumps. Actual recvmsg origin,
+flags and ancillary metadata are always supplied to the wire validator.
+
+Transactions have a3-second deadline, at most64datagrams/64KiB, at most64rule
+answers and4096bytes per answer. Channels retain at most64successful control
+receipts. A process-wide increasing sequence starts at a random positive offset
+and never wraps, so closing/reopening a socket with the same kernel port ID
+cannot recycle an outstanding request identity. A capture bounds its retained
+control receipts to8192. Kernel error text and raw ACK TLVs are not exported.
+
+`native_audit_rule` uses the pinned public libaudit3.1.2 allocation/field APIs
+to build one exact exit rule: all syscall numbers, EUID2000, and a fresh owned
+key. The complete packed rule is validated against the fixed ABI, including
+field IDs/operators/unused fields and Linux's canonical last mask word, before
+any installation or deletion. It does not add an architecture filter that could
+hide compatibility syscalls; architecture classification remains a later gate.
+
+Both audit libraries share root-owned descriptor pinning. Exactly two loaded
+handles and their file descriptors remain alive until process exit. Repeated
+loads recheck the path's hash and inode and reuse the pinned handle. This bound
+is necessary because dlopen caches `/proc/self/fd/N` names: closing and recycling
+that descriptor for the other library can return the wrong cached library.
+
+`AuditCapture` owns the existing dedicated-UID supervisor lock from pristine
+inspection through final drain. It requires idle UID2000, disabled audit, no
+listener/rules/loss/backlog/rate limiting, and preserves the complete baseline.
+It registers its listener, increases only its backlog limit, installs exactly
+its validated rule, enables audit and verifies the resulting status/rule.
+One thread owns control requests, event reception and auparse. Waiting control
+requests pump a bounded event drain to avoid starving the listener.
+
+The caller must finish all actors before closing this primitive. Teardown checks
+UID idle, drains, removes only the exact owned rule, disables only owned audit,
+drains configuration events, restores backlog/listener values, drains again,
+and compares the final status and empty rule set with the baseline. Draining
+requires backlog0 and two bounded quiet socket observations. It does not reset
+lost counters or globally delete rules. Foreign rules/listeners or unexpected
+setting changes are preserved and restoration remains unproven. Response loss
+is an error; rollback uses fresh channels and authoritative status/rule queries
+without blindly resending the original mutation. Original and cleanup failures
+are retained together. Parser/overflow errors latch failure while raw draining
+can continue for kernel restoration. A restored baseline alone never creates a
+successful capture result after an integrity error.
+
+Kernel PID release also sends a standard-length AUDIT_REPLACE liveness probe to
+the old listener. It is separate from legacy audit log framing: exactly one
+kernel-origin, flags0/sequence0 probe carrying this process's PID is required
+only in the owned release window. Unsolicited, duplicate, missing, malformed or
+foreign probes block the result. The numeric count is retained separately from
+the parser event ledger. [Kernel audit control/replacement behavior](https://raw.githubusercontent.com/torvalds/linux/v6.8/kernel/audit.c)
+and [Netlink ACK construction](https://raw.githubusercontent.com/torvalds/linux/v6.8/net/netlink/af_netlink.c)
+define these two reply contracts.
+
+This primitive is not yet connected to `native_session` or the supervisor's G
+release. Existing supervisor startup still acquires its own lock, so a capture
+cannot wrap it until admission shares the held lock and readiness is enforced
+before release. PID generations/cgroup/BPF, FD/path/network/io_uring semantics,
+protected invocation-bound receipts and grader consumption also remain. Keep
+production audit/cleanup false, readiness unknown and real trials at0/24+0/72
+until those gates are implemented and independently verified.
+
+Before removing an active capture's rule, teardown verifies its exact active
+status and single owned rule. Missing rules or baseline-valued settings reject
+the result even if restoration succeeds. This endpoint check does not prove
+continuous ownership against another privileged controller; protected control
+event semantics remain a later gate. A failed delete is followed by a fresh
+rule query; only an exact remaining single owned rule permits one bounded retry.
+The original error still rejects the capture, including after successful recovery.
+
+Actor idleness is a hard teardown precondition. A live actor leaves all audit
+settings and resources intact. Unproven final restoration retains the listener,
+decoder and supervisor lock, and permits explicit recovery by calling close again.
+No successful result can arise from that retry. Foreign configuration must be
+restored by its owner; capture never takes over it. The caller must retain this
+object and control process until recovery succeeds. Process-exit recovery and
+supervisor admission integration remain unfinished; this is not a durable lock
+across a control-process crash.
