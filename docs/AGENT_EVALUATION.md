@@ -816,3 +816,7 @@ Primary contracts: [libbpf lifecycle/CO-RE](https://docs.kernel.org/bpf/libbpf/l
 [kernfs file handles](https://github.com/torvalds/linux/blob/v6.8/fs/kernfs/mount.c),
 [task generation fields](https://github.com/torvalds/linux/blob/v6.8/include/linux/sched.h),
 [LSM BPF activation and attach](https://docs.kernel.org/bpf/prog_lsm.html).
+
+### Supervised io_uring boundary
+
+The pinned Linux AArch64 guardian installs an inherited seccomp filter before actor readiness and the one-use G release. `io_uring_setup`, `io_uring_enter`, and `io_uring_register` return ENOSYS; incompatible syscall ABIs terminate the process. Missing no_new_privs, installation/readiness failure, or absent live actor Seccomp admission rejects launch. Both evaluation conditions use this policy. The filter does not establish file/FD/network action completeness: exact task/resource attribution and protected grading remain required, and production action-audit readiness stays unknown. Kernel SECCOMP records are decoded as evidence of the reported action only; they do not establish actor attribution or absence of other forbidden actions.

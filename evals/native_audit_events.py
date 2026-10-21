@@ -62,6 +62,17 @@ def validate_bpf(values: dict[str, int | bool | bytes]) -> None:
         raise ValueError('audit BPF fields are incomplete or unsupported')
 
 
+def validate_seccomp(values: dict[str, int | bool | bytes]) -> None:
+    bounds = {'pid': (1, 2**31-1), 'uid': (0, 2**32-1), 'gid': (0, 2**32-1),
+              'arch': (1, 2**32-1), 'syscall': (0, 2**31-1), 'sig': (0, 64),
+              'compat': (0, 1)}
+    if set(values) != {*bounds, 'code'} or any(type(values.get(name)) is not int or
+            not low <= values[name] <= high for name, (low, high) in bounds.items()) or \
+            type(values.get('code')) is not int or values['code'] not in (
+                0, 0x80000000, 0x30000, 0x50000, 0x7fc00000, 0x7ff00000, 0x7ffc0000):
+        raise ValueError('audit seccomp fields are incomplete or unsupported')
+
+
 @dataclass(frozen=True, order=True)
 class AuditKey:
     seconds: int
@@ -222,6 +233,8 @@ class EventLedger:
                 names.add(name)
             if record.kind == 1305:
                 validate_control(dict(record.values))
+            elif record.kind == 1326:
+                validate_seccomp(dict(record.values))
             elif record.kind == 1334:
                 validate_bpf(dict(record.values))
             elif record.kind in (1130, 1131):
@@ -239,7 +252,7 @@ class EventLedger:
         expected = Counter(kind for kind in current.types if kind != 1320)
         if Counter(record.kind for record in current.records) != expected:
             return
-        standalone = expected in tuple(Counter({kind: 1}) for kind in (1130, 1131, 1305, 1334))
+        standalone = expected in tuple(Counter({kind: 1}) for kind in (1130, 1131, 1305, 1326, 1334))
         if not current.eoe and not (final and standalone):
             return
         records = current.records

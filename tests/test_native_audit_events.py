@@ -42,6 +42,17 @@ class NativeAuditEventTests(unittest.TestCase):
         self.put(ledger, (syscall(), path()), key)
         self.assertIsNone(ledger.record(message(1320, key)))
 
+    def test_seccomp_kernel_record_is_complete_but_does_not_attest_action_policy(self):
+        values = dict(pid=2001,uid=2000,gid=2000,arch=0xc00000b7,syscall=425,
+                      sig=0,compat=0,code=0x50000)
+        ledger=self.ledger();self.put(ledger,(AuditRecord(1326,tuple(values.items())),))
+        self.assertEqual(((1326,1),),ledger.finish().types)
+        for bad in ({}, {**values,'code':0x50026}, {**values,'pid':0},
+                    {**values,'compat':2}, {**values,'sig':65}, {**values,'arch':2**32}):
+            ledger=self.ledger();ledger.record(message(1326))
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                ledger.segment(AuditSegment(KEY,(AuditRecord(1326,tuple(bad.items())),)))
+
     def test_standalone_kernel_bpf_records_require_exact_fields_without_inventing_actor(self):
         for operation in (b'LOAD',b'UNLOAD'):
             ledger=self.ledger();self.put(ledger,(AuditRecord(1334,(('prog_id',23),('op',operation))),))
@@ -145,8 +156,7 @@ class NativeAuditEventTests(unittest.TestCase):
                                            ('list', 4), ('res', 1))),))
         self.assertEqual(1, ledger.finish().events)
         ledger = self.ledger()
-        self.put(ledger, (AuditRecord(1326, ()),))
-        with self.assertRaises(ValueError): ledger.finish()
+        with self.assertRaises(ValueError):self.put(ledger, (AuditRecord(1326, ()),))
 
     def test_control_records_require_complete_known_rule_or_status_form(self):
         rule = {'op': b'add_rule', 'list': 4, 'res': 1}

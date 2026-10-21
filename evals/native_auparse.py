@@ -14,7 +14,7 @@ from typing import Callable
 
 from evals.native_audit_events import (
     AuditKey, AuditLimits, AuditRecord, AuditSegment, AuditSummary, EventLedger,
-    CONTROL_SETTINGS, validate_control, validate_bpf, validate_service,
+    CONTROL_SETTINGS, validate_control, validate_bpf, validate_service, validate_seccomp,
 )
 from evals.native_audit_wire import KernelMessage
 from evals.native_audit_library import load_library
@@ -27,7 +27,7 @@ SYSCALL_REQUIRED = frozenset(('arch', 'syscall', 'a0', 'a1', 'a2', 'a3',
     'items', 'pid', 'ppid', 'uid', 'gid', 'euid', 'suid', 'fsuid', 'egid', 'sgid', 'fsgid'))
 DECIMAL = frozenset(('syscall', 'items', 'pid', 'ppid', 'uid', 'gid', 'euid', 'suid',
     'fsuid', 'egid', 'sgid', 'fsgid', 'auid', 'ses', 'item', 'inode', 'ouid', 'ogid',
-    'fd0', 'fd1', 'list', 'res', 'code', 'sig', 'old', 'prog-id')) | CONTROL_SETTINGS
+    'fd0', 'fd1', 'list', 'res', 'compat', 'sig', 'old', 'prog-id')) | CONTROL_SETTINGS
 HEX = frozenset(('arch', 'a0', 'a1', 'a2', 'a3'))
 FIELDS = {
     1130: frozenset(('pid', 'uid', 'auid', 'ses', 'unit', 'res', 'exe')),
@@ -37,7 +37,7 @@ FIELDS = {
     1305: frozenset(('uid', 'auid', 'ses', 'op', 'key', 'list', 'res', 'old')) | CONTROL_SETTINGS,
     1306: frozenset(('saddr',)), 1307: frozenset(('cwd',)),
     1317: frozenset(('fd0', 'fd1')), 1323: frozenset(('fd', 'flags')),
-    1326: frozenset(('arch', 'syscall', 'pid', 'uid', 'gid', 'sig', 'code')),
+    1326: frozenset(('arch', 'syscall', 'pid', 'uid', 'gid', 'sig', 'compat', 'code')),
     1334: frozenset(('prog-id', 'op')),
     1337: frozenset(('oflag', 'mode', 'resolve')),
 }
@@ -62,13 +62,13 @@ def _value(name: str, raw: bytes) -> int | bool | bytes:
         if raw not in (b'yes', b'no'):
             raise ValueError('invalid audit syscall success')
         return raw == b'yes'
-    if name in DECIMAL or name in HEX or name in ('exit', 'fd', 'mode', 'oflag', 'flags', 'resolve'):
+    if name in DECIMAL or name in HEX or name in ('exit', 'fd', 'mode', 'oflag', 'flags', 'resolve', 'code'):
         pattern, base, limit = rb'[0-9]{1,20}', 10, 2**64
         if name in HEX:
             pattern, base = rb'[0-9a-fA-F]{1,16}', 16
         elif name in ('mode', 'oflag'):
             pattern, base = rb'0[0-7]{0,22}', 8
-        elif name in ('flags', 'resolve'):
+        elif name in ('flags', 'resolve', 'code'):
             pattern, base = rb'0x[0-9a-fA-F]{1,16}', 16
         elif name in ('exit', 'fd'):
             pattern, limit = rb'-?[0-9]{1,19}', 2**63
@@ -209,6 +209,8 @@ class AuditDecoder:
             raise ValueError('audit syscall return fields are incomplete')
         if kind == 1305:
             validate_control(values)
+        elif kind == 1326:
+            validate_seccomp(values)
         elif kind == 1334:
             validate_bpf(values)
         elif kind in (1130, 1131):

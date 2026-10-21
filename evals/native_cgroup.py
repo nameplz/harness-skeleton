@@ -217,7 +217,7 @@ def _task(pid: int) -> Task | None:
         return None
 
 
-def _secure_actor(pid: int) -> None:
+def _secure_actor(pid: int, *, require_filter: bool = False) -> None:
     rows = _read_kernel(Path('/proc') / str(pid) / 'status').splitlines()
     values = dict(row.split(b':', 1) for row in rows if b':' in row)
     if values.get(b'Uid', b'').split() != [b'2000'] * 4 or \
@@ -227,6 +227,11 @@ def _secure_actor(pid: int) -> None:
                 key not in values or int(values[key].strip(), 16) != 0
                 for key in (b'CapInh', b'CapPrm', b'CapEff', b'CapAmb')):
         raise ValueError('actor identity or privileges differ from the dedicated UID')
+    filters = values.get(b'Seccomp_filters', b'').strip()
+    if require_filter and (values.get(b'Seccomp', b'').strip() != b'2' or
+            not re.fullmatch(rb'[0-9]{1,10}', filters) or not 1 <= int(filters) < 2**32):
+        raise ValueError('actor inherited seccomp filter is unavailable')
+
 
 
 def _manager(unit: str) -> tuple[str, int]:
@@ -277,7 +282,7 @@ def bind_actor_cgroup(unit: str, actor_pid: int) -> CgroupBinding:
             actor.state in {'Z', 'X', 'x'} or actor.cgroup != ('/system.slice/' + unit + '/actor').encode() or \
             guardian.cgroup != ('/system.slice/' + unit).encode():
         raise ValueError('actor and guardian do not match their cgroup admission')
-    _secure_actor(actor_pid)
+    _secure_actor(actor_pid, require_filter=True)
     _secure_actor(guardian_pid)
     fd = _root_directory(path)
     try:

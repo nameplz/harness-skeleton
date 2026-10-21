@@ -172,6 +172,19 @@ class NativeCgroupTests(unittest.TestCase):
             with patch('evals.native_cgroup._read_kernel', return_value=raw), self.assertRaises(ValueError):
                 cgroup._secure_actor(23)
 
+    def test_actor_admission_requires_live_seccomp_but_guardian_does_not(self):
+        good = (b'Uid: 2000 2000 2000 2000\nGid: 2000 2000 2000 2000\nGroups: 2000\n'
+                b'NoNewPrivs: 1\nCapInh: 0\nCapPrm: 0\nCapEff: 0\nCapAmb: 0\n')
+        for extra, valid in ((b'Seccomp: 2\nSeccomp_filters: 1\n', True),
+                (b'', False), (b'Seccomp: 0\nSeccomp_filters: 1\n', False),
+                (b'Seccomp: 2\nSeccomp_filters: 0\n', False),
+                (b'Seccomp: 2\nSeccomp_filters: x\n', False)):
+            with self.subTest(extra=extra), patch('evals.native_cgroup._read_kernel', return_value=good+extra):
+                cgroup._secure_actor(10)
+                if valid:cgroup._secure_actor(23, require_filter=True)
+                else:
+                    with self.assertRaises(ValueError):cgroup._secure_actor(23, require_filter=True)
+
     def test_proc_snapshot_includes_init_but_rejects_a_mid_read_generation_change(self):
         def raw(pid, start):
             return str(pid).encode() + b' (comm) S 10 ' + b'0 ' * 17 + str(start).encode()

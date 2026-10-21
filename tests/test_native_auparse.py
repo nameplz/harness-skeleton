@@ -91,6 +91,22 @@ class NativeAuparseTests(unittest.TestCase):
         decoder.consume(message(1300)); decoder.consume(message(1320))
         return decoder
 
+    def test_seccomp_code_uses_kernel_hex_and_all_identity_fields_are_required(self):
+        fields = [(b'pid',b'2001'),(b'uid',b'2000'),(b'gid',b'2000'),
+                  (b'arch',b'c00000b7'),(b'syscall',b'425'),(b'sig',b'0'),
+                  (b'compat',b'0'),(b'code',b'0x50000')]
+        for current,valid in ((fields,True),(fields[:-1],False),
+                (fields[:-1]+[(b'code',b'50000')],False),
+                (fields[:-1]+[(b'code',b'0x50026')],False)):
+            fake=FakeAuparse();fake.records=[(1326,current)];seen=[]
+            with self.decoder(fake,on_event=seen.append) as decoder:
+                decoder.consume(message(1326))
+                if valid:
+                    self.assertEqual(1,decoder.finish().events)
+                    self.assertEqual(0x50000,dict(seen[0].records[0].values)['code'])
+                else:
+                    with self.assertRaises(ValueError):decoder.finish()
+
     def test_bpf_hyphenated_program_id_is_numeric_and_both_fields_are_required(self):
         for fields in ([(b'prog-id',b'23'),(b'op',b'LOAD')],[],[(b'prog-id',b'23')],
                        [(b'prog-id',b'23'),(b'op',b'unknown')]):
