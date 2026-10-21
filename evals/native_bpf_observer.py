@@ -7,11 +7,15 @@ from dataclasses import dataclass
 import os
 import threading
 
-from evals.native_bpf_events import BpfLedger, BpfSummary, WIRE
+from evals.native_bpf_events import MAX_EVENTS, BpfEvent, BpfLedger, BpfSummary, WIRE
+from evals.native_bpf_audit import AUDIT_WIRE, BpfAuditEvent
 from evals.native_bpf_generations import GenerationLedger, GenerationSummary
-from evals.native_bpf_object import NativeBpfObject
+from evals.native_bpf_object import CALLBACK_BATCH, NativeBpfObject
 from evals.native_cgroup import CgroupBinding, kernel_cgroup_ids
 from evals.native_supervisor import _idle_actor_uid
+
+
+MAX_PREFIX = 4096
 
 
 @dataclass(frozen=True)
@@ -21,7 +25,13 @@ class BpfObservation:
 
 
 class BpfObserver:
-    def __init__(self) -> None:
+    def __init__(self, *, on_audit=None, audit_pump=None) -> None:
+        if on_audit is not None and not callable(on_audit):
+            raise ValueError('audit binding consumer must be callable')
+        if audit_pump is not None and not callable(audit_pump):
+            raise ValueError('audit pump must be callable')
+        self._on_audit = on_audit
+        self._audit_pump = audit_pump
         self._owner = threading.get_ident()
         self._object = NativeBpfObject()
         self._ledger = BpfLedger()
@@ -61,19 +71,26 @@ class BpfObserver:
             self._owner_check()
             if self._error is not None:
                 return 0
-            if not self._draining or size != WIRE.size or not data:
+            if not self._draining or size not in (WIRE.size, AUDIT_WIRE.size) or not data:
                 raise ValueError('unexpected BPF callback state or record size')
             event = self._ledger.consume(C.string_at(data, size))
             if self._generations is None:
-                if len(self._prefix) >= 16:
+                if len(self._prefix) >= MAX_PREFIX:
                     raise ValueError('BPF pre-admission prefix exceeded its bound')
                 self._prefix.append(event)
+            elif type(event) is BpfAuditEvent:
+                self._dispatch_audit(event)
             else:
                 self._generations.observe(event)
         except BaseException as error:
             # ctypes callbacks must never unwind through libbpf's C stack.
             self._latch(error)
         return 0
+
+    def _dispatch_audit(self, event: BpfAuditEvent, *, prefix: bool = False) -> None:
+        if self._on_audit is None or self._generations is None:
+            raise ValueError('BPF audit binding has no exact join consumer')
+        self._on_audit(event, self._generations.attribute(event, prefix=prefix))
 
     def fileno(self) -> int:
         self._owner_check()
@@ -102,12 +119,17 @@ class BpfObserver:
         if self._generations is not None or self._aborted or self._finished:
             raise ValueError('BPF admission cannot be repeated')
         try:
-            self.drain()
+            self._drain_available()
             ids = kernel_cgroup_ids(binding)
             self._generations = GenerationLedger(binding, actor_cgroup_id=ids.actor,
                 guardian_cgroup_id=ids.parent, clock_ticks=os.sysconf('SC_CLK_TCK'))
+            # Before G, only the bound guardian and trusted launcher can run.
             for event in self._prefix:
-                self._generations.observe(event)
+                if type(event) is BpfEvent:
+                    self._generations.observe(event)
+            for event in self._prefix:
+                if type(event) is BpfAuditEvent:
+                    self._dispatch_audit(event, prefix=True)
             self._prefix.clear()
             self._generations.prepare_release()
             self.ready = True
@@ -125,6 +147,14 @@ class BpfObserver:
         if self._generations is not None and self._error is None and not self._finished:
             self._generations.abort()
 
+    def _drain_available(self, *, recovering: bool = False) -> None:
+        for _ in range(MAX_EVENTS // CALLBACK_BATCH + 2):
+            if self._audit_pump is not None:
+                self._audit_pump()
+            if self.drain(recovering=recovering) == 0:
+                return
+        raise ValueError('BPF complete drain exceeded its bound')
+
     def finish(self) -> BpfObservation | None:
         self._owner_check()
         if self._finished or not self._capturing or self._closed:
@@ -136,9 +166,9 @@ class BpfObserver:
         except BaseException as error:
             self._latch(error)
         try:
-            self.drain(recovering=True)
+            self._drain_available(recovering=True)
             counters = self._object.counters()
-            self.drain(recovering=True)
+            self._drain_available(recovering=True)
             if counters != self._object.counters():
                 raise ValueError('detached BPF counters are not stable')
             if self._error is not None:

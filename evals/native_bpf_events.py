@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import hashlib
 import struct
 
+from evals.native_bpf_audit import AUDIT_WIRE, BpfAuditEvent, decode_audit_binding
+
 WIRE = struct.Struct('=6Q8I')
 MAX_EVENTS = 131072
 
@@ -70,11 +72,11 @@ class BpfLedger:
         self._hash = hashlib.sha256()
         self._failed = self._finished = False
 
-    def consume(self, raw: bytes) -> BpfEvent:
+    def consume(self, raw: bytes) -> BpfEvent | BpfAuditEvent:
         if self._failed or self._finished:
             raise ValueError('BPF lifecycle ledger is unavailable')
         try:
-            event = decode_event(raw)
+            event = decode_audit_binding(raw) if type(raw) is bytes and len(raw) == AUDIT_WIRE.size else decode_event(raw)
             if len(self._seen) >= MAX_EVENTS or event.sequence in self._seen:
                 raise ValueError('duplicate or excessive BPF lifecycle record')
             self._seen.add(event.sequence)

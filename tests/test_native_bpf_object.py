@@ -16,10 +16,10 @@ def fake_api():
     api.open = Mock(return_value=100)
     api.load = Mock(return_value=0)
     api.close = Mock()
-    api.next_program = Mock(side_effect=lambda obj, prev: {None: 1, 1: 2, 2: 3, 3: None}[prev])
-    api.program_name = Mock(side_effect=lambda p: {1: b'observe_fork', 2: b'observe_exec', 3: b'observe_exit'}[p])
+    api.next_program = Mock(side_effect=lambda obj, prev: {None: 1, 1: 2, 2: 3, 3: 4, 4: None}[prev])
+    api.program_name = Mock(side_effect=lambda p: {1: b'observe_fork', 2: b'observe_exec', 3: b'observe_exit', 4: b'observe_audit'}[p])
     api.program_section = Mock(side_effect=lambda p: {
-        1: b'tp_btf/sched_process_fork', 2: b'tp_btf/sched_process_exec', 3: b'tp_btf/sched_process_exit'}[p])
+        1: b'tp_btf/sched_process_fork', 2: b'tp_btf/sched_process_exec', 3: b'tp_btf/sched_process_exit', 4: b'fexit/audit_log_start'}[p])
     api.program_fd = Mock(side_effect=lambda p: 1000+p)
     api.attach = Mock(side_effect=lambda p: 100+p)
     api.link_fd = Mock(side_effect=lambda p: 2000+p)
@@ -38,7 +38,7 @@ def fake_api():
     api.lookup = Mock(return_value=0)
     def info(fd, data, size):
         values = C.cast(data, C.POINTER(C.c_uint))
-        values[0] = 26 if fd < 2000 else 1 if fd < 3000 else {3011: 27, 3012: 2}[fd]
+        values[0] = 26 if fd < 2000 else (2 if fd == 2104 else 1) if fd < 3000 else {3011: 27, 3012: 2}[fd]
         values[1] = fd
         return 0
     api.info = Mock(side_effect=info)
@@ -50,6 +50,33 @@ def fake_api():
 
 
 class BpfObjectTests(unittest.TestCase):
+    def test_callback_budget_yields_only_its_own_eagain_without_losing_next_record(self):
+        api=fake_api();owner=self.start(api);pending=list(range(5));received=[]
+        owner._consumer=lambda context,data,size:received.append(pending.pop(0)) or 0
+        def consume(ring):
+            count=0
+            while pending:
+                code=owner._callback(None,None,0)
+                count+=1
+                if code<0:return code
+            return count
+        api.consume.side_effect=consume
+        with patch.object(bpf,'CALLBACK_BATCH',2):
+            self.assertEqual([2,2,1,0],[owner.drain() for _ in range(4)])
+        self.assertEqual([0,1,2,3,4],received)
+        api.consume.side_effect=None;api.consume.return_value=-errno.EAGAIN
+        with self.assertRaises(OSError):owner.drain()
+        owner.close()
+
+    def test_callback_fault_at_quota_cannot_be_laundered_as_a_yield(self):
+        api=fake_api();owner=self.start(api);failure=KeyboardInterrupt()
+        owner._consumer=Mock(side_effect=failure)
+        def consume(ring):return owner._callback(None,None,0)
+        api.consume.side_effect=consume
+        with patch.object(bpf,'CALLBACK_BATCH',1),self.assertRaises(KeyboardInterrupt) as raised:
+            owner.drain()
+        self.assertIs(failure,raised.exception);owner.close()
+
     def test_identity_query_failure_retains_object_until_recovery_can_bind_all_ids(self):
         api = fake_api(); fill = api.info.side_effect
         api.info.side_effect = lambda *args: (C.set_errno(errno.EPERM), -1)[1]
@@ -62,7 +89,7 @@ class BpfObjectTests(unittest.TestCase):
         api.info.side_effect = fill
         owner.close()
         self.assertTrue(owner._closed)
-        self.assertEqual(3, len(owner.program_ids))
+        self.assertEqual(4, len(owner.program_ids))
         self.assertEqual(2, len(owner.map_ids))
 
     def test_callback_baseexception_is_not_lost_at_the_C_boundary(self):
@@ -88,10 +115,10 @@ class BpfObjectTests(unittest.TestCase):
         self.assertEqual(77, owner.fileno())
         self.assertEqual(0, owner.drain())
         self.assertEqual((0, 0, 0), tuple(vars(owner.counters()).values()))
-        self.assertEqual((1001, 1002, 1003), owner.program_ids)
+        self.assertEqual((1001, 1002, 1003, 1004), owner.program_ids)
         owner.close(); owner.close()
         self.assertTrue(owner._closed)
-        self.assertEqual(3, api.destroy.call_count)
+        self.assertEqual(4, api.destroy.call_count)
         api.free_ring.assert_called_once(); api.close.assert_called_once()
         with self.assertRaises(ValueError):owner.fileno()
 
@@ -116,7 +143,7 @@ class BpfObjectTests(unittest.TestCase):
 
     def test_destroy_error_never_reuses_freed_pointer_and_absence_is_required(self):
         api = fake_api(); owner = self.start(api)
-        api.destroy.side_effect = [-5, 0, 0]
+        api.destroy.side_effect = [-5, 0, 0, 0]
         api.link_by_id.side_effect = lambda identifier: (C.set_errno(errno.EPERM), -1)[1]
         with self.assertRaises(BaseException):owner.close()
         self.assertFalse(owner._closed)

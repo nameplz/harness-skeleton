@@ -82,4 +82,51 @@ int BPF_PROG(observe_exit, struct task_struct *task)
     return emit(3, task, NULL, 0);
 }
 
+struct audit_binding_event {
+ __u64 sequence, timestamp_ns, cgroup_id, start_ns, seconds, serial;
+ __s64 result;
+ __u32 tid, tgid, type, milli, arch, syscall_nr, context, return_valid, status, cpu, kind, reserved;
+};
+_Static_assert(sizeof(struct audit_binding_event)==104,"audit join wire ABI");
+
+SEC("fexit/audit_log_start")
+int BPF_PROG(observe_audit, struct audit_context *audit_ctx, gfp_t gfp_mask, int type, struct audit_buffer *buffer)
+{
+ struct task_struct *task=(struct task_struct *)bpf_get_current_task_btf();
+ if (BPF_CORE_READ(task,cred,euid.val)!=2000 || (type!=1300 && type!=1326)) return 0;
+ __u32 zero=0;
+ struct lifecycle_counts *counts=bpf_map_lookup_elem(&counters,&zero);
+ if (!counts) return 0;
+ __u64 sequence=__sync_fetch_and_add(&counts->attempted,1)+1;
+ struct audit_binding_event *event=NULL;
+ if (sequence<=131072) event=bpf_ringbuf_reserve(&events,sizeof(*event),0);
+ if (!event) { __sync_fetch_and_add(&counts->dropped,1); return 0; }
+ *event=(struct audit_binding_event){0};
+ event->kind=4;event->cpu=bpf_get_smp_processor_id();
+ event->sequence=sequence;event->timestamp_ns=bpf_ktime_get_boot_ns();
+ event->cgroup_id=bpf_get_current_cgroup_id();event->start_ns=BPF_CORE_READ(task,start_boottime);
+ event->tid=BPF_CORE_READ(task,pid);event->tgid=BPF_CORE_READ(task,tgid);event->type=type;
+ if (!buffer) event->status=1;
+ else {
+  event->seconds=BPF_CORE_READ(buffer,stamp.ctime.tv_sec);
+  long nsec=BPF_CORE_READ(buffer,stamp.ctime.tv_nsec);
+  if (nsec<0 || nsec>=1000000000) event->status=4;
+  event->milli=(__u64)nsec/1000000;
+  event->serial=BPF_CORE_READ(buffer,stamp.serial);
+ }
+ if (buffer && BPF_CORE_READ(buffer,ctx)!=audit_ctx) event->status=5;
+ if (type==1300) {
+  if (!audit_ctx) event->status=2;
+  else {
+   event->context=BPF_CORE_READ(audit_ctx,context);event->arch=BPF_CORE_READ(audit_ctx,arch);
+   event->syscall_nr=BPF_CORE_READ(audit_ctx,major);event->result=BPF_CORE_READ(audit_ctx,return_code);
+   event->return_valid=BPF_CORE_READ(audit_ctx,return_valid);
+   if (buffer && (BPF_CORE_READ(audit_ctx,stamp.serial)!=event->serial ||
+       BPF_CORE_READ(audit_ctx,stamp.ctime.tv_sec)!=event->seconds ||
+       BPF_CORE_READ(audit_ctx,stamp.ctime.tv_nsec)!=BPF_CORE_READ(buffer,stamp.ctime.tv_nsec))) event->status=3;
+  }
+ }
+ bpf_ringbuf_submit(event,0);__sync_fetch_and_add(&counts->emitted,1);return 0;
+}
+
 char LICENSE[] SEC("license") = "GPL";

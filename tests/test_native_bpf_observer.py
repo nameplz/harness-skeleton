@@ -6,19 +6,22 @@ from unittest.mock import Mock, patch
 
 from evals import native_bpf_observer as bpf
 from evals.native_bpf_events import BpfCounters, WIRE
+from evals.native_bpf_audit import AUDIT_WIRE, BpfAuditEvent
+from evals.native_bpf_generations import TaskAttribution
+from tests.test_native_audit_join import binding as audit_binding
 from evals.native_cgroup import CgroupIds
 from tests.test_native_bpf_generations import BINDING, event
 
 
 class Engine:
     def __init__(self):
-        self.rows = []; self.count = 0; self._closed = False
+        self.rows = []; self.count = 0; self._closed = False; self.batch_limit = 131072
         self.detach = Mock(); self.close = Mock(side_effect=self.closed)
     def closed(self):self._closed = True
     def start(self, callback):self.callback = callback
     def fileno(self):return 77
     def drain(self):
-        rows, self.rows = self.rows, []
+        rows, self.rows = self.rows[:self.batch_limit], self.rows[self.batch_limit:]
         for raw in rows:
             data = C.create_string_buffer(raw)
             self.callback(None, C.addressof(data), len(raw))
@@ -27,7 +30,8 @@ class Engine:
     def feed(self, *events):
         for row in events:
             self.count += 1
-            self.rows.append(WIRE.pack(*vars(replace(row, sequence=self.count)).values()))
+            wire = AUDIT_WIRE if type(row) is BpfAuditEvent else WIRE
+            self.rows.append(wire.pack(*vars(replace(row, sequence=self.count)).values()))
 
 
 class BpfObserverTests(unittest.TestCase):
@@ -44,6 +48,61 @@ class BpfObserverTests(unittest.TestCase):
         self.engine.feed(event(2, 22, cgroup=54), event(1, 23, parent=22, parent_start=1000000000, cgroup=54))
         self.owner.bind(BINDING)
         self.engine.feed(event(2, 23))
+
+    def test_audit_prefix_is_resolved_after_anchors_and_later_binding_uses_live_generation(self):
+        consumer=Mock();self.owner._on_audit=consumer
+        self.engine.feed(audit_binding(tid=22,tgid=22,start_ns=1000000000,timestamp_ns=4000000000,cgroup_id=54),
+            event(2,22,cgroup=54),event(1,23,parent=22,parent_start=1000000000,cgroup=54),
+            audit_binding(tid=23,tgid=23,start_ns=2000000000,timestamp_ns=4000000000,cgroup_id=54))
+        self.owner.bind(BINDING)
+        self.assertEqual([TaskAttribution(1,'guardian'),TaskAttribution(2,'launcher')],
+                         [call.args[1] for call in consumer.call_args_list])
+        self.engine.feed(event(2,23),audit_binding(tid=23,tgid=23,start_ns=2000000000,timestamp_ns=4000000000,cgroup_id=55))
+        self.owner.drain()
+        self.assertEqual(TaskAttribution(2,'actor'),consumer.call_args.args[1])
+
+    def test_pre_admission_numeric_prefix_has_a_hard_bound(self):
+        self.owner._on_audit=Mock()
+        self.engine.feed(event(2,22,cgroup=54),event(1,23,parent=22,parent_start=1000000000,cgroup=54),
+            audit_binding(tid=23,tgid=23,start_ns=2000000000,timestamp_ns=4000000000,cgroup_id=54))
+        with patch.object(bpf,'MAX_PREFIX',2),self.assertRaises(ValueError):self.owner.bind(BINDING)
+        self.assertFalse(self.owner.ready)
+
+    def test_withheld_prefix_drains_every_batch_before_anchor_resolution(self):
+        self.owner._on_audit=Mock();self.engine.batch_limit=2
+        for serial in range(5):
+            self.engine.feed(audit_binding(tid=22,tgid=22,start_ns=1000000000,
+                timestamp_ns=4000000000,cgroup_id=54,audit_serial=serial+1))
+        self.engine.feed(event(2,22,cgroup=54),event(1,23,parent=22,parent_start=1000000000,cgroup=54))
+        self.owner.bind(BINDING)
+        self.assertTrue(self.owner.ready);self.assertEqual([],self.engine.rows)
+        self.assertEqual(5,self.owner._on_audit.call_count)
+
+    def test_missing_audit_consumer_never_silently_discards_binding(self):
+        self.admit();self.owner.drain()
+        self.engine.feed(audit_binding(tid=23,tgid=23,start_ns=2000000000,timestamp_ns=4000000000,cgroup_id=55))
+        with self.assertRaises(ValueError):self.owner.drain()
+        self.assertFalse(self.owner.ready)
+
+    def test_complete_bpf_drain_pumps_audit_between_every_batch(self):
+        order=[];self.owner._audit_pump=lambda:order.append('audit')
+        original=self.engine.drain
+        def drain():order.append('bpf');return original()
+        self.engine.drain=drain;self.engine.batch_limit=1
+        self.admit();self.engine.feed(event(3,23),event(3,22,cgroup=54))
+        self.owner.finish()
+        self.assertTrue(order)
+        for index,value in enumerate(order):
+            if value=='bpf':self.assertEqual('audit',order[index-1])
+
+    def test_final_drain_consumes_all_batches_before_accepting_counter_totals(self):
+        self.owner._on_audit=Mock();self.admit();self.engine.batch_limit=2
+        for serial in range(1,6):
+            self.engine.feed(audit_binding(tid=23,tgid=23,start_ns=2000000000,
+                timestamp_ns=4000000000,cgroup_id=55,audit_serial=serial))
+        self.engine.feed(event(3,23),event(3,22,cgroup=54))
+        self.assertEqual(10,self.owner.finish().transport.events)
+        self.assertEqual([],self.engine.rows)
 
     def test_prefix_binding_complete_transport_and_attribution(self):
         self.admit()

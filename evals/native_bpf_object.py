@@ -16,13 +16,15 @@ from types import SimpleNamespace
 from evals.native_audit_library import BPF_LIBRARY, load_library
 from evals.native_bpf_events import BpfCounters
 
-OBJECT = Path('/opt/harness-native/bpf/lifecycle-6.8.0-147.o')
-OBJECT_SHA = 'ba97fec4c0acf695c9e2e04c67148276b87894f895047bf562402f58f77f4735'
-SOURCE_SHA = '166eb328d0c65660c61536e3f007217a562c1daeee04afa83da3ef6dc607cd68'
+OBJECT = Path('/opt/harness-native/bpf/lifecycle-audit-6.8.0-147.o')
+OBJECT_SHA = '4250238f7bf0a40c4e9655a68532a95465d04e1ec4adbefb9aa0d8705deddd85'
+SOURCE_SHA = '5fb0df849afe9f26496101da4944a083cabffb7e0c6c5df89746a33045f0e112'
 BTF_SHA = 'ff35ff5afb91dfb3a1cb6db29a417a39f4f598c9ebfba75186592d4a58a1d277'
+CALLBACK_BATCH = 64
 CALLBACK = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_void_p, C.c_size_t)
 PROGRAMS = {b'observe_' + name: b'tp_btf/sched_process_' + name
             for name in (b'fork', b'exec', b'exit')}
+PROGRAMS = {**PROGRAMS, b'observe_audit': b'fexit/audit_log_start'}
 MAPS = {b'events': (27, 1 << 24, 0, 0), b'counters': (2, 1, 4, 24)}
 
 
@@ -94,6 +96,8 @@ class NativeBpfObject:
         self._links: list[int] = []
         self._pending_ids: list[tuple[str, int, int]] = []
         self._callback_error: BaseException | None = None
+        self._callback_count = 0
+        self._yielded = False
         self.program_ids: tuple[int, ...] = ()
         self.link_ids: tuple[int, ...] = ()
         self.map_ids: tuple[int, ...] = ()
@@ -158,9 +162,16 @@ class NativeBpfObject:
     def _receive(self, context, data, size) -> int:
         try:
             if self._callback_error is None:
-                return self._consumer(context, data, size)
+                result = self._consumer(context, data, size)
+                if type(result) is not int or result != 0:
+                    raise ValueError('unsupported BPF callback result')
         except BaseException as error:
             self._callback_error = error
+        self._callback_count += 1
+        if self._callback_count >= CALLBACK_BATCH:
+            self._yielded = True
+            # libbpf1.3 advances consumer_pos before returning a negative callback result.
+            return -errno.EAGAIN
         return 0
 
     def start(self, callback) -> None:
@@ -201,13 +212,14 @@ class NativeBpfObject:
         self._capture_ids()
         if code != 0:
             raise OSError(C.get_errno(), 'owned BPF object load failed')
-        if len(self.map_ids) != 2 or len(self.program_ids) != 3:
+        if len(self.map_ids) != 2 or len(self.program_ids) != 4:
             raise ValueError('loaded BPF descriptors are incomplete')
         for program in programs.values():
             link = self._pointer(self.api.attach(program))
             self._links.append(link)
-            # tp_btf uses BPF_TRACE_RAW_TP and a RAW_TRACEPOINT link on this kernel.
-            self._pending_ids.append(('link', self.api.link_fd(link), 1))
+            # tp_btf uses RAW_TRACEPOINT links; fexit uses a TRACING link.
+            link_type = 2 if self.api.program_name(program) == b'observe_audit' else 1
+            self._pending_ids.append(('link', self.api.link_fd(link), link_type))
             self._capture_ids()
 
     def fileno(self) -> int:
@@ -217,11 +229,15 @@ class NativeBpfObject:
 
     def drain(self) -> int:
         self.fileno()
+        self._callback_count = 0
+        self._yielded = False
         code = self.api.consume(self._ring)
-        if code < 0:
-            raise OSError(-code, 'owned BPF consume failed')
         if self._callback_error is not None:
             raise self._callback_error
+        if code == -errno.EAGAIN and self._yielded and self._callback_count == CALLBACK_BATCH:
+            return self._callback_count
+        if code < 0:
+            raise OSError(-code, 'owned BPF consume failed')
         return code
 
     def counters(self) -> BpfCounters:

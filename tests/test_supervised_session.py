@@ -19,7 +19,8 @@ from tests import test_native_session
 
 class FakeAuditCapture:
     """Transport test double only; real audit/UID/flock qualification is on Linux."""
-    def __init__(self):
+    def __init__(self, *, on_event=None):
+        self._consumer=on_event
         self.reader,self.writer=socket.socketpair()
         self.reader.setblocking(False)
         self.ready=True;self.result=None;self.entered=False;self.released=False;self.restored=False
@@ -38,7 +39,8 @@ class FakeAuditCapture:
 
 class FakeBpfObserver:
     """Transport double; pinned kernel capture is verified separately on Linux."""
-    def __init__(self):
+    def __init__(self, *, on_audit=None, audit_pump=None):
+        self._on_audit=on_audit
         self.reader, self.writer = socket.socketpair()
         self.reader.setblocking(False)
         self._started = self._finished = self._closed = self.ready = False
@@ -57,9 +59,12 @@ class FakeBpfObserver:
 
 class SupervisedSessionTests(unittest.TestCase):
     def setUp(self):
+        # Host transport doubles cannot issue kernel audit-join evidence.
+        joined=patch('evals.native_audit_session.AuditedSupervisor._finish_join')
+        joined.start();self.addCleanup(joined.stop)
         self.audit_captures=[]
-        def capture():
-            value=FakeAuditCapture();self.audit_captures.append(value);return value
+        def capture(*, on_event=None):
+            value=FakeAuditCapture(on_event=on_event);self.audit_captures.append(value);return value
         patched=patch('evals.native_audit_session.AuditCapture',side_effect=capture)
         patched.start();self.addCleanup(patched.stop)
         patched = patch('evals.native_audit_session.BpfObserver', side_effect=FakeBpfObserver)

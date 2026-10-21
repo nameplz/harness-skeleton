@@ -20,6 +20,44 @@ class BpfSessionTests(unittest.TestCase):
                 start_supervised(('/bin/true',), cwd=Path('/srv/actor'), environment={}, bpf_pump=lambda: None)
         trusted.assert_not_called(); spawn.assert_not_called()
 
+    def test_repeat_cleanup_cannot_finalize_join_twice_or_launder_failure(self):
+        with patch('evals.native_audit_session.AuditCapture'):
+            owner=AuditedSupervisor();owner.bpf=Mock();owner.bpf._closed=True;owner.bpf._finished=True
+            owner.capture.restored=True;owner.process=Mock();owner._join=Mock()
+            joined=object();owner._join.finish.return_value=joined
+            self.assertIsNone(owner.cleanup(None,failed=False));self.assertIs(owner.audit_join,joined)
+            self.assertIsNone(owner.cleanup(None,failed=False));owner._join.finish.assert_called_once()
+            self.assertIsNone(owner.cleanup(None,failed=True));self.assertIsNone(owner.audit_join)
+            self.assertIsNone(owner.cleanup(None,failed=False));owner._join.finish.assert_called_once()
+            self.assertIsNone(owner.audit_join)
+
+    def test_real_join_guard_rejects_missing_capture_or_kernel_result(self):
+        for missing in ('capture','bpf','cleanup','closed'):
+            with self.subTest(missing=missing), patch('evals.native_audit_session.AuditCapture'):
+                owner=AuditedSupervisor();owner.bpf=Mock();owner.bpf._closed=True
+                owner.bpf.result=object();owner.capture.restored=True;owner.capture.result=object()
+                owner.process=Mock();owner.process.cleanup_result=object();owner._join=Mock()
+                if missing=='capture':owner.capture.result=None
+                elif missing=='bpf':owner.bpf.result=None
+                elif missing=='cleanup':owner.process.cleanup_result=None
+                else:owner.bpf._closed=False
+                with self.assertRaises(ValueError):owner._finish_join()
+                owner._join.finish.assert_not_called()
+                self.assertIsNone(owner.audit_join)
+
+    def test_final_audit_join_follows_final_decoder_drain_and_process_cleanup(self):
+        for failed in (False,True):
+            with self.subTest(failed=failed), patch('evals.native_audit_session.AuditCapture') as capture_class:
+                owner=AuditedSupervisor();order=[]
+                owner.bpf=Mock();owner.bpf._closed=True;owner.bpf._finished=True
+                owner.capture.restored=True;owner.capture.close.side_effect=lambda:order.append('audit-final')
+                owner.process=Mock();owner.process.cleanup.side_effect=lambda:order.append('process-cleanup')
+                owner._join=Mock();owner._join.finish.side_effect=lambda:order.append('join-final') or 'joined'
+                error=owner.cleanup(None,failed=failed)
+                self.assertIsNone(error)
+                self.assertEqual(['audit-final','process-cleanup']+([] if failed else ['join-final']),order)
+                self.assertEqual(None if failed else 'joined',owner.audit_join)
+
     def test_capture_precedes_BPF_and_BPF_binding_precedes_G_release(self):
         order = []
         capture = MagicMock(); capture.__enter__.side_effect = lambda: order.append('audit')

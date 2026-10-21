@@ -34,6 +34,9 @@ def host_profile_simulation():
 
 class SupervisedCollectTests(unittest.TestCase):
     def setUp(self):
+        # Audit correlation is qualified on Linux; this suite simulates transport.
+        joined=patch('evals.native_audit_session.AuditedSupervisor._finish_join')
+        joined.start();self.addCleanup(joined.stop)
         patched=patch('evals.native_audit_session.AuditCapture',side_effect=session_tests.FakeAuditCapture)
         patched.start();self.addCleanup(patched.stop)
         patched=patch('evals.native_audit_session.BpfObserver',side_effect=session_tests.FakeBpfObserver)

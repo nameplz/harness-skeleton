@@ -1,13 +1,18 @@
 """Supervised audit transport lifecycle; no semantic audit or grader attestation."""
 from __future__ import annotations
 
+import os
+
 from evals.native_audit_capture import AuditCapture
+from evals.native_audit_join import AuditJoinLedger
 from evals.native_bpf_observer import BpfObserver
 
 
 class AuditedSupervisor:
     def __init__(self) -> None:
-        self.capture = AuditCapture()
+        self._join = AuditJoinLedger(observer_pid=os.getpid())
+        self.audit_join = None
+        self.capture = AuditCapture(on_event=self._join.observe_audit)
         self.process = None
         self.bpf = None
         self._failed = False
@@ -17,7 +22,8 @@ class AuditedSupervisor:
         try:
             self.capture.__enter__()
             entered = True
-            self.bpf = BpfObserver()
+            self.bpf = BpfObserver(on_audit=self._join.observe_bpf,
+                audit_pump=self.capture.drain)
             self.bpf.start()
             from evals.native_supervisor import start_supervised
             self.process = start_supervised(command, cwd=cwd, environment=environment,
@@ -50,6 +56,13 @@ class AuditedSupervisor:
         if not self.bpf.ready:
             raise ValueError('supervised actor lacks BPF admission')
         self.capture.release(self.process)
+
+    def _finish_join(self) -> None:
+        if self.bpf is None or not self.bpf._closed or self.bpf.result is None or \
+                not self.capture.restored or self.capture.result is None or \
+                self.process.cleanup_result is None:
+            raise ValueError('exact audit join lacks completed capture and cleanup')
+        self.audit_join = self._join.finish()
 
     def cleanup(self, exchange, *, failed: bool) -> BaseException | None:
         failures = []
@@ -91,7 +104,11 @@ class AuditedSupervisor:
         if exchange is not None:
             recover(exchange.selector.close)
         self._failed = self._failed or bool(failures)
+        if not self._failed and self.process is not None and self.audit_join is None:
+            recover(self._finish_join)
+        self._failed = self._failed or bool(failures)
         if self._failed:
+            self.audit_join = None
             self.capture.result = None
             if self.bpf is not None:
                 self.bpf.result = None

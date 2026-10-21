@@ -13,6 +13,7 @@ import json
 import struct
 
 from evals.native_bpf_events import BpfEvent, WIRE, decode_event
+from evals.native_bpf_audit import AUDIT_WIRE, BpfAuditEvent, decode_audit_binding
 from evals.native_cgroup import CgroupBinding, _identity
 
 MAX_TASKS = 4096
@@ -30,6 +31,12 @@ class TaskInstance:
     role: str
     last_ns: int
     ended: str = ''
+
+
+@dataclass(frozen=True)
+class TaskAttribution:
+    token: int
+    role: str
 
 
 @dataclass(frozen=True)
@@ -63,7 +70,7 @@ class GenerationLedger:
         self._seen: set[tuple[int, int]] = set()
         self._retired: dict[int, int] = {}
         self._released = self._aborted = self._failed = self._finished = False
-        self._actor_exec = False
+        self._actor_exec = self._audit_actor_leaf = False
         self._counts = {1: 0, 2: 0, 3: 0}
         self._aliases = 0
         self.result: GenerationSummary | None = None
@@ -129,6 +136,37 @@ class GenerationLedger:
             self._failed = True
             if isinstance(error, (struct.error, OverflowError)):
                 raise ValueError('invalid numeric lifecycle record') from None
+            raise
+
+    def attribute(self, event: BpfAuditEvent, *, prefix: bool = False) -> TaskAttribution:
+        """Resolve at BPF delivery, before a later lifecycle event can retire a TID."""
+        self._available()
+        try:
+            if type(event) is not BpfAuditEvent or any(type(v) is not int for v in vars(event).values()) or \
+                    type(prefix) is not bool:
+                raise ValueError('task attribution requires a validated audit binding')
+            decode_audit_binding(AUDIT_WIRE.pack(*vars(event).values()))
+            if prefix and (self._released or self._aborted or len(self._nodes) != 2 or len(self._active) != 2):
+                raise ValueError('audit prefix is outside withheld guardian/launcher admission')
+            node = self._nodes.get(self._active.get(event.tid))
+            if node is None or (node.tgid, node.start_ns) != (event.tgid, event.start_ns) or \
+                    (not prefix and event.timestamp_ns < node.last_ns):
+                raise ValueError('audit binding has an unknown task generation or backward time')
+            role = node.role
+            if role == 'actor' and not self._actor_exec:
+                role = 'launcher'
+                if event.cgroup_id == self.actor_cgroup_id:
+                    self._audit_actor_leaf = True
+                elif event.cgroup_id != self.guardian_cgroup_id or self._audit_actor_leaf:
+                    raise ValueError('launcher cgroup handoff regressed or escaped')
+            elif event.cgroup_id != node.cgroup_id:
+                raise ValueError('audit binding escaped its exact task cgroup')
+            self._nodes[node.token] = replace(node, last_ns=max(node.last_ns, event.timestamp_ns))
+            return TaskAttribution(node.token, role)
+        except BaseException as error:
+            self._failed = True
+            if isinstance(error, (struct.error, OverflowError)):
+                raise ValueError('invalid numeric task audit binding') from None
             raise
 
     def _fork(self, event: BpfEvent) -> None:
