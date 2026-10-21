@@ -7,6 +7,21 @@ from evals.native_cgroup import kernel_cgroup_id
 
 
 class CgroupHandleTests(unittest.TestCase):
+    def test_parent_and_actor_handles_are_read_under_the_same_binding(self):
+        from evals.native_cgroup import kernel_cgroup_ids
+        @contextmanager
+        def bound(binding):yield 55
+        with patch('evals.native_cgroup._open_bound', bound), \
+                patch('evals.native_cgroup.platform.machine', return_value='aarch64'), \
+                patch('evals.native_cgroup.os.open', return_value=56) as opened, \
+                patch('evals.native_cgroup.os.close') as closed, \
+                patch('evals.native_cgroup._kernfs_id', side_effect=[0x10000002c, 0x20000002b]):
+            ids = kernel_cgroup_ids(object())
+        self.assertEqual((0x20000002b, 0x10000002c), (ids.parent, ids.actor))
+        self.assertEqual('..', opened.call_args.args[0])
+        self.assertEqual(55, opened.call_args.kwargs['dir_fd'])
+        closed.assert_called_once_with(56)
+
     def test_same_bound_fd_returns_full_kernfs_id_not_inode(self):
         from evals.native_cgroup import _KernelHandle
         @contextmanager

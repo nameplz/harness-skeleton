@@ -36,6 +36,8 @@ class SupervisedCollectTests(unittest.TestCase):
     def setUp(self):
         patched=patch('evals.native_audit_session.AuditCapture',side_effect=session_tests.FakeAuditCapture)
         patched.start();self.addCleanup(patched.stop)
+        patched=patch('evals.native_audit_session.BpfObserver',side_effect=session_tests.FakeBpfObserver)
+        patched.start();self.addCleanup(patched.stop)
 
     def setup_launch(self, root):
         fixture = materialize_fixture('documentation', root/'candidate', condition='baseline')

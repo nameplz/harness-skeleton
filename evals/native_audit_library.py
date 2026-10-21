@@ -1,4 +1,4 @@
-"""Root-controlled descriptor pinning shared by the two audit-userspace ABIs."""
+"""Root-controlled descriptor pinning for audit and the qualified libbpf ABI."""
 
 import ctypes as C
 import hashlib
@@ -10,6 +10,8 @@ import threading
 
 _loaded: dict[tuple[str, str], tuple[object, int, tuple[int, int]]] = {}
 _load_lock = threading.Lock()
+BPF_LIBRARY = ('/usr/lib/aarch64-linux-gnu/libbpf.so.1.3.0',
+               'bbd39c9b5a29fd87a828a66ec097e25301dfb5af2694788a4de385570b22e1bc')
 
 
 def load_library(path: Path, digest: str):
@@ -43,10 +45,10 @@ def _load(path: Path, digest: str):
             if previous_identity != identity or (held.st_dev, held.st_ino) != identity:
                 raise ValueError('mapped audit library inode changed')
             return library
-        if len(_loaded) >= 2:
+        if key != BPF_LIBRARY and sum(item != BPF_LIBRARY for item in _loaded) >= 2:
             raise ValueError('audit library handle bound exceeded')
         library = C.CDLL(f'/proc/self/fd/{fd}', use_errno=True)
-        # dlopen caches fd pathnames: retain both names until process exit to prevent aliases.
+        # dlopen caches fd pathnames: retain names until process exit to prevent aliases.
         _loaded[key] = (library, fd, identity)
         retained = True
         return library

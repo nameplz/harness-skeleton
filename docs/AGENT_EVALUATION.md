@@ -802,10 +802,11 @@ intentionally undersized ring whose dropped events must reject the stream.
 Owned links are detached, the final ring/counters drained and the object closed;
 owned program/link IDs must disappear within a bounded kernel teardown wait.
 
-This is a measured lifecycle transport qualification. The libbpf loader remains
-qualification-only; supervised `native_session` does not yet attach this observer.
-A complete generation/cgroup transition ledger, selector and recovery integration,
-semantic action coverage, protected receipt and grader binding are still required.
+Supervised `native_session` now attaches the pinned loader before guardian startup,
+requires pre-G generation/cgroup admission, and drains BPF with audit through
+execution and cleanup. See [native BPF contracts](NATIVE_BPF.md) for pinning,
+nonleader exec, cancellation and recovery ownership. Semantic action coverage,
+protected receipt and grader binding are still required.
 The guest's active LSM list excludes BPF; CONFIG_BPF_LSM alone does not qualify an
 LSM hook. No guest boot/host LSM policy is changed by these probes. Production
 OS action audit/whole-tree cleanup flags stay false and readiness stays unknown.

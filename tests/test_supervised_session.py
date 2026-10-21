@@ -36,6 +36,25 @@ class FakeAuditCapture:
         self.restored=True;self.ready=False;self.reader.close();self.writer.close()
 
 
+class FakeBpfObserver:
+    """Transport double; pinned kernel capture is verified separately on Linux."""
+    def __init__(self):
+        self.reader, self.writer = socket.socketpair()
+        self.reader.setblocking(False)
+        self._started = self._finished = self._closed = self.ready = False
+        self.result = None
+    def start(self):self._started = self._capturing = True
+    def fileno(self):return self.reader.fileno()
+    def bind(self, binding):self.ready = True
+    def abort(self):self.ready = False; self.result = None
+    def drain(self):
+        try:self.reader.recv(65536)
+        except BlockingIOError:pass
+    def finish(self):self._finished = True
+    def close(self):
+        self.reader.close(); self.writer.close(); self._closed = True
+
+
 class SupervisedSessionTests(unittest.TestCase):
     def setUp(self):
         self.audit_captures=[]
@@ -43,6 +62,8 @@ class SupervisedSessionTests(unittest.TestCase):
             value=FakeAuditCapture();self.audit_captures.append(value);return value
         patched=patch('evals.native_audit_session.AuditCapture',side_effect=capture)
         patched.start();self.addCleanup(patched.stop)
+        patched = patch('evals.native_audit_session.BpfObserver', side_effect=FakeBpfObserver)
+        patched.start(); self.addCleanup(patched.stop)
 
     def test_supervised_preflight_requires_audit_before_deferred_release(self):
         with TemporaryDirectory() as temp:
@@ -113,6 +134,7 @@ class SupervisedSessionTests(unittest.TestCase):
                     stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,bufsize=0,start_new_session=True)
                 self.stdin,self.stdout,self.stderr=self.actor.stdin,self.actor.stdout,self.actor.stderr
                 self.finish_calls=0;self.cleanup_calls=0;self.cleanup_result=None
+                self.binding=object()
             @property
             def returncode(self):return self.actor.returncode
             def poll(self):return self.actor.poll()

@@ -297,6 +297,8 @@ class _ConfigExchange:
         self.stage = 'initialize'
         self._audit = None
         self._audit_fd = None
+        self._bpf = None
+        self._bpf_fd = None
         for index, stream in enumerate((process.stdout, process.stderr)):
             if stream is None:
                 raise ValueError('native inspection streams unavailable')
@@ -319,7 +321,22 @@ class _ConfigExchange:
         self._audit = self._audit_fd = None
 
     def _transport_open(self) -> bool:
-        return any(key.data != 'audit' for key in self.selector.get_map().values())
+        return any(key.data not in ('audit', 'bpf') for key in self.selector.get_map().values())
+
+    def attach_bpf(self, observer) -> None:
+        if self._bpf is not None:
+            raise ValueError('native BPF is already attached')
+        fd = observer.fileno()
+        self.selector.register(fd, selectors.EVENT_READ, 'bpf')
+        self._bpf, self._bpf_fd = observer, fd
+
+    def detach_bpf(self, observer) -> None:
+        if observer is not self._bpf or self._bpf_fd is None:
+            raise ValueError('native BPF attachment differs')
+        if observer.fileno() != self._bpf_fd or self.selector.get_key(self._bpf_fd).data != 'bpf':
+            raise ValueError('native BPF descriptor changed')
+        self.selector.unregister(self._bpf_fd)
+        self._bpf = self._bpf_fd = None
 
     def send(self, value: dict[str, Any]) -> None:
         raw = (json.dumps(value) + '\n').encode()
@@ -368,6 +385,11 @@ class _ConfigExchange:
                 if self._audit is None or self._audit.fileno() != key.fd:
                     raise ValueError('native audit descriptor changed')
                 self._audit.drain()
+                continue
+            if key.data == 'bpf':
+                if self._bpf is None or self._bpf.fileno() != key.fd:
+                    raise ValueError('native BPF descriptor changed')
+                self._bpf.drain()
                 continue
             if key.data == 2:
                 continue

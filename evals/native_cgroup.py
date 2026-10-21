@@ -62,16 +62,42 @@ def kernel_cgroup_id(binding: CgroupBinding) -> int:
     if platform.machine() != 'aarch64' or C.sizeof(_KernelHandle) != 16:
         raise ValueError('cgroup handle requires the pinned Linux ARM64 ABI')
     with _open_bound(binding) as fd:
-        library = C.CDLL(None, use_errno=True)
-        operation = library.name_to_handle_at
-        operation.restype = C.c_int
-        operation.argtypes = [C.c_int, C.c_char_p, C.POINTER(_KernelHandle), C.POINTER(C.c_int), C.c_int]
-        handle, mount = _KernelHandle(8, 0, 0), C.c_int()
-        if operation(fd, b'', C.byref(handle), C.byref(mount), 0x1000) != 0:
-            raise OSError(C.get_errno(), 'kernel cgroup handle unavailable')
-        if handle.handle_bytes != 8 or handle.handle_type != 0xfe or not handle.identifier or mount.value <= 0:
-            raise ValueError('unsupported cgroup kernfs handle')
-        return handle.identifier
+        return _kernfs_id(fd)
+
+
+def _kernfs_id(fd: int) -> int:
+    library = C.CDLL(None, use_errno=True)
+    operation = library.name_to_handle_at
+    operation.restype = C.c_int
+    operation.argtypes = [C.c_int, C.c_char_p, C.POINTER(_KernelHandle), C.POINTER(C.c_int), C.c_int]
+    handle, mount = _KernelHandle(8, 0, 0), C.c_int()
+    if operation(fd, b'', C.byref(handle), C.byref(mount), 0x1000) != 0:
+        raise OSError(C.get_errno(), 'kernel cgroup handle unavailable')
+    if handle.handle_bytes != 8 or handle.handle_type != 0xfe or not handle.identifier or mount.value <= 0:
+        raise ValueError('unsupported cgroup kernfs handle')
+    return handle.identifier
+
+
+@dataclass(frozen=True)
+class CgroupIds:
+    parent: int
+    actor: int
+
+
+def kernel_cgroup_ids(binding: CgroupBinding) -> CgroupIds:
+    """Bind parent and actor handles while the same host invocation is revalidated."""
+    if platform.machine() != 'aarch64' or C.sizeof(_KernelHandle) != 16:
+        raise ValueError('cgroup handle requires the pinned Linux ARM64 ABI')
+    with _open_bound(binding) as actor_fd:
+        actor = _kernfs_id(actor_fd)
+        parent_fd = os.open('..', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=actor_fd)
+        try:
+            parent = _kernfs_id(parent_fd)
+        finally:
+            os.close(parent_fd)
+        if parent == actor:
+            raise ValueError('actor and guardian cgroup handles coincide')
+        return CgroupIds(parent, actor)
 
 
 @dataclass(frozen=True)

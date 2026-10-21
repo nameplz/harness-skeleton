@@ -168,23 +168,29 @@ class SupervisorProcess:
 
     def _pump_audit(self) -> None:
         lease = getattr(self, '_audit_lease', None)
-        if lease is None:
-            return
-        try:
-            lease._capture.drain()
-        except BaseException as error:
+        failures = []
+        for operation in (lease._capture.drain if lease is not None else None,
+                          getattr(self, '_bpf_pump', None)):
+            if operation is None:
+                continue
+            try:
+                operation()
+            except BaseException as error:
+                failures.append(error)
+        if failures:
+            error = failures[0] if len(failures) == 1 else BaseExceptionGroup('native observer drain failed', failures)
             if not getattr(self, '_recovering_audit', False):
-                raise
+                raise error
             if self._audit_pump_error is None:
                 self._audit_pump_error = error
 
     def _receive(self, timeout: float) -> bytes | None:
         deadline = time.monotonic() + timeout
         while b'\n' not in self._buffer:
-            lease = getattr(self, '_audit_lease', None)
+            observing = getattr(self, '_audit_lease', None) is not None or getattr(self, '_bpf_pump', None) is not None
             self._pump_audit()
             remaining = max(0, deadline - time.monotonic())
-            if not select.select([self._status], [], [], min(remaining, 0.01) if lease else remaining)[0]:
+            if not select.select([self._status], [], [], min(remaining, 0.01) if observing else remaining)[0]:
                 if time.monotonic() >= deadline:
                     return None
                 continue
@@ -225,9 +231,9 @@ class SupervisorProcess:
         self._recovering_audit = True
         self._audit_pump_error = None
         try:
-            lease = getattr(self, '_audit_lease', None)
+            observing = getattr(self, '_audit_lease', None) is not None or getattr(self, '_bpf_pump', None) is not None
             observation = kill_actor_cgroup(self.binding, timeout_seconds=5,
-                pump=self._pump_audit if lease is not None else None)
+                pump=self._pump_audit if observing else None)
             self.cleanup_observation = observation
             if not observation.empty_verified:
                 raise ValueError('supervised actor cgroup remains populated')
@@ -422,13 +428,14 @@ def _admit_actor(unit: str, actor: int, guardian: int) -> CgroupBinding:
 
 def start_supervised(command: tuple[str, ...], *, cwd: Path, environment: dict[str, str],
                      admission_timeout_seconds: float = 10, lock_lease=None,
-                     defer_release: bool = False) -> SupervisorProcess:
+                     defer_release: bool = False, bpf_pump=None) -> SupervisorProcess:
     """Admit a root-owned executable; caller enforces run deadline and calls cleanup."""
     validate_launch(command, cwd, environment, admission_timeout_seconds)
     _require_root_linux()
     from evals.native_actor_lock import ActorLockLease
     if type(defer_release) is not bool or lock_lease is not None and not isinstance(lock_lease, ActorLockLease) \
-            or defer_release != (lock_lease is not None):
+            or defer_release != (lock_lease is not None) or \
+            bpf_pump is not None and (not callable(bpf_pump) or lock_lease is None):
         raise ValueError('deferred supervisor requires an audit lock lease')
     if _trusted_file(Path(command[0])) != Path(command[0]):
         raise ValueError('supervised executable must use its canonical path')
@@ -444,6 +451,7 @@ def start_supervised(command: tuple[str, ...], *, cwd: Path, environment: dict[s
     handle.lifecycle_result = None
     handle._released = handle._release_attempted = False
     handle._audit_lease = lock_lease
+    handle._bpf_pump = bpf_pump
     handle._buffer, handle._closed = b'', False
     resources = [lock]
     proxy = None
@@ -462,10 +470,10 @@ def start_supervised(command: tuple[str, ...], *, cwd: Path, environment: dict[s
             listeners[name] = listener
         proxy = _spawn_proxy(unit, cwd, directory, python)
         handle._proxy = proxy
-        if lock_lease is None:
+        if lock_lease is None and bpf_pump is None:
             connections, peers = _accept_channels(listeners, resources, deadline)
         else:
-            connections, peers = _accept_channels(listeners, resources, deadline, pump=lock_lease._capture.drain)
+            connections, peers = _accept_channels(listeners, resources, deadline, pump=handle._pump_audit)
         handle._status = connections['status']
         ready = handle._receive(max(0, deadline - time.monotonic()))
         actor, guardian = parse_status(ready, kind='ready')
