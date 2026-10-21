@@ -10,6 +10,17 @@ from evals.runtime_invocation import bind_session, claim_launch, consume_invocat
 
 
 class InvocationTests(unittest.TestCase):
+    def test_bpf_c_source_changes_are_part_of_frozen_identity(self):
+        from evals.runtime_invocation import source_file_hashes
+        with TemporaryDirectory() as temp:
+            root=Path(temp).resolve();path=root/'evals/bpf/lifecycle.bpf.c'
+            path.parent.mkdir(parents=True);path.write_text('trusted source')
+            with patch('evals.runtime_invocation.PROJECT_ROOT',root):
+                before=source_file_hashes()
+                self.assertIn('evals/bpf/lifecycle.bpf.c',before)
+                path.write_text('changed source')
+                self.assertNotEqual(before,source_file_hashes())
+
     def test_frozen_source_digest_and_file_changes_fail_before_issue(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)

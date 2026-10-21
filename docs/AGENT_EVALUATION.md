@@ -764,3 +764,54 @@ kernel teardown or converting the earlier failed capture into success.
 The owner is also retained when process cleanup has no successful result, even
 if capture has closed. An earlier failed/closed process remains a failure on
 recovery; this does not make it reusable or synthesize a lifecycle receipt.
+
+
+### CO-RE lifecycle observer qualification
+
+The Linux ARM64 qualification source `evals/bpf/lifecycle.bpf.c` uses libbpf and
+running-kernel BTF to attach `tp_btf/sched_process_fork`, `sched_process_exec` and
+`sched_process_exit`. It emits a fixed80byte numeric record: task IDs, boot-time
+nanosecond generation/timestamp, current and observed-task cgroup IDs, fork
+relation, exec old TID, CPU and a transport sequence. It reads no comm, argv,
+filename, environment, path or socket payload. Generated `vmlinux.h`, compiler,
+libbpf and object hashes belong to each qualification's kernel/boot identity;
+the source freeze now includes the BPF C source. A kernel update invalidates
+reuse of an earlier kernel qualification.
+
+`kernel_cgroup_id(binding)` opens the already validated actor cgroup through the
+existing root directory/namespace/manager checks, then reads an8byte FILEID_KERNFS
+handle with `name_to_handle_at(AT_EMPTY_PATH)`. It preserves the full64bit handle;
+unsupported formats fail without substituting an inode. `start_boottime` is in
+nanoseconds, while the existing `/proc` binding uses clock ticks; qualification
+compares the measured values using the runtime clock-tick conversion.
+
+`BpfLedger` validates the exact numeric ABI, kind-specific fields, bounded unique
+sequence coverage and final attempted/emitted/dropped counters. Atomic numbering
+and ring reservation can interleave across CPUs, so sequence IDs are checked as
+a complete set rather than claiming a global monotonic numbering order. Actual
+ring delivery order remains available for later per-task lifecycle attribution.
+Loss, duplicate/malformed records or callback interruption invalidate the stream.
+A zero-event summary proves no hook coverage; actual qualification requires events.
+
+The dedicated UID also contains the guardian and the actor before its controlled
+cgroup handoff. Actual qualification distinguishes those observations from actor
+leaf events using the admission identities and measured cgroup handle. UID alone
+never proves actor attribution. Cases include ordinary fork/exec/exit, detached
+child, cancellation, timeout, nonleader-thread exec with changed TID, and an
+intentionally undersized ring whose dropped events must reject the stream.
+Owned links are detached, the final ring/counters drained and the object closed;
+owned program/link IDs must disappear within a bounded kernel teardown wait.
+
+This is a measured lifecycle transport qualification. The libbpf loader remains
+qualification-only; supervised `native_session` does not yet attach this observer.
+A complete generation/cgroup transition ledger, selector and recovery integration,
+semantic action coverage, protected receipt and grader binding are still required.
+The guest's active LSM list excludes BPF; CONFIG_BPF_LSM alone does not qualify an
+LSM hook. No guest boot/host LSM policy is changed by these probes. Production
+OS action audit/whole-tree cleanup flags stay false and readiness stays unknown.
+
+Primary contracts: [libbpf lifecycle/CO-RE](https://docs.kernel.org/bpf/libbpf/libbpf_overview.html),
+[ring buffer semantics](https://docs.kernel.org/bpf/ringbuf.html),
+[kernfs file handles](https://github.com/torvalds/linux/blob/v6.8/fs/kernfs/mount.c),
+[task generation fields](https://github.com/torvalds/linux/blob/v6.8/include/linux/sched.h),
+[LSM BPF activation and attach](https://docs.kernel.org/bpf/prog_lsm.html).

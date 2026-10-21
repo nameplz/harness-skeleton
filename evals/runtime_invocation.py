@@ -25,7 +25,7 @@ def _digest(value: object) -> str:
 
 
 def source_file_hashes() -> dict[str, str]:
-    patterns = ('evals/*.py', 'evals/*.json', 'scripts/*.py', 'tests/*.py', 'docs/**/*.md',
+    patterns = ('evals/*.py', 'evals/*.json', 'evals/bpf/*.c', 'scripts/*.py', 'tests/*.py', 'docs/**/*.md',
                 '.codex/**/*.toml', '.codex/hooks/*.py', '.agents/skills/**/*.md', '.harness/*', 'AGENTS.md')
     paths = sorted({path for pattern in patterns for path in PROJECT_ROOT.glob(pattern)})
     result = {}

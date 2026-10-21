@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import ctypes as C
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import platform
 import re
 import stat
 import subprocess
@@ -49,6 +51,27 @@ class CgroupBinding:
     inode: int
     actor: ProcessIdentity
     guardian: ProcessIdentity
+
+
+class _KernelHandle(C.Structure):
+    _fields_ = [('handle_bytes', C.c_uint), ('handle_type', C.c_int), ('identifier', C.c_uint64)]
+
+
+def kernel_cgroup_id(binding: CgroupBinding) -> int:
+    """Read the full kernfs handle from the validated actor directory, never st_ino."""
+    if platform.machine() != 'aarch64' or C.sizeof(_KernelHandle) != 16:
+        raise ValueError('cgroup handle requires the pinned Linux ARM64 ABI')
+    with _open_bound(binding) as fd:
+        library = C.CDLL(None, use_errno=True)
+        operation = library.name_to_handle_at
+        operation.restype = C.c_int
+        operation.argtypes = [C.c_int, C.c_char_p, C.POINTER(_KernelHandle), C.POINTER(C.c_int), C.c_int]
+        handle, mount = _KernelHandle(8, 0, 0), C.c_int()
+        if operation(fd, b'', C.byref(handle), C.byref(mount), 0x1000) != 0:
+            raise OSError(C.get_errno(), 'kernel cgroup handle unavailable')
+        if handle.handle_bytes != 8 or handle.handle_type != 0xfe or not handle.identifier or mount.value <= 0:
+            raise ValueError('unsupported cgroup kernfs handle')
+        return handle.identifier
 
 
 @dataclass(frozen=True)
