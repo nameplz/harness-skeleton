@@ -42,6 +42,26 @@ class NativeAuditEventTests(unittest.TestCase):
         self.put(ledger, (syscall(), path()), key)
         self.assertIsNone(ledger.record(message(1320, key)))
 
+    def test_standalone_kernel_bpf_records_require_exact_fields_without_inventing_actor(self):
+        for operation in (b'LOAD',b'UNLOAD'):
+            ledger=self.ledger();self.put(ledger,(AuditRecord(1334,(('prog_id',23),('op',operation))),))
+            summary=ledger.finish();self.assertEqual(1,summary.events)
+            self.assertEqual(((1334,1),),summary.types)
+        for values in ((),(('prog_id',23),),(('prog_id',-1),('op',b'LOAD')),
+                       (('prog_id',2**32),('op',b'LOAD')),(('prog_id',23),('op',b'unknown'))):
+            ledger=self.ledger();ledger.record(message(1334))
+            with self.subTest(values=values),self.assertRaises(ValueError):
+                ledger.segment(AuditSegment(KEY,(AuditRecord(1334,values),)))
+
+    def test_standalone_service_metadata_requires_result_and_identity_without_authority_claim(self):
+        values=(('pid',1),('uid',0),('auid',2**32-1),('ses',2**32-1),('unit',b'owned-service'),('success',True))
+        for kind in (1130,1131):
+            ledger=self.ledger();self.put(ledger,(AuditRecord(kind,values),))
+            self.assertEqual(1,ledger.finish().events)
+            for incomplete in ((),values[:-1],tuple((n,v) for n,v in values if n!='unit')):
+                ledger=self.ledger();ledger.record(message(kind))
+                with self.assertRaises(ValueError):ledger.segment(AuditSegment(KEY,(AuditRecord(kind,incomplete),)))
+
     def test_complete_failed_syscall_has_ephemeral_fields_and_safe_summary(self):
         observed = []
         ledger = self.ledger(on_event=observed.append)

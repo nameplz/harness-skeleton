@@ -78,7 +78,7 @@ class AuditCaptureTests(unittest.TestCase):
         patches=(patch('evals.native_audit_capture._require_root_linux'),
             patch('evals.native_audit_capture._lock',return_value=self.lock),
             patch('evals.native_audit_capture._idle_actor_uid',side_effect=self.idle),
-            patch('evals.native_audit_capture.AuditChannel',side_effect=lambda:self.kernel.channel()),
+            patch('evals.native_audit_capture.AuditChannel',side_effect=lambda **options:self.kernel.channel()),
             patch('evals.native_audit_capture.build_rule',return_value=self.rule),
             patch('evals.native_audit_capture.AuditDecoder',return_value=self.decoder),
             patch('evals.native_audit_capture.select.select',return_value=([],[],[])))
@@ -105,9 +105,10 @@ class AuditCaptureTests(unittest.TestCase):
         self.lock.close.assert_called_once()
 
     def test_nonpristine_or_active_uid_baseline_never_mutates_kernel(self):
-        for change in ('pid','rules','actor'):
+        for change in ('pid','rules','actor','panic'):
             self.kernel=FakeKernel()
             if change=='pid':self.kernel.status=replace(self.kernel.status,pid=1234)
+            if change=='panic':self.kernel.status=replace(self.kernel.status,failure=2)
             if change=='rules':self.kernel.rules=(b'foreign',)
             if change=='actor':self.kernel.actor_idle=False
             with self.subTest(change=change),self.assertRaises(ValueError):
@@ -300,3 +301,17 @@ class AuditCaptureTests(unittest.TestCase):
                 self.kernel.status=replace(self.kernel.status,lost=1)
                 raise KeyboardInterrupt()
         self.assertTrue(any(isinstance(error,KeyboardInterrupt) for error in caught.exception.exceptions))
+
+
+    def test_resource_close_failure_retains_retry_without_repeating_kernel_teardown(self):
+        capture=AuditCapture();capture.__enter__()
+        self.lock.close.side_effect=[OSError(5,'close failed'),None]
+        with self.assertRaises(OSError):capture.close()
+        self.assertTrue(capture.restored)
+        self.assertFalse(capture._closed)
+        self.assertIsNone(capture.result)
+        operations=len(self.kernel.operations)
+        capture.close()
+        self.assertTrue(capture._closed)
+        self.assertEqual(operations,len(self.kernel.operations))
+        self.assertIsNone(capture.result)

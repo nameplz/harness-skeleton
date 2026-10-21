@@ -2,7 +2,7 @@ from dataclasses import replace
 import itertools
 import struct
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from evals.native_audit_control import AuditRequest, AuditReplies, AuditStatus, AuditChannel
 from evals.native_audit_wire import HEADER
@@ -37,6 +37,9 @@ class AuditControlProtocolTests(unittest.TestCase):
             self.assertFalse(AuditStatus.decode(status_payload(**changes)).pristine)
         for body in (b'', b'\0'*40, status_payload()+b'\0', status_payload(enabled=3), status_payload(mask=1)):
             with self.assertRaises(ValueError): AuditStatus.decode(body)
+
+    def test_kernel_panic_failure_mode_is_not_an_admissible_pristine_baseline(self):
+        self.assertFalse(AuditStatus.decode(status_payload(failure=2)).pristine)
 
     def test_request_has_exact_identity_and_bounded_allowed_command_surface(self):
         request = self.request()
@@ -196,3 +199,26 @@ class AuditChannelTests(unittest.TestCase):
                     return_value=([sock],[],[])):
                 channel.request(1000)
         self.assertEqual([1,2],[HEADER.unpack_from(s.sent[0])[3] for s in sockets])
+
+
+class AuditSocketBufferTests(unittest.TestCase):
+    def test_event_socket_requires_effective_bounded_buffer_without_global_changes(self):
+        import socket
+        from evals.native_audit_control import _open_socket
+        for effective in (64*1024*1024,425984):
+            stream=Mock();stream.getsockopt.return_value=effective
+            with patch('evals.native_cgroup._require_root_linux'), \
+                    patch('evals.native_audit_control.socket.AF_NETLINK',16,create=True), \
+                    patch('evals.native_audit_control.socket.SOCK_CLOEXEC',0x80000,create=True), \
+                    patch('evals.native_audit_control.socket.socket',return_value=stream):
+                if effective==425984:
+                    with self.assertRaises(ValueError):_open_socket(events=True)
+                    stream.close.assert_called_once()
+                else:self.assertIs(stream,_open_socket(events=True))
+            stream.setsockopt.assert_any_call(socket.SOL_SOCKET,33,32*1024*1024)
+
+    def test_listener_mode_rejects_non_boolean_before_opening_socket(self):
+        with patch('evals.native_audit_control._open_socket') as opened:
+            for mode in (1,None,'yes'):
+                with self.assertRaises(ValueError):AuditChannel(events=mode)
+        opened.assert_not_called()

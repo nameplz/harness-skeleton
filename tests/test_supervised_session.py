@@ -4,6 +4,7 @@ import hashlib
 import os
 from pathlib import Path
 import signal
+import socket
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
@@ -16,7 +17,60 @@ from evals.native_session import NativeSessionError, inspect_native_session, nat
 from tests import test_native_session
 
 
+class FakeAuditCapture:
+    """Transport test double only; real audit/UID/flock qualification is on Linux."""
+    def __init__(self):
+        self.reader,self.writer=socket.socketpair()
+        self.reader.setblocking(False)
+        self.ready=True;self.result=None;self.entered=False;self.released=False;self.restored=False
+        self.lease=object()
+    def __enter__(self):self.entered=True;return self
+    def __exit__(self,*args):self.close()
+    def fileno(self):return self.reader.fileno()
+    def lock_lease(self):return self.lease
+    def release(self,process):self.released=True
+    def drain(self):
+        try:self.reader.recv(65536)
+        except BlockingIOError:pass
+    def close(self):
+        self.restored=True;self.ready=False;self.reader.close();self.writer.close()
+
+
 class SupervisedSessionTests(unittest.TestCase):
+    def setUp(self):
+        self.audit_captures=[]
+        def capture():
+            value=FakeAuditCapture();self.audit_captures.append(value);return value
+        patched=patch('evals.native_audit_session.AuditCapture',side_effect=capture)
+        patched.start();self.addCleanup(patched.stop)
+
+    def test_supervised_preflight_requires_audit_before_deferred_release(self):
+        with TemporaryDirectory() as temp:
+            root=Path(temp).resolve();command=test_native_session.NativeSessionTests()._server(root);process=self.launch(root,command)
+            with patch('evals.native_session.build_session_command',return_value=command), \
+                    patch('evals.native_session.trusted_supervised_binary_identity',return_value=(1,)), \
+                    patch('evals.native_supervisor.start_supervised',return_value=process) as launch:
+                inspect_native_session(root,binary=self.binary(),model='gpt-6.1-sol',disabled_servers=('docs',),supervised=True)
+            self.assertEqual(1,len(self.audit_captures))
+            capture=self.audit_captures[0]
+            self.assertTrue(capture.entered and capture.released and capture.restored)
+            self.assertTrue(launch.call_args.kwargs['defer_release'])
+            self.assertIs(capture.lease,launch.call_args.kwargs['lock_lease'])
+
+    def test_audit_setup_oserror_keeps_recovery_on_sanitized_top_level_error(self):
+        with TemporaryDirectory() as temp, \
+                patch('evals.native_session.trusted_supervised_binary_identity',return_value=(1,)), \
+                patch.object(FakeAuditCapture,'__enter__',side_effect=OSError(5,'SENTINEL')), \
+                patch('evals.native_supervisor.start_supervised') as launch:
+            with self.assertRaises(OSError) as raised:
+                inspect_native_session(Path(temp),binary=self.binary(),model='gpt-6.1-sol',supervised=True)
+        self.assertNotIn('SENTINEL',str(raised.exception))
+        self.assertIs(self.audit_captures[0],raised.exception.audit_recovery.capture)
+        launch.assert_not_called()
+        raised.exception.audit_recovery.recover()
+        self.assertTrue(self.audit_captures[0].restored)
+        self.assertIsNone(self.audit_captures[0].result)
+
     def binary(self):
         path=Path(sys.executable).resolve()
         with path.open('rb') as stream:
@@ -64,10 +118,11 @@ class SupervisedSessionTests(unittest.TestCase):
             def poll(self):return self.actor.poll()
             def wait(self,timeout=None):return self.actor.wait(timeout=timeout)
             def finish_actor(self):
-                outer.assertIsNotNone(self.actor.poll())
+                if self.finish_calls:return
                 self.finish_calls+=1
                 try:os.killpg(self.actor.pid,signal.SIGKILL)
                 except ProcessLookupError:pass
+                self.actor.wait(timeout=2)
             def cleanup(self):
                 self.cleanup_calls+=1
                 error=direct_cleanup(self.actor,None)
@@ -126,10 +181,8 @@ class SupervisedSessionTests(unittest.TestCase):
             with patch('evals.native_session.build_session_command',return_value=command), \
                     patch('evals.native_session.trusted_supervised_binary_identity',return_value=(1,)), \
                     patch('evals.native_supervisor.start_supervised',return_value=process):
-                with self.assertRaises(NativeSessionError) as raised:
+                with self.assertRaisesRegex(ValueError,'timed out'):
                     inspect_native_session(root,binary=self.binary(),model='gpt-6.1-sol',disabled_servers=('docs',),supervised=True,timeout_seconds=0.3)
-            self.assertEqual('timeout',raised.exception.failure.reason)
-            self.assertEqual('shutdown',raised.exception.failure.failure_stage)
             self.assertEqual(1,process.cleanup_calls);self.assertIsNotNone(process.actor.returncode)
 
     def test_cleanup_failure_retains_keyboard_interrupt_and_metadata(self):
@@ -153,10 +206,9 @@ class SupervisedSessionTests(unittest.TestCase):
     def test_supervisor_spawn_error_is_sanitized(self):
         with TemporaryDirectory() as temp,patch('evals.native_session.trusted_supervised_binary_identity',return_value=(1,)), \
                 patch('evals.native_supervisor.start_supervised',side_effect=PermissionError(13,'SENTINEL')):
-            with self.assertRaises(NativeSessionError) as raised:
+            with self.assertRaises(PermissionError) as raised:
                 inspect_native_session(Path(temp),binary=self.binary(),model='gpt-6.1-sol',supervised=True)
-        self.assertEqual('spawn',raised.exception.failure.failure_stage)
-        self.assertEqual(13,raised.exception.failure.original_errno)
+        self.assertEqual(13,raised.exception.errno)
         self.assertNotIn('SENTINEL',str(raised.exception))
 
     def test_root_guard_rejects_inode_metadata_change_during_acl_checks(self):

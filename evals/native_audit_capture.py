@@ -2,7 +2,8 @@
 
 The dedicated actor lock spans listener setup, caller-controlled execution and
 final drain. The caller must finish all actors before closing this primitive.
-Supervisor admission and policy receipts are deliberately not connected yet.
+Supervisor admission uses a one-use lock lease; semantic policy receipts remain
+unconnected.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from evals.native_audit_events import AuditSegment, AuditSummary
 from evals.native_audit_rule import build_rule
 from evals.native_audit_wire import HEADER, decode_event, decode_replace
 from evals.native_auparse import AuditDecoder
-from evals.native_cgroup import _require_root_linux
+from evals.native_cgroup import _require_root_linux, bind_actor_cgroup
 from evals.native_supervisor import _idle_actor_uid, _lock
 
 BACKLOG_LIMIT = 8192
@@ -42,6 +43,8 @@ class AuditCaptureResult:
 class AuditCapture:
     def __init__(self, *, on_event: Callable[[AuditSegment], None] | None = None) -> None:
         self._owner = threading.get_ident()
+        self._lease = None
+        self.admission = None
         self._consumer = on_event
         self._lock_stream = self._listener = self._decoder = self._rule = self._baseline = None
         self._receipts: tuple[ControlReceipt, ...] = ()
@@ -50,6 +53,7 @@ class AuditCapture:
         self._releasing_pid = False
         self._replacements = 0
         self._started = self._closed = False
+        self._pending_close = None
         self.ready = self.restored = False
         self.result: AuditCaptureResult | None = None
 
@@ -73,7 +77,7 @@ class AuditCapture:
             self._rule = build_rule()
             self._rule.validate()
             self._decoder = AuditDecoder(key=secrets.token_bytes(32), on_event=self._consumer)
-            self._listener = AuditChannel().__enter__()
+            self._listener = AuditChannel(events=True).__enter__()
             self._set('pid', os.getpid(), listener=True)
             self._listener_usable = True
             self._set('backlog_limit', BACKLOG_LIMIT)
@@ -130,6 +134,28 @@ class AuditCapture:
             self._receipts = (*self._receipts, *self._listener.receipts)
         else:
             self._control(SET, payload)
+
+    def lock_lease(self):
+        self._owner_check()
+        if not self.ready or self._closed or self._lease is not None:
+            raise ValueError('audit supervisor lease is unavailable')
+        from evals.native_actor_lock import ActorLockLease
+        self._lease = ActorLockLease(self)
+        return self._lease
+
+    def release(self, process) -> None:
+        process.release(audit=self)
+
+    def _validate_release(self, process) -> None:
+        self._owner_check()
+        if not self.ready or self._closed or self._parse_failed or self.admission is not None \
+                or self._lease is None or not self._lease.consumed or process._audit_lease is not self._lease:
+            raise ValueError('audit admission is unavailable or mismatched')
+        self._verify_active()
+        binding = bind_actor_cgroup(process.binding.unit, process.binding.actor.pid)
+        if binding != process.binding:
+            raise ValueError('audit admission cgroup identity changed')
+        self.admission = binding
 
     def fileno(self) -> int:
         self._owner_check()
@@ -247,6 +273,9 @@ class AuditCapture:
             if not self.restored:
                 raise ValueError('audit capture restoration previously failed')
             return
+        if self._pending_close is not None:
+            self._close_resources()
+            return
         errors = []
         was_ready = self.ready
         self.ready = False
@@ -285,10 +314,7 @@ class AuditCapture:
             if len(errors) == 1:
                 raise errors[0]
             raise BaseExceptionGroup('audit restoration requires recovery', errors)
-        for resource in (self._decoder, self._listener, self._lock_stream):
-            if resource is not None:
-                recover(resource.close)
-        self._closed = True
+        recover(self._close_resources)
         if errors:
             if len(errors) == 1:
                 raise errors[0]
@@ -296,3 +322,22 @@ class AuditCapture:
         if was_ready:
             self.result = AuditCaptureResult(self._baseline, final, self._rule.sha256,
                                              summary, self._receipts, self._replacements)
+
+    def _close_resources(self) -> None:
+        pending, errors = [], []
+        resources = self._pending_close if self._pending_close is not None else (
+            self._decoder, self._listener, self._lease, self._lock_stream)
+        for resource in resources:
+            if resource is None:
+                continue
+            try:
+                resource.close()
+            except BaseException as error:
+                pending.append(resource)
+                errors.append(error)
+        self._pending_close = tuple(pending)
+        self._closed = not pending
+        if len(errors) == 1:
+            raise errors[0]
+        if errors:
+            raise BaseExceptionGroup('audit resource close failed', errors)

@@ -295,11 +295,31 @@ class _ConfigExchange:
         self.notifications: set[str] = set()
         self.warnings: list[ConfigWarning] = []
         self.stage = 'initialize'
+        self._audit = None
+        self._audit_fd = None
         for index, stream in enumerate((process.stdout, process.stderr)):
             if stream is None:
                 raise ValueError('native inspection streams unavailable')
             os.set_blocking(stream.fileno(), False)
             self.selector.register(stream, selectors.EVENT_READ, index)
+
+    def attach_audit(self, capture) -> None:
+        if self._audit is not None:
+            raise ValueError('native audit is already attached')
+        fd = capture.fileno()
+        self.selector.register(fd, selectors.EVENT_READ, 'audit')
+        self._audit, self._audit_fd = capture, fd
+
+    def detach_audit(self, capture) -> None:
+        if capture is not self._audit or self._audit_fd is None:
+            raise ValueError('native audit attachment differs')
+        if capture.fileno() != self._audit_fd or self.selector.get_key(self._audit_fd).data != 'audit':
+            raise ValueError('native audit descriptor changed')
+        self.selector.unregister(self._audit_fd)
+        self._audit = self._audit_fd = None
+
+    def _transport_open(self) -> bool:
+        return any(key.data != 'audit' for key in self.selector.get_map().values())
 
     def send(self, value: dict[str, Any]) -> None:
         raw = (json.dumps(value) + '\n').encode()
@@ -344,6 +364,11 @@ class _ConfigExchange:
         if not self.selector.get_map():
             raise ValueError('native inspection ended before its response')
         for key, _ in self.selector.select(min(remaining, 0.1)):
+            if key.data == 'audit':
+                if self._audit is None or self._audit.fileno() != key.fd:
+                    raise ValueError('native audit descriptor changed')
+                self._audit.drain()
+                continue
             if key.data == 2:
                 continue
             chunk = os.read(key.fileobj.fileno(), 65536)
@@ -434,7 +459,7 @@ class _ConfigExchange:
     def finish(self) -> None:
         if self.process.stdin is not None:
             self.process.stdin.close()
-        while self.selector.get_map():
+        while self._transport_open():
             self.pump()
         while self.buffer.strip():
             raw, separator, tail = self.buffer.partition(b'\n')

@@ -58,7 +58,7 @@ class AuditStatus:
 
     @property
     def pristine(self) -> bool:
-        return self.enabled == self.pid == self.rate_limit == self.lost == self.backlog == 0
+        return self.failure != 2 and self.enabled == self.pid == self.rate_limit == self.lost == self.backlog == 0
 
 
 @dataclass(frozen=True)
@@ -162,7 +162,11 @@ class ControlReceipt:
     reply_bytes: int
 
 
-def _open_socket():
+EVENT_RCVBUF_REQUEST = 32 * 1024 * 1024
+EVENT_RCVBUF_EFFECTIVE = 2 * EVENT_RCVBUF_REQUEST
+
+
+def _open_socket(*, events: bool = False):
     from evals.native_cgroup import _require_root_linux
     _require_root_linux()
     stream = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW | socket.SOCK_CLOEXEC, 9)
@@ -170,7 +174,12 @@ def _open_socket():
         stream.bind((0, 0))
         stream.setsockopt(270, 10, 1)  # SOL_NETLINK / NETLINK_CAP_ACK; no extended ACK opt-in.
         stream.setsockopt(socket.SOL_SOCKET, 40, 1)  # SO_RXQ_OVFL; never suppress ENOBUFS.
-        stream.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
+        if events:
+            stream.setsockopt(socket.SOL_SOCKET, 33, EVENT_RCVBUF_REQUEST)  # SO_RCVBUFFORCE, this socket only.
+            if stream.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF) != EVENT_RCVBUF_EFFECTIVE:
+                raise ValueError('audit event receive buffer differs from its fixed bound')
+        else:
+            stream.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
         stream.setblocking(False)
         return stream
     except BaseException:
@@ -181,10 +190,12 @@ def _open_socket():
 class AuditChannel:
     """Root control socket; fresh channels share a non-repeating process sequence."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, events: bool = False) -> None:
+        if type(events) is not bool:
+            raise ValueError('audit listener mode must be boolean')
         self._owner = threading.get_ident()
         self._failed = self._busy = False
-        self._socket = _open_socket()
+        self._socket = _open_socket(events=events)
         self.receipts: tuple[ControlReceipt, ...] = ()
 
     def __enter__(self) -> AuditChannel:

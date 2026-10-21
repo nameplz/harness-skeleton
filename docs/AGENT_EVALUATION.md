@@ -655,6 +655,112 @@ settings and resources intact. Unproven final restoration retains the listener,
 decoder and supervisor lock, and permits explicit recovery by calling close again.
 No successful result can arise from that retry. Foreign configuration must be
 restored by its owner; capture never takes over it. The caller must retain this
-object and control process until recovery succeeds. Process-exit recovery and
-supervisor admission integration remain unfinished; this is not a durable lock
-across a control-process crash.
+object and control process until recovery succeeds. Process-exit recovery remains unfinished; this is not a durable lock across a
+control-process crash. Supervised admission is connected below.
+
+
+### Supervised audit admission and RPC lifecycle
+
+Every supervised `native_session` now starts an `AuditedSupervisor` capture
+before creating the guardian. It issues exactly one duplicate of the original
+held lock description, and `start_supervised(..., defer_release=True)` returns
+with the actor blocked before exec. The original lock remains with capture;
+supervisor owns only the duplicate. Consumed, closed, non-ready or changed-inode
+leases are rejected. Legacy `start_supervised` without a lease still starts
+immediately and is not an audited session.
+
+The exchange attaches the audit descriptor before release. Release is one-use,
+requires the exact capture/lease pair, verifies the active audit status/rule and
+revalidates the complete kernel/manager cgroup binding (namespace, invocation,
+actor/guardian generations, device and inode) before writing G. Admission channel
+and guardian waits also pump audit events. This is transport admission; BPF and
+semantic observation remain required before runtime readiness can become true.
+
+The selector has a dedicated audit token and bounded capture drain. Audit bytes
+do not consume stdout/stderr limits. Transport EOF waits exclude the persistent
+audit registration. Audit is detached before its descriptor is closed; changed
+or mismatched attachments fail. Shutdown stops/reaps the actor tree, drains RPC,
+detaches audit, restores the full audit baseline, releases supervisor resources,
+and closes the selector. Failure cleanup continues each independent operation;
+if actor termination succeeds only during supervisor cleanup, one final audit
+recovery attempt uses the original still-held lock. Earlier failures still
+reject the session result. Unproven restoration retains capture's lock/resources.
+
+Supervised failures preserve their exception types and grouped cleanup failures;
+startup OS errors preserve errno/type with a fixed diagnostic. Direct-backend
+inspection keeps its existing sanitized InspectionFailure API. Transport results
+remain internal and cannot set production audit/cleanup capability or grade a
+trial. Invocation-bound semantic receipts, continuous privileged-control change
+validation, process-exit recovery and BPF/FD/path/network/io_uring attribution are
+still separate unfinished gates.
+
+The shared-lock and descriptor lifetime contracts follow [flock(2)](https://man7.org/linux/man-pages/man2/flock.2.html)
+and [Python selectors](https://docs.python.org/3/library/selectors.html).
+
+
+Actual admission emits kernel AUDIT_BPF records during systemd preparation.
+The ledger also validates type1334's exact program-id and LOAD/UNLOAD fields,
+normalizes `prog-id` to numeric `prog_id`, and accepts one complete standalone
+BPF record after parser flush without inventing UID/PID/return status. BPF records
+in syscall groups still require complete syscall/PATH/EOE coverage. Unknown or
+incomplete forms fail. This is global kernel metadata, not actor attribution or
+proof that a harness BPF observer is installed. [Kernel BPF audit schema](https://raw.githubusercontent.com/torvalds/linux/v6.8/kernel/bpf/syscall.c).
+
+
+Systemd also emits userspace SERVICE_START/STOP (1130/1131) records through the
+kernel audit channel. The adapter requires PID/UID/login UID/session/unit and an
+explicit success/failed result, skips comm, and retains only numeric fields plus
+HMAC projections. These single records may complete without EOE after flush;
+they do not substitute for manager/cgroup or protected lifecycle evidence.
+[Systemd audit emission](https://raw.githubusercontent.com/systemd/systemd-stable/v255.4/src/core/manager.c).
+
+
+Dense same-second native startup can outrun auparse's aged callback delivery.
+The adapter therefore flushes parser callbacks after each128raw frames. The
+independent ledger still requires every actual kernel EOE, exact callback type
+counts and PATH indices; a flush cannot complete a missing EOE or record. Partial
+callbacks remain mergeable by the full timestamp/serial key. Existing4096pending,
+per-event, total-event and byte bounds stay unchanged. A4200event same-second
+regression verifies bounded progress, with missing-EOE rejection after batching.
+[Public feed/flush implementation](https://raw.githubusercontent.com/linux-audit/audit-userspace/v3.1.2/auparse/auparse.c).
+
+
+Cgroup termination polling also pumps audit before kernel observations. Supervisor
+recovery retains the first parser/overflow/interrupt error while later calls raw
+drain the failed stream, still waits for guardian status/ack and records the empty
+observation. All original failures remain errors after termination; lost and wait
+counters are never reset. This avoids filling the audit queue while waiting for
+actors blocked in kernel audit flow control. Counter changes in a failed run are
+preserved, and a fresh VM boot is a separate qualification window, never evidence
+that the earlier capture restored its complete baseline.
+
+
+The Linux event listener requests a private32MiB SO_RCVBUFFORCE buffer and verifies
+the doubled64MiB effective SO_RCVBUF value before registering the audit PID. The
+root observer needs CAP_NET_ADMIN for this per-socket option; no global rmem/sysctl
+or actor privileges change. Ordinary control channels retain their smaller buffer.
+This addresses the observed425984byte clamp of the previous1MiB request. ENOBUFS,
+SO_RXQ_OVFL, kernel loss/backlog and parser completeness checks remain strict;
+there is no overflow suppression or event/byte-bound increase. [Socket buffer semantics](https://man7.org/linux/man-pages/man7/socket.7.html).
+
+The listener bound includes kernel packet bookkeeping: the actual fixed-protocol
+startup delivered over53000small frames/11.6MB of payload and still overflowed a
+16MiB effective buffer. The fixed64MiB bound is per listener and remains below the
+128MiB application byte budget; kernel loss/overflow is still fatal. Buffer memory
+is not a reason to normalize or discard a failed capture's counters.
+
+
+Audit admission rejects a baseline with kernel failure mode2 (panic) before any
+SET/rule mutation; decoding that mode for inspection remains supported. The host
+must use a nonpanic audit failure policy. Existing failure mode is never changed.
+When setup rollback or cleanup leaves capture resources open, the top-level
+exception exposes `audit_recovery`, the owning `AuditedSupervisor`; the trusted
+caller must retain it and may call `.recover()` after resolving external state.
+This handle is in-memory only and must not be serialized to candidate artifacts,
+receipts or diagnostics. Recovery preserves failed-trial status and clears any
+capture result. Missing process handles do not skip capture recovery. Failed
+resource closes remain pending and retry only those resources, without repeating
+kernel teardown or converting the earlier failed capture into success.
+The owner is also retained when process cleanup has no successful result, even
+if capture has closed. An earlier failed/closed process remains a failure on
+recovery; this does not make it reusable or synthesize a lifecycle receipt.

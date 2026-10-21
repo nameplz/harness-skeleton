@@ -10,6 +10,7 @@ import socket
 import subprocess
 import tempfile
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
@@ -130,6 +131,22 @@ class NativeSupervisorTests(unittest.TestCase):
 
     def observation(self, **changes):
         return replace(CleanupObservation(self.binding, (self.binding.actor,), (), (), 0, 0, (), ()), **changes)
+
+    def test_audit_pump_failure_still_reaps_guardian_and_retains_empty_observation(self):
+        for error in (ValueError('audit failed'),OSError(105,'overflow'),KeyboardInterrupt()):
+            handle,peer=self.cleanup_handle();peer.settimeout(0.2);peer.sendall(self.exited())
+            capture=Mock();capture.drain.side_effect=[error,None,None,None,None,None,None,None]
+            handle._audit_lease=SimpleNamespace(_capture=capture)
+            def killed(*args,**kwargs):
+                kwargs['pump']();return self.observation()
+            with patch('evals.native_supervisor.kill_actor_cgroup',side_effect=killed), \
+                    patch('evals.native_supervisor._task',return_value=None), \
+                    patch('evals.native_supervisor._stop_unit'), \
+                    patch('evals.native_supervisor._unit_gone',return_value=True):
+                with self.assertRaises(type(error)):handle.finish_actor()
+            self.assertEqual(b'C',peer.recv(1))
+            self.assertTrue(handle.cleanup_observation.empty_verified)
+            self.assertGreaterEqual(capture.drain.call_count,2)
 
     def test_cleanup_orders_empty_proof_before_ack_and_reaps_guardian(self):
         handle, peer = self.cleanup_handle()

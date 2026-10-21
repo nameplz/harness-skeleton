@@ -381,20 +381,28 @@ def native_session(root: Path, *, binary: BinaryPin, model: str, writable: bool 
     deadline = time.monotonic() + timeout_seconds
     if binary_identity is not None and binary_guard(binary) != binary_identity:
         raise ValueError('native installation changed before process creation')
+    audit_session = None
     try:
         if supervised:
-            from evals.native_supervisor import start_supervised
-            process = start_supervised(command, cwd=root, environment=environment,
+            from evals.native_audit_session import AuditedSupervisor
+            audit_session = AuditedSupervisor()
+            process = audit_session.start(command, cwd=root, environment=environment,
                 admission_timeout_seconds=min(timeout_seconds, 10))
         else:
             process = subprocess.Popen(command, cwd=root, env=environment, shell=False, stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0, start_new_session=True)
     except OSError as error:
+        if supervised:
+            sanitized = OSError(error.errno, 'audited supervised startup failed')
+            raise audit_session.retain_recovery(sanitized) from None
         raise NativeSessionError(InspectionFailure('spawn', 'spawn_error', type(error).__name__, error.errno, None, None, None)) from None
     exchange, original = None, None
     try:
         exchange = _SessionExchange(process, deadline, max_output_bytes, command, environment, supervised=supervised)
         exchange.binary_identity = binary_identity
+        if audit_session is not None:
+            exchange.audit_capture = audit_session.capture
+            audit_session.release(exchange)
         from evals.runtime_remote import remote_tools
         tools = (tuple(remote_tools(invocation.fixture.remote_context)) if invocation is not None
                  and invocation.kind == 'worker' and invocation.fixture.remote_context is not None else ())
@@ -415,7 +423,15 @@ def native_session(root: Path, *, binary: BinaryPin, model: str, writable: bool 
     except BaseException as error:
         original = error
     finally:
-        cleanup = _cleanup_session(process, exchange, supervised)
+        cleanup = (audit_session.cleanup(exchange, failed=original is not None) if audit_session is not None
+                   else _cleanup_session(process, exchange, supervised))
+    if supervised:
+        failures = [error for error in (original, cleanup) if error is not None]
+        if len(failures) == 1:
+            raise audit_session.retain_recovery(failures[0])
+        if failures:
+            raise audit_session.retain_recovery(BaseExceptionGroup('audited native session failed', failures)) from None
+        return
     interrupted = [error for error in (original, cleanup) if error is not None and not isinstance(error, Exception)]
     if interrupted:
         failures = [error for error in (original, cleanup) if error is not None]

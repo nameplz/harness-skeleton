@@ -57,6 +57,19 @@ class NativeCgroupTests(unittest.TestCase):
                 patch('evals.native_cgroup._task', side_effect=lambda pid: (remaining or {}).get(pid)):
             yield binding
 
+    def test_cleanup_pump_failure_keeps_kill_verification_and_preserves_interrupt(self):
+        for failed in (False,True):
+            with TemporaryDirectory() as temp:
+                directory=Path(temp);observed=[]
+                def pump():
+                    observed.append((directory/'cgroup.kill').read_text())
+                    if failed:raise KeyboardInterrupt('audit pump interrupted')
+                with self._kernel(directory) as binding:
+                    if failed:
+                        with self.assertRaises(KeyboardInterrupt):kill_actor_cgroup(binding,pump=pump)
+                    else:self.assertTrue(kill_actor_cgroup(binding,pump=pump).empty_verified)
+                self.assertEqual(['1'],observed)
+
     def test_kill_verifies_empty_kernel_lists_and_reused_pids_are_unrelated(self):
         with TemporaryDirectory() as temp:
             directory = Path(temp)

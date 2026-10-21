@@ -11,6 +11,7 @@ import stat
 import subprocess
 import sys
 import time
+from typing import Callable
 from uuid import UUID
 
 LIMIT = 65536
@@ -294,32 +295,50 @@ def _matching_tasks(binding: CgroupBinding) -> tuple[Task, ...]:
 
 
 def kill_actor_cgroup(binding: CgroupBinding, *, tracked: tuple[ProcessIdentity, ...] = (),
-                      timeout_seconds: float = 5) -> CleanupObservation:
+                      timeout_seconds: float = 5, pump: Callable[[], None] | None = None) -> CleanupObservation:
     """Kill the bound actor leaf and verify kernel state, including zombie generations."""
     if type(timeout_seconds) not in (float, int) or not 0 < timeout_seconds <= 10 or \
-            not isinstance(tracked, tuple) or len(tracked) > MAX_TRACKED:
+            not isinstance(tracked, tuple) or len(tracked) > MAX_TRACKED or pump is not None and not callable(pump):
         raise ValueError('invalid cleanup limits')
     for identity in tracked:
         _identity(identity)
-    with _open_bound(binding) as fd:
-        before = _matching_tasks(binding)
-        known = tuple(sorted({binding.actor, *tracked, *(task.identity for task in before)}))
-        if len(known) > MAX_TRACKED:
-            raise ValueError('tracked process generations exceeded their bound')
-        kill_fd = os.open('cgroup.kill', os.O_WRONLY | os.O_NOFOLLOW, dir_fd=fd)
-        try:
-            if os.write(kill_fd, b'1') != 1:
-                raise OSError('cgroup kill write incomplete')
-        finally:
-            os.close(kill_fd)
-        deadline = time.monotonic() + timeout_seconds
-        while True:
-            populated, frozen = parse_events(_read_at(fd, 'cgroup.events'))
-            procs, threads = (parse_pids(_read_at(fd, name)) for name in ('cgroup.procs', 'cgroup.threads'))
-            members = tuple(sorted(task.identity for task in _matching_tasks(binding)))
-            remaining = tuple(identity for identity in known
-                              if (task := _task(identity.pid)) is not None and task.identity == identity)
-            result = CleanupObservation(binding, known, members, remaining, populated, frozen, procs, threads)
-            if result.empty_verified or time.monotonic() >= deadline:
-                return result
-            time.sleep(0.01)
+    pump_errors = []
+    try:
+        with _open_bound(binding) as fd:
+            before = _matching_tasks(binding)
+            known = tuple(sorted({binding.actor, *tracked, *(task.identity for task in before)}))
+            if len(known) > MAX_TRACKED:
+                raise ValueError('tracked process generations exceeded their bound')
+            kill_fd = os.open('cgroup.kill', os.O_WRONLY | os.O_NOFOLLOW, dir_fd=fd)
+            try:
+                if os.write(kill_fd, b'1') != 1:
+                    raise OSError('cgroup kill write incomplete')
+            finally:
+                os.close(kill_fd)
+            deadline = time.monotonic() + timeout_seconds
+            while True:
+                if pump is not None:
+                    try:
+                        pump()
+                    except BaseException as error:
+                        if not pump_errors:
+                            pump_errors.append(error)
+                populated, frozen = parse_events(_read_at(fd, 'cgroup.events'))
+                procs, threads = (parse_pids(_read_at(fd, name)) for name in ('cgroup.procs', 'cgroup.threads'))
+                members = tuple(sorted(task.identity for task in _matching_tasks(binding)))
+                remaining = tuple(identity for identity in known
+                                  if (task := _task(identity.pid)) is not None and task.identity == identity)
+                result = CleanupObservation(binding, known, members, remaining, populated, frozen, procs, threads)
+                if result.empty_verified or time.monotonic() >= deadline:
+                    break
+                time.sleep(0.01)
+    except BaseException as error:
+        if pump_errors:
+            raise BaseExceptionGroup('audit pump and actor cleanup failed', [*pump_errors, error]) from None
+        raise
+    if pump_errors:
+        if not result.empty_verified:
+            raise BaseExceptionGroup('audit pump and actor cleanup failed',
+                [*pump_errors, ValueError('actor cleanup remains unproven')])
+        raise pump_errors[0]
+    return result

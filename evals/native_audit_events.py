@@ -18,10 +18,11 @@ from typing import Callable
 from evals.native_audit_wire import KernelMessage, MAX_EVENT
 
 TYPE_NAMES = {
+    1130: b'SERVICE_START', 1131: b'SERVICE_STOP',
     1300: b'SYSCALL', 1302: b'PATH', 1305: b'CONFIG_CHANGE',
     1306: b'SOCKADDR', 1307: b'CWD', 1309: b'EXECVE', 1317: b'FD_PAIR',
     1320: b'EOE', 1321: b'BPRM_FCAPS', 1322: b'CAPSET', 1323: b'MMAP',
-    1326: b'SECCOMP', 1327: b'PROCTITLE', 1337: b'OPENAT2',
+    1326: b'SECCOMP', 1327: b'PROCTITLE', 1334: b'BPF', 1337: b'OPENAT2',
 }
 HEADER = re.compile(rb'audit\((0|[1-9][0-9]{0,18})\.([0-9]{3}):(0|[1-9][0-9]{0,19})\):')
 CONTROL_SETTINGS = frozenset(('audit_enabled', 'audit_failure', 'audit_pid', 'audit_rate_limit',
@@ -43,6 +44,22 @@ def validate_control(values: dict[str, int | bool | bytes]) -> None:
             raise ValueError('audit status-change fields are incomplete')
     else:
         raise ValueError('unsupported audit control operation')
+
+
+def validate_service(values: dict[str, int | bool | bytes]) -> None:
+    required = {'pid', 'uid', 'auid', 'ses', 'unit', 'success'}
+    if not required <= values.keys() or type(values['success']) is not bool \
+            or type(values['unit']) is not bytes or not values['unit'] or any(
+                type(values[name]) is not int or not 0 <= values[name] < 2**32
+                for name in ('uid', 'auid', 'ses')) or type(values['pid']) is not int \
+            or not 1 <= values['pid'] < 2**31:
+        raise ValueError('audit service fields are incomplete or unsupported')
+
+
+def validate_bpf(values: dict[str, int | bool | bytes]) -> None:
+    if set(values) != {'prog_id', 'op'} or type(values['prog_id']) is not int \
+            or not 0 <= values['prog_id'] < 2**32 or values['op'] not in (b'LOAD', b'UNLOAD'):
+        raise ValueError('audit BPF fields are incomplete or unsupported')
 
 
 @dataclass(frozen=True, order=True)
@@ -205,6 +222,10 @@ class EventLedger:
                 names.add(name)
             if record.kind == 1305:
                 validate_control(dict(record.values))
+            elif record.kind == 1334:
+                validate_bpf(dict(record.values))
+            elif record.kind in (1130, 1131):
+                validate_service(dict(record.values))
         counts = Counter(record.kind for record in records)
         expected = Counter(kind for kind in current.types if kind != 1320)
         if len(records) > self._limits.records or counts[1300] > 1 or \
@@ -218,7 +239,7 @@ class EventLedger:
         expected = Counter(kind for kind in current.types if kind != 1320)
         if Counter(record.kind for record in current.records) != expected:
             return
-        standalone = expected == Counter({1305: 1})
+        standalone = expected in tuple(Counter({kind: 1}) for kind in (1130, 1131, 1305, 1334))
         if not current.eoe and not (final and standalone):
             return
         records = current.records

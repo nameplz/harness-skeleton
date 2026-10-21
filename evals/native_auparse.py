@@ -14,27 +14,31 @@ from typing import Callable
 
 from evals.native_audit_events import (
     AuditKey, AuditLimits, AuditRecord, AuditSegment, AuditSummary, EventLedger,
-    CONTROL_SETTINGS, validate_control,
+    CONTROL_SETTINGS, validate_control, validate_bpf, validate_service,
 )
 from evals.native_audit_wire import KernelMessage
 from evals.native_audit_library import load_library
 
 LIBRARY = Path('/usr/lib/aarch64-linux-gnu/libauparse.so.0.0.0')
 LIBRARY_SHA256 = '77e749f8cd1843b65e47ce398f3fe3daead49f5af8df4f157cddd24d57d162c5'
+FLUSH_FRAMES = 128
 CALLBACK = C.CFUNCTYPE(None, C.c_void_p, C.c_int, C.c_void_p)
 SYSCALL_REQUIRED = frozenset(('arch', 'syscall', 'a0', 'a1', 'a2', 'a3',
     'items', 'pid', 'ppid', 'uid', 'gid', 'euid', 'suid', 'fsuid', 'egid', 'sgid', 'fsgid'))
 DECIMAL = frozenset(('syscall', 'items', 'pid', 'ppid', 'uid', 'gid', 'euid', 'suid',
     'fsuid', 'egid', 'sgid', 'fsgid', 'auid', 'ses', 'item', 'inode', 'ouid', 'ogid',
-    'fd0', 'fd1', 'list', 'res', 'code', 'sig', 'old')) | CONTROL_SETTINGS
+    'fd0', 'fd1', 'list', 'res', 'code', 'sig', 'old', 'prog-id')) | CONTROL_SETTINGS
 HEX = frozenset(('arch', 'a0', 'a1', 'a2', 'a3'))
 FIELDS = {
+    1130: frozenset(('pid', 'uid', 'auid', 'ses', 'unit', 'res', 'exe')),
+    1131: frozenset(('pid', 'uid', 'auid', 'ses', 'unit', 'res', 'exe')),
     1300: SYSCALL_REQUIRED | {'success', 'exit', 'auid', 'ses', 'exe', 'key'},
     1302: frozenset(('item', 'name', 'nametype', 'inode', 'dev', 'mode', 'ouid', 'ogid', 'rdev')),
     1305: frozenset(('uid', 'auid', 'ses', 'op', 'key', 'list', 'res', 'old')) | CONTROL_SETTINGS,
     1306: frozenset(('saddr',)), 1307: frozenset(('cwd',)),
     1317: frozenset(('fd0', 'fd1')), 1323: frozenset(('fd', 'flags')),
     1326: frozenset(('arch', 'syscall', 'pid', 'uid', 'gid', 'sig', 'code')),
+    1334: frozenset(('prog-id', 'op')),
     1337: frozenset(('oflag', 'mode', 'resolve')),
 }
 INTERPRETED = frozenset(('exe', 'key', 'name', 'cwd'))
@@ -88,6 +92,7 @@ class AuditDecoder:
     def __init__(self, *, key: bytes, on_event: Callable[[AuditSegment], None] | None = None,
                  limits: AuditLimits = AuditLimits()) -> None:
         self._ledger = EventLedger(key=key, on_event=on_event, limits=limits)
+        self._unflushed_frames = 0
         self._owner = threading.get_ident()
         self._failed = self._busy = self._finished = False
         self._interrupt: BaseException | None = None
@@ -181,10 +186,18 @@ class AuditDecoder:
             raw_name = self._api['get_field_name'](au)
             name = raw_name.decode('ascii') if type(raw_name) is bytes and len(raw_name) <= 32 else ''
             if name in wanted:
-                if name in values:
+                projected_name = ('success' if kind in (1130, 1131) and name == 'res'
+                                  else 'prog_id' if name == 'prog-id' else name)
+                if projected_name in values:
                     raise ValueError('duplicate audit field')
                 api = 'interpret_field' if name in INTERPRETED else 'get_field_str'
-                values[name] = _value(name, self._api[api](au))
+                raw_value = self._api[api](au)
+                if kind in (1130, 1131) and name == 'res':
+                    if raw_value not in (b'success', b'failed'):
+                        raise ValueError('invalid audit service result')
+                    values['success'] = raw_value == b'success'
+                else:
+                    values[projected_name] = _value(name, raw_value)
             step = self._api['next_field'](au)
         else:
             raise ValueError('audit field count exceeded its bound')
@@ -196,6 +209,10 @@ class AuditDecoder:
             raise ValueError('audit syscall return fields are incomplete')
         if kind == 1305:
             validate_control(values)
+        elif kind == 1334:
+            validate_bpf(values)
+        elif kind in (1130, 1131):
+            validate_service(values)
         # Kernel task exit may omit both; never invent an outcome for that event.
         return tuple(values.items())
 
@@ -205,6 +222,11 @@ class AuditDecoder:
             line = self._ledger.record(message)
             if line is not None:
                 self._call('feed', line, len(line))
+            self._unflushed_frames += 1
+            if self._unflushed_frames >= FLUSH_FRAMES:
+                # Flush callbacks, not ledger completeness: raw EOE/PATH remain mandatory.
+                self._call('flush_feed')
+                self._unflushed_frames = 0
         except BaseException:
             self._failed = True
             raise

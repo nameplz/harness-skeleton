@@ -91,6 +91,57 @@ class NativeAuparseTests(unittest.TestCase):
         decoder.consume(message(1300)); decoder.consume(message(1320))
         return decoder
 
+    def test_bpf_hyphenated_program_id_is_numeric_and_both_fields_are_required(self):
+        for fields in ([(b'prog-id',b'23'),(b'op',b'LOAD')],[],[(b'prog-id',b'23')],
+                       [(b'prog-id',b'23'),(b'op',b'unknown')]):
+            fake=FakeAuparse();fake.records=[(1334,fields)]
+            with self.decoder(fake) as decoder:
+                decoder.consume(message(1334))
+                if len(fields)==2 and fields[-1][1]==b'LOAD':
+                    self.assertEqual(1,decoder.finish().events)
+                    self.assertIn(b'prog-id',fake.value_reads)
+                else:
+                    with self.assertRaises(ValueError):decoder.finish()
+
+    def test_service_nested_fields_keep_outcome_and_skip_comm(self):
+        for result in (b'success',b'failed',b'unknown'):
+            fake=FakeAuparse();fake.records=[(1130,[(b'pid',b'1'),(b'uid',b'0'),
+                (b'auid',b'4294967295'),(b'ses',b'4294967295'),(b'unit',b'owned'),
+                (b'comm',b'private-canary'),(b'res',result)])]
+            with self.decoder(fake) as decoder:
+                decoder.consume(message(1130))
+                if result==b'unknown':
+                    with self.assertRaises(ValueError):decoder.finish()
+                else:self.assertEqual(1,decoder.finish().events)
+            self.assertNotIn(b'comm',fake.value_reads)
+
+    def test_dense_same_second_stream_flushes_callbacks_before_pending_bound(self):
+        from dataclasses import replace
+        import re
+        class Buffered(FakeAuparse):
+            def __init__(self):super().__init__();self.queue=[]
+            def feed(self,au,data,size):
+                serial=int(re.search(rb':([0-9]+)\):',data).group(1))
+                self.queue.append(replace(KEY,serial=serial))
+                return 0
+            def flush(self,au):
+                for key in self.queue:
+                    self.key=key;self.records=[(1300,syscall_fields())]
+                    self.callback(au,self.callback_kind,None)
+                self.queue=[];self.records=[]
+                return 0
+        fake=Buffered()
+        with self.decoder(fake) as decoder:
+            for serial in range(1,4201):
+                key=replace(KEY,serial=serial)
+                decoder.consume(message(1300,key));decoder.consume(message(1320,key))
+            result=decoder.finish()
+        self.assertEqual((4200,8400),(result.events,result.frames))
+        fake=Buffered()
+        with self.decoder(fake) as decoder:
+            for serial in range(1,131):decoder.consume(message(1300,replace(KEY,serial=serial)))
+            with self.assertRaises(ValueError):decoder.finish()  # Flush cannot invent missing EOE.
+
     def test_pinned_feed_abi_and_raw_escape_mode(self):
         fake = FakeAuparse()
         with self.syscall(fake) as decoder:

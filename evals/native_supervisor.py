@@ -153,11 +153,41 @@ class SupervisorProcess:
     def pid(self) -> int:
         return self.binding.actor.pid
 
+    def release(self, *, audit=None) -> None:
+        if self._closed or self._release_attempted:
+            raise ValueError('supervised actor release was already attempted')
+        self._release_attempted = True
+        if self._audit_lease is not None:
+            if audit is not self._audit_lease._capture:
+                raise ValueError('supervised actor lacks its audit admission')
+            audit._validate_release(self)
+        elif audit is not None:
+            raise ValueError('supervised actor has no audit lock lease')
+        self._rpc.sendall(b'G')
+        self._released = True
+
+    def _pump_audit(self) -> None:
+        lease = getattr(self, '_audit_lease', None)
+        if lease is None:
+            return
+        try:
+            lease._capture.drain()
+        except BaseException as error:
+            if not getattr(self, '_recovering_audit', False):
+                raise
+            if self._audit_pump_error is None:
+                self._audit_pump_error = error
+
     def _receive(self, timeout: float) -> bytes | None:
         deadline = time.monotonic() + timeout
         while b'\n' not in self._buffer:
-            if not select.select([self._status], [], [], max(0, deadline - time.monotonic()))[0]:
-                return None
+            lease = getattr(self, '_audit_lease', None)
+            self._pump_audit()
+            remaining = max(0, deadline - time.monotonic())
+            if not select.select([self._status], [], [], min(remaining, 0.01) if lease else remaining)[0]:
+                if time.monotonic() >= deadline:
+                    return None
+                continue
             chunk = self._status.recv(STATUS_LIMIT + 1)
             if not chunk:
                 raise ValueError('guardian status channel closed')
@@ -192,8 +222,12 @@ class SupervisorProcess:
             return self.lifecycle_result
         failures = []
         result = None
+        self._recovering_audit = True
+        self._audit_pump_error = None
         try:
-            observation = kill_actor_cgroup(self.binding, timeout_seconds=5)
+            lease = getattr(self, '_audit_lease', None)
+            observation = kill_actor_cgroup(self.binding, timeout_seconds=5,
+                pump=self._pump_audit if lease is not None else None)
             self.cleanup_observation = observation
             if not observation.empty_verified:
                 raise ValueError('supervised actor cgroup remains populated')
@@ -210,9 +244,14 @@ class SupervisorProcess:
         finally:
             for operation in (lambda: _stop_unit(self.binding.unit), self._reap_proxy):
                 try:
+                    self._pump_audit()
                     operation()
+                    self._pump_audit()
                 except BaseException as error:
                     failures.append(error)
+        self._recovering_audit = False
+        if self._audit_pump_error is not None:
+            failures.append(self._audit_pump_error)
         gone = False
         try:
             gone = _unit_gone(self.binding.unit)
@@ -352,9 +391,17 @@ def _spawn_proxy(unit: str, cwd: Path, directory: Path, python: Path):
         stderr=subprocess.DEVNULL, env=MANAGER_ENV, cwd='/', shell=False)
 
 
-def _accept_channels(listeners, resources, deadline: float):
+def _accept_channels(listeners, resources, deadline: float, *, pump=None):
     connections, peers = {}, []
     for name, listener in listeners.items():
+        if pump is not None:
+            while True:
+                pump()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError('supervisor channel admission timed out')
+                if select.select([listener], [], [], min(remaining, 0.01))[0]:
+                    break
         listener.settimeout(max(0.001, deadline - time.monotonic()))
         stream, _ = listener.accept()
         resources.append(stream)
@@ -374,10 +421,15 @@ def _admit_actor(unit: str, actor: int, guardian: int) -> CgroupBinding:
 
 
 def start_supervised(command: tuple[str, ...], *, cwd: Path, environment: dict[str, str],
-                     admission_timeout_seconds: float = 10) -> SupervisorProcess:
+                     admission_timeout_seconds: float = 10, lock_lease=None,
+                     defer_release: bool = False) -> SupervisorProcess:
     """Admit a root-owned executable; caller enforces run deadline and calls cleanup."""
     validate_launch(command, cwd, environment, admission_timeout_seconds)
     _require_root_linux()
+    from evals.native_actor_lock import ActorLockLease
+    if type(defer_release) is not bool or lock_lease is not None and not isinstance(lock_lease, ActorLockLease) \
+            or defer_release != (lock_lease is not None):
+        raise ValueError('deferred supervisor requires an audit lock lease')
     if _trusted_file(Path(command[0])) != Path(command[0]):
         raise ValueError('supervised executable must use its canonical path')
     source = _trusted_file(Path(__file__).with_name('native_guardian.py'))
@@ -385,11 +437,13 @@ def start_supervised(command: tuple[str, ...], *, cwd: Path, environment: dict[s
     python = _trusted_file(Path('/usr/bin/python3'))
     if cwd.is_symlink() or cwd.resolve(strict=True) != cwd or not cwd.is_dir():
         raise ValueError('supervised cwd must be a canonical directory')
-    lock = _lock()
+    lock = _lock() if lock_lease is None else lock_lease.take()
     directory = None
     handle = SupervisorProcess()
     handle.returncode, handle.cleanup_observation, handle.cleanup_result = None, None, None
     handle.lifecycle_result = None
+    handle._released = handle._release_attempted = False
+    handle._audit_lease = lock_lease
     handle._buffer, handle._closed = b'', False
     resources = [lock]
     proxy = None
@@ -408,7 +462,10 @@ def start_supervised(command: tuple[str, ...], *, cwd: Path, environment: dict[s
             listeners[name] = listener
         proxy = _spawn_proxy(unit, cwd, directory, python)
         handle._proxy = proxy
-        connections, peers = _accept_channels(listeners, resources, deadline)
+        if lock_lease is None:
+            connections, peers = _accept_channels(listeners, resources, deadline)
+        else:
+            connections, peers = _accept_channels(listeners, resources, deadline, pump=lock_lease._capture.drain)
         handle._status = connections['status']
         ready = handle._receive(max(0, deadline - time.monotonic()))
         actor, guardian = parse_status(ready, kind='ready')
@@ -426,7 +483,9 @@ def start_supervised(command: tuple[str, ...], *, cwd: Path, environment: dict[s
         handle.helper_sha256 = hashlib.sha256(helper_bytes).hexdigest()
         handle.command_sha256 = hashlib.sha256(json.dumps(command).encode()).hexdigest()
         handle.environment_sha256 = hashlib.sha256(json.dumps(environment, sort_keys=True).encode()).hexdigest()
-        rpc.sendall(b'G')
+        handle._rpc = rpc
+        if not defer_release:
+            handle.release()
         return handle
     except BaseException as original:
         failures = [original]
