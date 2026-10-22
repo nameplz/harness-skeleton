@@ -1,0 +1,80 @@
+{
+  "task_id": "T20",
+  "task_name": "Refactor authorization/message routing behind a shared policy seam",
+  "batch": "full",
+  "pair_id": "F05",
+  "full_plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "grader_mode": "Host applies only the final candidate patch to a separate pinned snapshot, rebuilds/installs offline, runs the full suite, checks the shared policy seam, and runs denied-route call-spy tests.",
+  "budget_seconds": 1800,
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "condition_order": "v1_then_v2",
+  "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+  "runtime_profile": "harness-eval applied to tool children only; TUI parent runs on host",
+  "task_sha256": "99aef2d0f37e2bff63fa7124c2c435b841ff52bc10a8267ef86179f138636c99",
+  "prompt_sha256": "f0a46ae9133b138afdefe78188e8cf5fe9e6b130fc84691a62b6010d52747803",
+  "host_grader_sha256": "b29391fc3e352cab1281b9863683bfd2dfea367cd52ca5503f52e09a880464a0",
+  "hashes": {
+    "task_sha256": "99aef2d0f37e2bff63fa7124c2c435b841ff52bc10a8267ef86179f138636c99",
+    "prompt_sha256": "f0a46ae9133b138afdefe78188e8cf5fe9e6b130fc84691a62b6010d52747803",
+    "host_grader_sha256": "b29391fc3e352cab1281b9863683bfd2dfea367cd52ca5503f52e09a880464a0",
+    "semantic_sha256": "6ca77b90af5619348ad736024176dd30567a5070b367a471dde63fe0f8201753",
+    "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae"
+  },
+  "allowed_files": [
+    "src/orca_discord_bridge/bot.py",
+    "tests/test_harness_compatibility.py"
+  ],
+  "criteria": [
+    {
+      "id": "shared_policy",
+      "check": "BridgeBot.on_message reuses the existing _auth_error guild/user policy before content processing and Codex routing; application commands and the modal retain that same seam."
+    },
+    {
+      "id": "denied_messages",
+      "check": "DMs, wrong guild/user/channel, bot/webhook/self messages, and empty input produce no forward_to_codex or Orca calls."
+    },
+    {
+      "id": "denied_commands",
+      "check": "Unauthorized slash commands and the “Send to Codex” context action make no Orca calls."
+    },
+    {
+      "id": "authorized_behavior",
+      "check": "Existing authorized message and command behavior remains unchanged."
+    },
+    {
+      "id": "call_spy_tests",
+      "check": "Add test_denied_events_do_not_call_orca with local AsyncMock spies for all listed routing methods."
+    },
+    {
+      "id": "build_and_suite",
+      "check": "Fresh wheel builds, installs offline, and the full project test suite passes."
+    },
+    {
+      "id": "scope",
+      "check": "Changes are limited exactly to bot.py and test_harness_compatibility.py."
+    },
+    {
+      "id": "external_effects",
+      "check": "No live services, network, publication, push, or merge."
+    }
+  ],
+  "baseline_calibration": {
+    "baseline_project_suite": "58 passed in 5.22s",
+    "baseline_wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+    "build": "pass",
+    "offline_install": "pass",
+    "host_grade_status": "expected fail on shared_policy and call_spy_tests",
+    "semantic_checks": {
+      "shared_policy": "fail; baseline BridgeBot.on_message performs inline guild/user checks instead of calling _auth_error",
+      "call_spy_tests": "fail; dedicated denied-route call-spy test is absent"
+    },
+    "baseline_grade_sha256": "ae5bf1260ad6c08991a936a4f81d150597fbae84d34f89d3941f4b2c3f4078f0"
+  },
+  "baseline_grade_sha256": "ae5bf1260ad6c08991a936a4f81d150597fbae84d34f89d3941f4b2c3f4078f0",
+  "network": "offline pip and local synthetic Discord/Orca objects only"
+}

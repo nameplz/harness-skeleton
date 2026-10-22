@@ -1,0 +1,9 @@
+{
+  "pair_id": "F05",
+  "status": "frozen; awaiting v1",
+  "condition_order": "v1_then_v2",
+  "baseline_host_grade": "expected fail on shared_policy and call_spy_tests; baseline build/install and 58 tests pass",
+  "model_runs_completed": 0,
+  "v1_host_grade": "pending",
+  "v2_host_grade": "pending"
+}
