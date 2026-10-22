@@ -1,0 +1,9 @@
+{
+  "pair_id": "F21",
+  "status": "frozen; condition runs not started",
+  "condition_order": "v2_then_v1",
+  "model_runs_completed": 0,
+  "pair_decision": "pending",
+  "v1_host_grade": "pending",
+  "v2_host_grade": "pending"
+}

@@ -1,0 +1,28 @@
+{
+  "pair_id": "F21",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "frozen_inputs": {
+    "task.md": "230ad26237c0dce4476c2c484092f167c0ac1ec0fca60005b984d6239f76bc9a",
+    "task-prompt.txt": "7f145aeff1c2f7effade29c31aca8124f17dc17edfe44d24a77cf435aaa32788",
+    "acceptance.json": "a779964d4bb25c3db79075a9eb0fbaef944bf80c3edd37ba757c0efabfb9ee1c",
+    "host-grader.py": "6e15aea8ee1672878a4376738870da89a8d70644d9c286d3600ecd6d0306146c",
+    "semantic.py": "e739df4c5b995b9342f77ec71248f9c191bc2e06bb31eacc730dd2e466d067fa",
+    "baseline_test_harness_compatibility.py": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+    "baseline-grade.json": "8e624e3ee41a1505f8abaea267fb3e0eda2721f9e29bd4c911c5872906e7a9ce",
+    "positive-control-grade.json": "90f0c052eca19c2c384f50c190cd8790da587cffc7c84d22a4bfa9e97b9f9e78",
+    "positive-control.patch": "f212dafd1f85be52374b782f080f604f81b05d47d175182375f0df477006eabd"
+  },
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+  "positive_control_patch_sha256": "f212dafd1f85be52374b782f080f604f81b05d47d175182375f0df477006eabd",
+  "baseline_calibration": "Pinned 58-test suite passes; all three SQLite migration/privacy semantic checks fail on the JSON baseline.",
+  "positive_control_calibration": "Prior T13 v2 patch passes F21 checker, exact two-file scope, 70-test full suite, and all migration/privacy checks.",
+  "order": "v2_then_v1",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "budget_seconds_per_condition": 1800,
+  "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+  "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+  "network": "offline pip and local synthetic state files only"
+}
