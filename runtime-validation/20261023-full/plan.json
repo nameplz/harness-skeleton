@@ -1,0 +1,316 @@
+{
+  "batch": "full-evaluation-20261023",
+  "status": "planned; no full-batch model runs started",
+  "randomization_seed": 20261023,
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "budget_seconds_per_condition": 1800,
+  "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+  "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+  "pip_policy": "Set PIP_NO_INDEX=1 and PIP_DISABLE_PIP_VERSION_CHECK=1 on every pip command.",
+  "effects": "No live services, network, workflow dispatch, publish, push, or merge.",
+  "allocation": {
+    "standard_task_types": 20,
+    "predeclared_variants": 16,
+    "matched_pairs": 36,
+    "model_runs": 72,
+    "condition_orders": {
+      "v1_then_v2": 18,
+      "v2_then_v1": 18
+    }
+  },
+  "task_instances": [
+    {
+      "task_id": "T14",
+      "instance": "cancellation_vs_timeout",
+      "pair_id": "F01",
+      "condition_order": "v1_then_v2",
+      "record_path": "runtime-validation/20261023-full/F01",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T11",
+      "instance": "standard",
+      "pair_id": "F02",
+      "condition_order": "v2_then_v1",
+      "record_path": "runtime-validation/20261023-full/F02",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T06",
+      "instance": "standard",
+      "pair_id": "F03",
+      "condition_order": "v1_then_v2",
+      "record_path": "runtime-validation/20261023-full/F03",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T04",
+      "instance": "standard",
+      "pair_id": "F04",
+      "condition_order": "v2_then_v1",
+      "record_path": "runtime-validation/20261023-full/F04",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T20",
+      "instance": "standard",
+      "pair_id": "F05",
+      "condition_order": "v1_then_v2",
+      "record_path": "runtime-validation/20261023-full/F05",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T18",
+      "instance": "missing_python_bootstrap",
+      "pair_id": "F06",
+      "condition_order": "v2_then_v1",
+      "record_path": "runtime-validation/20261023-full/F06",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T18",
+      "instance": "standard",
+      "pair_id": "F07",
+      "condition_order": "v1_then_v2",
+      "record_path": "runtime-validation/20261023-full/F07",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T15",
+      "instance": "standard",
+      "pair_id": "F08",
+      "condition_order": "v1_then_v2",
+      "record_path": "runtime-validation/20261023-full/F08",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T05",
+      "instance": "standard",
+      "pair_id": "F09",
+      "condition_order": "v2_then_v1",
+      "record_path": "runtime-validation/20261023-full/F09",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T10",
+      "instance": "stale_doctor_state",
+      "pair_id": "F10",
+      "condition_order": "v1_then_v2",
+      "record_path": "runtime-validation/20261023-full/F10",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T07",
+      "instance": "unresolved_reply_embed",
+      "pair_id": "F11",
+      "condition_order": "v1_then_v2",
+      "record_path": "runtime-validation/20261023-full/F11",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T03",
+      "instance": "stale_layout",
+      "pair_id": "F12",
+      "condition_order": "v1_then_v2",
+      "record_path": "runtime-validation/20261023-full/F12",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T08",
+      "instance": "standard",
+      "pair_id": "F13",
+      "condition_order": "v1_then_v2",
+      "record_path": "runtime-validation/20261023-full/F13",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T09",
+      "instance": "status_vs_compact",
+      "pair_id": "F14",
+      "condition_order": "v1_then_v2",
+      "record_path": "runtime-validation/20261023-full/F14",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T11",
+      "instance": "legacy_channel_fallback",
+      "pair_id": "F15",
+      "condition_order": "v2_then_v1",
+      "record_path": "runtime-validation/20261023-full/F15",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T08",
+      "instance": "webhook_injection",
+      "pair_id": "F16",
+      "condition_order": "v1_then_v2",
+      "record_path": "runtime-validation/20261023-full/F16",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T02",
+      "instance": "standard",
+      "pair_id": "F17",
+      "condition_order": "v2_then_v1",
+      "record_path": "runtime-validation/20261023-full/F17",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T15",
+      "instance": "alternate_json_wrappers",
+      "pair_id": "F18",
+      "condition_order": "v1_then_v2",
+      "record_path": "runtime-validation/20261023-full/F18",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T01",
+      "instance": "alternate_invalid_json",
+      "pair_id": "F19",
+      "condition_order": "v1_then_v2",
+      "record_path": "runtime-validation/20261023-full/F19",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T09",
+      "instance": "standard",
+      "pair_id": "F20",
+      "condition_order": "v2_then_v1",
+      "record_path": "runtime-validation/20261023-full/F20",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T13",
+      "instance": "legacy_sqlite_migration",
+      "pair_id": "F21",
+      "condition_order": "v2_then_v1",
+      "record_path": "runtime-validation/20261023-full/F21",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T05",
+      "instance": "tilde_local_link_output",
+      "pair_id": "F22",
+      "condition_order": "v2_then_v1",
+      "record_path": "runtime-validation/20261023-full/F22",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T12",
+      "instance": "role_denial",
+      "pair_id": "F23",
+      "condition_order": "v2_then_v1",
+      "record_path": "runtime-validation/20261023-full/F23",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T10",
+      "instance": "standard",
+      "pair_id": "F24",
+      "condition_order": "v2_then_v1",
+      "record_path": "runtime-validation/20261023-full/F24",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T07",
+      "instance": "standard",
+      "pair_id": "F25",
+      "condition_order": "v2_then_v1",
+      "record_path": "runtime-validation/20261023-full/F25",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T17",
+      "instance": "pr_push_ci_paths",
+      "pair_id": "F26",
+      "condition_order": "v1_then_v2",
+      "record_path": "runtime-validation/20261023-full/F26",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T03",
+      "instance": "standard",
+      "pair_id": "F27",
+      "condition_order": "v2_then_v1",
+      "record_path": "runtime-validation/20261023-full/F27",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T14",
+      "instance": "standard",
+      "pair_id": "F28",
+      "condition_order": "v2_then_v1",
+      "record_path": "runtime-validation/20261023-full/F28",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T01",
+      "instance": "standard",
+      "pair_id": "F29",
+      "condition_order": "v2_then_v1",
+      "record_path": "runtime-validation/20261023-full/F29",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T12",
+      "instance": "standard",
+      "pair_id": "F30",
+      "condition_order": "v2_then_v1",
+      "record_path": "runtime-validation/20261023-full/F30",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T19",
+      "instance": "standard",
+      "pair_id": "F31",
+      "condition_order": "v2_then_v1",
+      "record_path": "runtime-validation/20261023-full/F31",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T16",
+      "instance": "standard",
+      "pair_id": "F32",
+      "condition_order": "v1_then_v2",
+      "record_path": "runtime-validation/20261023-full/F32",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T04",
+      "instance": "second_pane_routing",
+      "pair_id": "F33",
+      "condition_order": "v1_then_v2",
+      "record_path": "runtime-validation/20261023-full/F33",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T13",
+      "instance": "standard",
+      "pair_id": "F34",
+      "condition_order": "v1_then_v2",
+      "record_path": "runtime-validation/20261023-full/F34",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T20",
+      "instance": "dm_unauthorized_policy",
+      "pair_id": "F35",
+      "condition_order": "v1_then_v2",
+      "record_path": "runtime-validation/20261023-full/F35",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    },
+    {
+      "task_id": "T17",
+      "instance": "standard",
+      "pair_id": "F36",
+      "condition_order": "v2_then_v1",
+      "record_path": "runtime-validation/20261023-full/F36",
+      "freeze_gate": "Create and hash task.md, task-prompt.txt, acceptance.json, and host grader before either condition; no post-run grader changes."
+    }
+  ],
+  "completion_policy": "Retain pass, failure, timeout, protocol deviation, and unknown outcomes. Do not substitute synthetic checks or pilot runs. Host grading is outside each condition budget."
+}
