@@ -1,0 +1,26 @@
+{
+  "pair_id": "F09",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "frozen_inputs": {
+    "task.md": "856633456f8d56aba0dcf222059e98f4dc2aa5c9471d211be1fb3b73d1be86d2",
+    "task-prompt.txt": "ba738e02f4e77ecad5e49cca8c2b6e8a50363a794d88df137e440b8ccfaa3722",
+    "acceptance.json": "2d0853049659e574634158bef9c01db7cd5c46393c74e9ecbf0980fd2b4c2dd3",
+    "host-grader.py": "df1f916cf935c244f8cde35b03f946c2d2493e13e8ef98f062b8f7a4a4b49aa7",
+    "semantic.py": "35a302cf1e5b3992af2429c4d28a72c67dc6895719807c14c3272cca20ee4d82",
+    "baseline-grade.json": "38c86fb2ec8e342b6191bd0d8d36211e943332cad83a3b83b1b0ac9bb6ba7320",
+    "positive-control-grade.json": "f8084f7b0063c2d98a9e4dfe84fc0b0c684479b921a26c08517f23dd6ffc59e6"
+  },
+  "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "positive_control_patch_sha256": "2ab486b0cf6b3544644ac8e1a68872f28f9acb4a7058bcff1aa9ce87c9d5647f",
+  "baseline_calibration": "58 tests pass; baseline does not append omission marker for a diff at EOF; required test nodes absent",
+  "positive_control_calibration": "scope, offline wheel/install, 60-test suite, both named tests, and semantic checks all pass",
+  "order": "v2_then_v1",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "budget_seconds_per_condition": 1800,
+  "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+  "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+  "network": "offline pip and local fixtures only"
+}
