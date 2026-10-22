@@ -10,6 +10,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections.abc import Mapping, Sequence
@@ -112,6 +113,7 @@ def run_bounded_command(
     env: Mapping[str, str] | None = None,
     binary_output: bool = False,
     run_as_actor: bool = False,
+    input_bytes: bytes | None = None,
 ) -> CommandResult:
     """Capture at most max_output_bytes and stop a process group on timeout."""
 
@@ -119,6 +121,8 @@ def run_bounded_command(
         raise ValueError("command limits must be positive")
     if type(run_as_actor) is not bool or run_as_actor and (sys.platform != 'linux' or os.geteuid() != 0):
         raise ValueError('actor mode requires an explicit boolean and the Linux root operator')
+    if input_bytes is not None and not isinstance(input_bytes, bytes):
+        raise ValueError('command stdin must be bytes')
     deadline = time.monotonic() + timeout_seconds
     if argv and not _is_git_executable(argv[0]) and any(_is_git_executable(arg) for arg in argv[1:]):
         return CommandResult(125, "Wrapped Git inspection is unsupported; invoke Git directly", started=False)
@@ -150,9 +154,13 @@ def run_bounded_command(
             argv = [*argv[:index + 1], "-c", "core.fsmonitor=false", argv[index + 1],
                     *options, "--ignore-submodules=dirty", *args[boundary:]]
     environment = _command_environment(env)
+    input_stream = tempfile.TemporaryFile() if input_bytes is not None else None
+    if input_stream is not None:
+        input_stream.write(input_bytes)
+        input_stream.seek(0)
     kwargs: dict[str, object] = {
         "cwd": cwd,
-        "stdin": subprocess.DEVNULL,
+        "stdin": input_stream if input_stream is not None else subprocess.DEVNULL,
         "stdout": subprocess.PIPE,
         "stderr": subprocess.STDOUT,
         "shell": False,
@@ -165,7 +173,11 @@ def run_bounded_command(
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
 
     command = _actor_command(argv, environment) if run_as_actor else list(argv)
-    process = subprocess.Popen(command, **kwargs)
+    try:
+        process = subprocess.Popen(command, **kwargs)
+    finally:
+        if input_stream is not None:
+            input_stream.close()
     if process.stdout is None:
         raise OSError("check command output could not be captured")
 

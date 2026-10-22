@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 from evals.native_runtime import runtime_readable_roots, sandbox_options, tool_environment
 from evals.native_config import BinaryPin
-from scripts.check_eval_sandbox import _trusted_codex, check, validate_observation
+from scripts.check_eval_sandbox import _hook_probe, _trusted_codex, check, validate_observation
 from scripts.command_runner import CommandResult
 
 
@@ -79,6 +79,7 @@ class EvalSandboxTests(unittest.TestCase):
         with patch("scripts.check_eval_sandbox.PROJECT_ROOT", root), \
                 patch.object(Path, "home", return_value=home), \
                 patch("scripts.check_eval_sandbox._host_loopback_bind_works", return_value=True), \
+                patch("scripts.check_eval_sandbox._hook_probe", return_value=self.observation()), \
                 patch("scripts.check_eval_sandbox._trusted_codex", return_value=(pin, node, (1,), (2,) if node else None)), \
                 patch("scripts.check_eval_sandbox._verify_cli_identity", new=identity_verifier), \
                 patch("scripts.check_eval_sandbox.run_bounded_command", side_effect=runner):
@@ -197,6 +198,69 @@ class EvalSandboxTests(unittest.TestCase):
         self.assertNotIn("host-auth-secret", json.dumps(report))
         self.assertFalse(any("host-config-secret" in value or "host-auth-secret" in value for value in command))
 
+    def test_check_records_the_hook_child_boundary_separately(self):
+        with TemporaryDirectory() as temporary:
+            report = self.run_check(Path(temporary), lambda argv, **kwargs: self._probe_result(argv, kwargs))
+
+        self.assertTrue(report["passed"])
+        self.assertEqual(self.observation(), report["hook_probe"]["observed"])
+        self.assertEqual("sandboxed_launcher_probe_only", report["scope"]["hooks"])
+
+    def test_hook_probe_runs_candidate_code_through_the_isolated_runner(self):
+        observation = self.observation()
+        result = CommandResult(0, json.dumps(observation))
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidate = root / "candidate"
+            candidate.mkdir()
+            (candidate / ".harness").mkdir()
+            sentinel = root / "sentinel"
+            sentinel.write_text("synthetic-only\n", encoding="utf-8")
+            outside = root / "outside"
+            host_config = root / "host-config"
+            host_auth = root / "host-auth"
+            host_config.write_text("synthetic config\n", encoding="utf-8")
+            host_auth.write_text("synthetic auth\n", encoding="utf-8")
+            def execute_probe(workspace, hook_path, *, scratch_root, event_input, timeout_seconds):
+                (workspace / "probe-write.txt").write_text("ok\n", encoding="utf-8")
+                return result
+
+            with patch("scripts.isolated_hook_runner.run_hook", side_effect=execute_probe) as run:
+                observed = _hook_probe(candidate, sentinel, outside, host_config, host_auth,
+                                       config_openable=True, auth_openable=True, scratch_root=root)
+
+            hook_source = (candidate / ".codex/hooks/sandbox_probe.py").read_text(encoding="utf-8")
+
+        self.assertEqual(observation, observed)
+        run.assert_called_once_with(
+            candidate,
+            ".codex/hooks/sandbox_probe.py",
+            scratch_root=root,
+            event_input=b'{"hook_event_name":"SessionStart"}',
+            timeout_seconds=30,
+        )
+        self.assertIn(str(sentinel), hook_source)
+        self.assertIn(str(host_auth), hook_source)
+        self.assertIn("json.load(sys.stdin)", hook_source)
+        self.assertIn("hook_event_name", hook_source)
+        self.assertNotIn("host-auth-secret", hook_source)
+
+    def test_hook_probe_fails_when_any_protected_path_is_accessible(self):
+        observation = self.observation()
+        observation["host_auth_open"] = "allowed"
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidate = root / "candidate"
+            candidate.mkdir()
+            (candidate / ".harness").mkdir()
+            sentinel = root / "sentinel"
+            sentinel.touch()
+            with patch("scripts.isolated_hook_runner.run_hook",
+                       return_value=CommandResult(0, json.dumps(observation))), \
+                    self.assertRaisesRegex(ValueError, "hook probe"):
+                _hook_probe(candidate, sentinel, root / "outside", root / "config", root / "auth",
+                            config_openable=True, auth_openable=True, scratch_root=root)
+
     def test_check_fails_closed_on_incomplete_or_invalid_probe_results(self):
         failures = (
             CommandResult(1, "failed"),
@@ -208,6 +272,19 @@ class EvalSandboxTests(unittest.TestCase):
             with self.subTest(result=result), TemporaryDirectory() as temporary:
                 with self.assertRaises(ValueError):
                     self.run_check(Path(temporary), lambda *_args, **_kwargs: result)
+
+    def test_trusted_codex_resolves_from_the_runner_allowlisted_path(self):
+        with TemporaryDirectory() as temporary:
+            codex = Path(temporary) / "codex"
+            codex.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            codex.chmod(0o755)
+            environment = {"PATH": temporary}
+            with patch("scripts.check_eval_sandbox.shutil.which", return_value=str(codex)) as which, \
+                    patch("scripts.check_eval_sandbox._pin_executable",
+                          return_value=(BinaryPin(codex, "a" * 64), b"", (1,))):
+                _trusted_codex(environment)
+
+        which.assert_called_once_with("codex", path=temporary)
 
 
 if __name__ == "__main__":
