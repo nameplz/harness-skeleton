@@ -1,0 +1,9 @@
+Processing ./.
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: orca-discord-bridge
+  Building wheel for orca-discord-bridge (pyproject.toml): started
+  Building wheel for orca-discord-bridge (pyproject.toml): finished with status 'done'
+  Created wheel for orca-discord-bridge: filename=orca_discord_bridge-0.2.0-py3-none-any.whl size=19190 sha256=5acba3395d1d9209bedefbaec171d463ddfafefe5ff33d94c922c2b0d09e166f
+  Stored in directory: /private/tmp/hook-delivery-confirm-n61qez_h/host-grader/tmp/pip-ephem-wheel-cache-as555hx_/wheels/a1/33/1a/fcbbfac078db93bcdec32a6a8765aa5a3a31e953a7ec27ecd3
+Successfully built orca-discord-bridge

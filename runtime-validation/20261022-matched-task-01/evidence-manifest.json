@@ -1,0 +1,100 @@
+{
+  "schema": 1,
+  "date": "2026-10-22",
+  "raw_unified_diff_sha256": {
+    "v1.diff": "0c206ac56e16b82602d355e8dd15734cd96ee56afb7ab3e169f1dcfd7f3cda75",
+    "v2.diff": "fd038a6809d1c112166997fc179774ff55ff60af30e0b23d7a73cab742864658"
+  },
+  "files": [
+    {
+      "path": "host-grader-results.json",
+      "bytes": 1215,
+      "sha256": "3b5c6a625ed2601abbf4905916595816018a2999c962fea23fbdce3b0b0e6506"
+    },
+    {
+      "path": "sandbox-preflight.json",
+      "bytes": 1842,
+      "sha256": "74f001e4ff8facf14f7e9d84b7a40125734727f002a1f1d166817ffb7b41fbea"
+    },
+    {
+      "path": "sandbox-runtime-results.json",
+      "bytes": 987,
+      "sha256": "aa3239f8168f8ed3c1c247768a16138ed68e7bb44d8bc22b94a76041bcd713ab"
+    },
+    {
+      "path": "summary.md",
+      "bytes": 3376,
+      "sha256": "667142e90920f8bce38a598336a8d2e0e341937d2cd88a7d5f1bbd392cd3e20e"
+    },
+    {
+      "path": "task-prompt.txt",
+      "bytes": 266,
+      "sha256": "f2a47cf34308ff8fa181cbdcf45d234e62edd2e4ca80b0a3bf8e9cc6a61c07f3"
+    },
+    {
+      "path": "v1-build.log",
+      "bytes": 739,
+      "sha256": "fc98b7c3745b4ac29fa987b3d92ab13690c5a22f2d308cfc09275687f73c01bc"
+    },
+    {
+      "path": "v1-install.log",
+      "bytes": 304,
+      "sha256": "00f583f8211b639d6f172b54cc2fc152fa44f944ce542a28a1e70060f030cad9"
+    },
+    {
+      "path": "v1-phase-output.json",
+      "bytes": 2842,
+      "sha256": "4c94b73f9c450489dc09f020ad20882268c3a99be90287a37029fbecd1903225"
+    },
+    {
+      "path": "v1-semantic.log",
+      "bytes": 32,
+      "sha256": "3a49efa1e339709408d919157d55c2753a7878e64caca2ecf03d7651f0d76e7e"
+    },
+    {
+      "path": "v1-setup.json",
+      "bytes": 1876,
+      "sha256": "c0982d6343befde542ee153a5432acd2ca6d72b2e4ad0cf5df1ba2c37f497a44"
+    },
+    {
+      "path": "v1-suite.log",
+      "bytes": 99,
+      "sha256": "3178f6c48ca688ca99af9c512c68cf82d5377386513085358303db19e84eec6b"
+    },
+    {
+      "path": "v1.patch.gz",
+      "bytes": 816,
+      "sha256": "f2c093cc52ac936575bdf3248532386a5cc0170a666f2667155e9361e6f116c7"
+    },
+    {
+      "path": "v2-build.log",
+      "bytes": 739,
+      "sha256": "a1a21dddaf41c4f85b2607cd4a60f26dc5151d87496d755ae6b9f63502bba2d7"
+    },
+    {
+      "path": "v2-install.log",
+      "bytes": 508,
+      "sha256": "7eeeb7872474aff2ff284f8bfb8ffb9fe62199a25f4293d59d6490260355fc58"
+    },
+    {
+      "path": "v2-semantic.log",
+      "bytes": 32,
+      "sha256": "3a49efa1e339709408d919157d55c2753a7878e64caca2ecf03d7651f0d76e7e"
+    },
+    {
+      "path": "v2-setup.json",
+      "bytes": 1876,
+      "sha256": "95a841b270e05f1bf1e2207163c2c13276635a4b2a595636f4820c10f775bfef"
+    },
+    {
+      "path": "v2-suite.log",
+      "bytes": 99,
+      "sha256": "690c804e3fd31f80a55872083b68d9f96f7c3d5bd13c7c3c68e5b6ad165c3872"
+    },
+    {
+      "path": "v2.patch.gz",
+      "bytes": 866,
+      "sha256": "590515e2b8af69a3800b026a1be1b16eaa9e840f1e6ac3ab32b889b9d041b5f2"
+    }
+  ]
+}

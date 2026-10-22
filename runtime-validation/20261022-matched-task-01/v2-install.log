@@ -1,0 +1,8 @@
+Looking in links: /private/tmp/hook-delivery-confirm-n61qez_h/host-grader/wheels-v2
+Processing /private/tmp/hook-delivery-confirm-n61qez_h/host-grader/wheels-v2/orca_discord_bridge-0.2.0-py3-none-any.whl
+Installing collected packages: orca-discord-bridge
+  Attempting uninstall: orca-discord-bridge
+    Found existing installation: orca-discord-bridge 0.2.0
+    Uninstalling orca-discord-bridge-0.2.0:
+      Successfully uninstalled orca-discord-bridge-0.2.0
+Successfully installed orca-discord-bridge-0.2.0

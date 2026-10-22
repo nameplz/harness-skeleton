@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "python": "3.13.12",
+  "codex_cli": "0.163.0",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "conditions": {
+    "v1": {
+      "fresh_wheel_sha256": "5acba3395d1d9209bedefbaec171d463ddfafefe5ff33d94c922c2b0d09e166f",
+      "fresh_install": "passed",
+      "project_suite": "63 passed in 5.42s",
+      "semantic_acceptance": "passed"
+    },
+    "v2": {
+      "fresh_wheel_sha256": "5acba3395d1d9209bedefbaec171d463ddfafefe5ff33d94c922c2b0d09e166f",
+      "fresh_install": "passed",
+      "project_suite": "63 passed in 3.44s",
+      "semantic_acceptance": "passed"
+    }
+  },
+  "semantic_acceptance_cases": [
+    "missing and malformed JSON fallback",
+    "null, array, string, number, and boolean roots load as empty state",
+    "valid object state loads and round-trips",
+    "connect/disconnect persist canonical state"
+  ],
+  "network_or_live_services": "not used",
+  "logs": [
+    "v1-build.log",
+    "v1-install.log",
+    "v1-suite.log",
+    "v1-semantic.log",
+    "v2-build.log",
+    "v2-install.log",
+    "v2-suite.log",
+    "v2-semantic.log"
+  ]
+}
