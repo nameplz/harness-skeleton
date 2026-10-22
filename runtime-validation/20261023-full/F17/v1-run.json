@@ -1,0 +1,63 @@
+{
+  "candidate_branch": "eval-base",
+  "candidate_commits": 0,
+  "candidate_git": "feature branch creation was denied at .git/refs/heads; no local commit, checkout remained eval-base",
+  "codex_cli": "0.163.0",
+  "condition": "v1",
+  "duration": "6m 49s from phase timestamps; TUI total about 7m 02s",
+  "duration_ms": 409000,
+  "finished_at": "2026-10-23T07:20:40+0900",
+  "first_pass_outcomes": [
+    "Code reviewer passed on first patch; test reviewer requested same-directory temp and schema/disconnect assertions. The implementation worker added them; both final code/test reviews passed.",
+    "The main-session suite reported two temporary-directory cleanup warnings, while the independent host suite passed without warnings."
+  ],
+  "host_grade": {
+    "fresh_wheel_build": "pass",
+    "full_project_suite": "60 passed in 5.04s",
+    "offline_install": "pass",
+    "scope": true,
+    "semantic": "all pass",
+    "semantic_checks": 7,
+    "status": "pass",
+    "wheel_sha256": "5f85e6d6feea7627ac8a32eba68e913a3346c1eedbc3c2233d202727e425f2de"
+  },
+  "main_prompt_count": 1,
+  "metrics_limits": {
+    "model_turn_counts": "not captured",
+    "shell_command_counts": "not captured",
+    "token_usage": "unknown"
+  },
+  "model": "gpt-6-luna",
+  "process_observations": {
+    "hosted_ci": "not run",
+    "network_or_live_services": "none observed",
+    "pip_environment_deviation": [],
+    "remote_writes": false,
+    "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM"
+  },
+  "product_diff": {
+    "deletions": 9,
+    "files": [
+      "src/orca_discord_bridge/state.py",
+      "tests/test_harness_compatibility.py"
+    ],
+    "insertions": 74,
+    "patch_sha256": "d1836f6fccf7096cc47666b866618ff791ffbf1db2270f73e3ea35b4d3c4842b"
+  },
+  "prompt_request_ids": [
+    "8e53b1d6-b474-47a7-a47e-3f730bc7c0fd"
+  ],
+  "reasoning_effort": "max",
+  "reviews": {
+    "code_review": "passed on final patch with no findings",
+    "security_review": "passed; noted pre-existing low-severity _load() failure on valid non-object JSON",
+    "test_review": "passed after adding same-directory temp, exact JSON schema, and full disconnect-state assertions; first review found assertion gaps"
+  },
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "started_at": "2026-10-23T07:13:51+0900",
+  "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "terminal_handle": "term_58394a53-3a00-4e40-8642-0ed92c596323",
+  "terminal_process_incarnation": "80441517-c79f-4ce8-9e67-2a9c17441a07",
+  "tui_candidate_suite": "60 passed; final run reported two temporary-directory cleanup warnings (Errno 66 Directory not empty)",
+  "tui_completion": "task phase completed; exact offline commands and all three required reviews recorded as passed"
+}

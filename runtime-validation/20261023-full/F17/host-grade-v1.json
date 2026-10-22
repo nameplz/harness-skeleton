@@ -1,0 +1,26 @@
+{
+  "changed_files": [
+    "src/orca_discord_bridge/state.py",
+    "tests/test_harness_compatibility.py"
+  ],
+  "pinned_snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+  "wheel": {
+    "exit_code": 0,
+    "output": "Processing ./source\n  Preparing metadata (pyproject.toml): started\n  Preparing metadata (pyproject.toml): finished with status 'done'\nBuilding wheels for collected packages: orca-discord-bridge\n  Building wheel for orca-discord-bridge (pyproject.toml): started\n  Building wheel for orca-discord-bridge (pyproject.toml): finished with status 'done'\n  Created wheel for orca-discord-bridge: filename=orca_discord_bridge-0.2.0-py3-none-any.whl size=19326 sha256=5f85e6d6feea7627ac8a32eba68e913a3346c1eedbc3c2233d202727e425f2de\n  Stored in directory: /private/tmp/hook-delivery-confirm-n61qez_h/F17-host-grade-v1/tmp/pip-ephem-wheel-cache-ev8al2bc/wheels/c8/6c/c2/fbb5d9d63733db4ddc59d11a83cf7f99fa2887b9a59764fa42\nSuccessfully built orca-discord-bridge\n"
+  },
+  "wheel_sha256": "5f85e6d6feea7627ac8a32eba68e913a3346c1eedbc3c2233d202727e425f2de",
+  "install": {
+    "exit_code": 0,
+    "output": "Looking in links: /private/tmp/hook-delivery-confirm-n61qez_h/F17-host-grade-v1/wheelhouse\nProcessing ./wheelhouse/orca_discord_bridge-0.2.0-py3-none-any.whl\nInstalling collected packages: orca-discord-bridge\nSuccessfully installed orca-discord-bridge-0.2.0\n"
+  },
+  "suite": {
+    "exit_code": 0,
+    "output": "............................................................             [100%]\n60 passed in 5.04s\n"
+  },
+  "semantic": {
+    "exit_code": 0,
+    "output": "{\"atomic_same_directory_replace\": \"pass\", \"existing_file_mode_restricted\": \"pass\", \"failed_replace_preserves_old_and_cleans_temp\": \"pass\", \"mode_varied_umask\": \"pass\", \"parent_creation\": \"pass\", \"reload_round_trip\": \"pass\", \"success_temp_cleanup\": \"pass\"}\n"
+  },
+  "status": "pass"
+}

@@ -1,0 +1,6 @@
+{
+  "diagnostic": "post-run semantic interception aligned to candidate imported atomic_replace alias; frozen grader unchanged",
+  "exit_code": 0,
+  "output": "{\"atomic_same_directory_replace\": \"pass\", \"existing_file_mode_restricted\": \"pass\", \"failed_replace_preserves_old_and_cleans_temp\": \"pass\", \"mode_varied_umask\": \"pass\", \"parent_creation\": \"pass\", \"reload_round_trip\": \"pass\", \"success_temp_cleanup\": \"pass\"}\n",
+  "alignment": "same semantic assertions; intercepted the function alias actually used by the candidate"
+}

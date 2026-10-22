@@ -1,0 +1,64 @@
+{
+  "candidate_branch": "eval-base",
+  "candidate_commits": 0,
+  "candidate_git": "sandbox denied .git/index.lock; no local commit, checkout remained eval-base",
+  "codex_cli": "0.163.0",
+  "condition": "v2",
+  "duration": "4m 03s (TUI-reported)",
+  "duration_ms": 243000,
+  "first_pass_outcomes": [
+    "A first restrictive-umask test run could not clean its temporary parent directory; test setup was corrected and final suite passed.",
+    "The raw host grader patched os.replace but the candidate imported it as atomic_replace. The independent alias-aware diagnostic observed the replacement call and verified both atomicity and failed-replacement cleanup."
+  ],
+  "host_grade": {
+    "fresh_wheel_build": "pass",
+    "full_project_suite": "59 passed in 5.25s",
+    "offline_install": "pass",
+    "raw_semantic_failures": [
+      "atomic_same_directory_replace",
+      "failed_replace_preserves_old_and_cleans_temp"
+    ],
+    "scope": true,
+    "semantic_other_checks": "mode, parent creation, successful cleanup, and reload passed",
+    "status": "fail",
+    "supplemental_semantic": "all seven checks pass when the diagnostic intercepts the imported atomic_replace alias actually used by the candidate; frozen grader unchanged",
+    "wheel_sha256": "5f7180c5016b2c3d6925d6dde36d870c403b9eea233aee716944d36acec46697"
+  },
+  "main_prompt_count": 1,
+  "metrics_limits": {
+    "model_turn_counts": "not captured",
+    "shell_command_counts": "not captured",
+    "token_usage": "unknown"
+  },
+  "model": "gpt-6-luna",
+  "process_observations": {
+    "hosted_ci": "not run",
+    "network_or_live_services": "none observed",
+    "pip_environment_deviation": [],
+    "remote_writes": false,
+    "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM"
+  },
+  "product_diff": {
+    "deletions": 10,
+    "files": [
+      "src/orca_discord_bridge/state.py",
+      "tests/test_harness_compatibility.py"
+    ],
+    "insertions": 74,
+    "patch_sha256": "dfef551c7c11a3f077123e7976e3997aa78ed869884e8927e79793715811eed6"
+  },
+  "prompt_request_ids": [
+    "66842844-22b1-4160-be99-855ae452f55e"
+  ],
+  "reasoning_effort": "max",
+  "reviews": {
+    "final_read_only_review": "passed with no findings",
+    "separate_security_review": "not separately captured"
+  },
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "terminal_handle": "term_58394a53-3a00-4e40-8642-0ed92c596323",
+  "terminal_process_incarnation": "80441517-c79f-4ce8-9e67-2a9c17441a07",
+  "tui_candidate_suite": "59 passed after restricting umask tests and correcting the test setup",
+  "tui_completion": "offline acceptance, diff check, and the final read-only review passed; Harness risk/quick scripts unavailable because scripts/harness.py is absent"
+}

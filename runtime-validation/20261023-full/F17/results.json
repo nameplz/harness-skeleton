@@ -1,0 +1,63 @@
+{
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "batch": "full",
+  "condition_order": "v2_then_v1",
+  "conditions": {
+    "v1": {
+      "host_grade": "host-grade-v1.json",
+      "patch": "v1.patch",
+      "patch_sha256": "d1836f6fccf7096cc47666b866618ff791ffbf1db2270f73e3ea35b4d3c4842b",
+      "raw_status": "pass",
+      "reviews": {
+        "code_review": "passed on final patch with no findings",
+        "security_review": "passed; noted pre-existing low-severity _load() failure on valid non-object JSON",
+        "test_review": "passed after adding same-directory temp, exact JSON schema, and full disconnect-state assertions; first review found assertion gaps"
+      },
+      "run_record": "v1-run.json",
+      "semantic_checks": 7,
+      "setup_record": "v1-setup.json",
+      "suite": "60 passed in 5.04s"
+    },
+    "v2": {
+      "host_grade": "host-grade-v2.json",
+      "patch": "v2.patch",
+      "patch_sha256": "dfef551c7c11a3f077123e7976e3997aa78ed869884e8927e79793715811eed6",
+      "raw_semantic_failures": [
+        "atomic_same_directory_replace",
+        "failed_replace_preserves_old_and_cleans_temp"
+      ],
+      "raw_status": "fail",
+      "reviews": {
+        "final_read_only_review": "passed with no findings",
+        "separate_security_review": "not separately captured"
+      },
+      "run_record": "v2-run.json",
+      "setup_record": "v2-setup.json",
+      "suite": "59 passed in 5.25s",
+      "supplemental_semantic": "all seven checks pass with alias-aware interception"
+    }
+  },
+  "limitations": [
+    "The frozen host grader instruments os.replace directly and does not observe a direct imported alias; the v2 raw grade therefore reports two semantic failures, while an alias-aware supplemental diagnostic passes. The raw grade remains authoritative.",
+    "The TUI parent was a host process; harness-eval applied to tool children only.",
+    "The candidate lacks scripts/harness.py, so its Harness risk/quick wrapper was unavailable.",
+    "Candidate local branch/commit creation was sandbox-blocked for both conditions; no candidate commits.",
+    "v1 final TUI pytest reported two temporary-directory cleanup warnings; its independent host suite passed cleanly.",
+    "v1 security review noted a pre-existing low-severity _load() issue for valid non-object JSON.",
+    "No hosted CI, network, live service, publication, push, or merge occurred; token and exact model-turn counts are unknown."
+  ],
+  "metrics_limits": {
+    "model_turns": "not captured",
+    "token_usage": "unknown",
+    "v1_duration": "6m 49s phase timestamps",
+    "v2_duration": "4m 03s TUI-reported"
+  },
+  "pair_decision": "fail under the frozen raw host grader because v2 imported os.replace as atomic_replace, so the grader's os.replace monkeypatch did not observe replacement or injected failure. A post-run diagnostic intercepting the actual alias passed all seven checks, but it does not replace or alter the raw failure.",
+  "pair_id": "F17",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "prompt_sha256": "8c4dc323db478d3bf45f84913ff6914eadcddf3d0b4254b900f50c2578040e39",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "task_id": "T02",
+  "task_instance": "standard",
+  "task_sha256": "efe31df318587054ef48cb3af7a2bdb0bafcec131151538b3e76583ddaf1e979"
+}
