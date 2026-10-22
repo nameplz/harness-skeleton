@@ -1,0 +1,9 @@
+{
+  "pair_id": "F04",
+  "status": "frozen; awaiting v2",
+  "condition_order": "v2_then_v1",
+  "baseline_host_grade": "expected fail on regression_coverage; baseline wheel build/install and 58 tests pass",
+  "model_runs_completed": 0,
+  "v2_host_grade": "pending",
+  "v1_host_grade": "pending"
+}

@@ -1,0 +1,86 @@
+{
+  "task_id": "T04",
+  "task_name": "Prevent assistant output leaking across worktrees or panes",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "grader_mode": "Host applies only the final test patch to a separate pinned snapshot, rebuilds and installs the wheel offline, runs the full project suite, then checks exact worktree/pane selection and output isolation against synthetic structured snapshots.",
+  "budget_seconds": 1800,
+  "task_sha256": "13b83f758f13fde0de08600ecb66cffc3927581b7d4b941fec0e2a947f3cd39f",
+  "prompt_sha256": "f0a46ae9133b138afdefe78188e8cf5fe9e6b130fc84691a62b6010d52747803",
+  "host_grader_sha256": "f0d444fb7e7c4e4c311385110d46d4b102ea90e98e76f1c258788322ccea985d",
+  "criteria": [
+    {
+      "id": "exact_identity",
+      "check": "Only the exact worktree identity and tabId:leafId pane may supply assistant messages, even when decoys appear first."
+    },
+    {
+      "id": "no_foreign_output",
+      "check": "Foreign-worktree and wrong-pane assistant messages never appear in the user-facing response."
+    },
+    {
+      "id": "no_tool_details",
+      "check": "Prompt, tool name, and tool input fields never appear in the user-facing response."
+    },
+    {
+      "id": "no_screen_scrape",
+      "check": "Ordinary structured completion does not read the terminal screen."
+    },
+    {
+      "id": "regression_tests",
+      "check": "Extend test_find_exact_agent_by_worktree_and_pane_key and the compatibility fake/structured-completion test."
+    },
+    {
+      "id": "build_and_suite",
+      "check": "A fresh wheel built from the candidate installs offline and the full project suite passes."
+    },
+    {
+      "id": "scope",
+      "check": "Changes are limited to tests/test_orca_parsing.py and tests/test_harness_compatibility.py."
+    },
+    {
+      "id": "external_effects",
+      "check": "No live services, successful network access, publication, push, or merge."
+    }
+  ],
+  "baseline_calibration": {
+    "baseline_project_suite": "58 passed in 7.89s",
+    "baseline_wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+    "build": "pass",
+    "offline_install": "pass",
+    "host_grade_status": "expected fail on regression_coverage only",
+    "semantic_checks": {
+      "parser_decoys": "fail; baseline parser fixture has one worktree and no same-pane foreign-worktree decoy",
+      "structured_output_coverage": "not reached after parser-fixture failure"
+    },
+    "positive_control_replays": {
+      "pilot_v1_patch_sha256": "b23386d3a76efe3e99199d5c24d35419a1e6b307d9cfd43aa2368c8c8334f23e",
+      "pilot_v1_status": "pass; 58 tests and all semantic coverage checks",
+      "pilot_v2_patch_sha256": "0d17eae5d09348eb63b68f78e5d5df15ac49e2d6b09d71adc11af4e49e14fd88",
+      "pilot_v2_status": "pass; 58 tests and all semantic coverage checks"
+    },
+    "note": "The pinned implementation already passes functional isolation behavior; baseline failure indicates the requested exact-decoy regression fixtures and exact-output assertions are absent."
+  },
+  "batch": "full",
+  "pair_id": "F04",
+  "full_plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "condition_order": "v2_then_v1",
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "runtime_profile": "harness-eval applied to tool children only; TUI parent runs on host",
+  "hashes": {
+    "task_sha256": "13b83f758f13fde0de08600ecb66cffc3927581b7d4b941fec0e2a947f3cd39f",
+    "prompt_sha256": "f0a46ae9133b138afdefe78188e8cf5fe9e6b130fc84691a62b6010d52747803",
+    "host_grader_sha256": "f0d444fb7e7c4e4c311385110d46d4b102ea90e98e76f1c258788322ccea985d",
+    "semantic_sha256": "58d4e95e6500ce7b8652a9083b58152923b4e8952422b197c2ce5825d6a978d8",
+    "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae"
+  },
+  "allowed_files": [
+    "tests/test_harness_compatibility.py",
+    "tests/test_orca_parsing.py"
+  ],
+  "baseline_grade_sha256": "f8829cc262798fb4cc86999932823e60959e0d3784bec81aa820d407cfe2547c",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+  "network": "offline pip and local synthetic fake Orca only"
+}
