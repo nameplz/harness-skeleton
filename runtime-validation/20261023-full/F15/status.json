@@ -1,8 +1,9 @@
 {
-  "pair_id": "F15",
-  "status": "frozen; awaiting v2",
   "condition_order": "v2_then_v1",
-  "model_runs_completed": 0,
-  "baseline_host_grade": "expected fail on additional channels and invalid list rejection",
-  "positive_control": "pass"
+  "model_runs_completed": 2,
+  "pair_decision": "pass",
+  "pair_id": "F15",
+  "status": "complete; both frozen host grades pass",
+  "v1_host_grade": "pass",
+  "v2_host_grade": "pass"
 }

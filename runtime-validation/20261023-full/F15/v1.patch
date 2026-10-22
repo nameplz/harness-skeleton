@@ -1,0 +1,193 @@
+diff --git a/src/orca_discord_bridge/bot.py b/src/orca_discord_bridge/bot.py
+index 18a9e6f..df74baa 100644
+--- a/src/orca_discord_bridge/bot.py
++++ b/src/orca_discord_bridge/bot.py
+@@ -253,7 +253,10 @@ class BridgeBot(commands.Bot):
+             return
+         if message.author.id != self.settings.user_id:
+             return
+-        if message.channel.id != self.settings.codex_channel_id:
++        if (
++            message.channel.id != self.settings.codex_channel_id
++            and message.channel.id not in self.settings.additional_codex_channel_ids
++        ):
+             return
+ 
+         text = codex_input(message.content)
+diff --git a/src/orca_discord_bridge/config.py b/src/orca_discord_bridge/config.py
+index 46011d2..b84adac 100644
+--- a/src/orca_discord_bridge/config.py
++++ b/src/orca_discord_bridge/config.py
+@@ -21,6 +21,31 @@ def _required_int(name: str) -> int:
+         raise ConfigError(f"{name} must be an integer Discord ID") from exc
+ 
+ 
++def _additional_channel_ids(legacy_channel_id: int) -> tuple[int, ...]:
++    raw = os.getenv("CODEX_CHANNEL_IDS", "")
++    if not raw.strip():
++        return ()
++
++    channel_ids: list[int] = []
++    seen = {legacy_channel_id}
++    for entry in raw.split(","):
++        value = entry.strip()
++        if not value:
++            raise ConfigError(
++                "CODEX_CHANNEL_IDS must be a comma-separated list of integer Discord IDs"
++            )
++        try:
++            channel_id = int(value)
++        except ValueError as exc:
++            raise ConfigError(
++                "CODEX_CHANNEL_IDS must be a comma-separated list of integer Discord IDs"
++            ) from exc
++        if channel_id not in seen:
++            channel_ids.append(channel_id)
++            seen.add(channel_id)
++    return tuple(channel_ids)
++
++
+ @dataclass(frozen=True, slots=True)
+ class Settings:
+     discord_token: str
+@@ -30,6 +55,7 @@ class Settings:
+     orca_binary: str
+     wait_timeout_ms: int
+     state_path: Path
++    additional_codex_channel_ids: tuple[int, ...] = ()
+ 
+     @classmethod
+     def load(cls) -> "Settings":
+@@ -47,12 +73,17 @@ class Settings:
+         if timeout_ms < 1_000:
+             raise ConfigError("ORCA_WAIT_TIMEOUT_MS must be at least 1000")
+ 
++        guild_id = _required_int("DISCORD_GUILD_ID")
++        user_id = _required_int("DISCORD_USER_ID")
++        codex_channel_id = _required_int("CODEX_CHANNEL_ID")
++
+         return cls(
+             discord_token=token,
+-            guild_id=_required_int("DISCORD_GUILD_ID"),
+-            user_id=_required_int("DISCORD_USER_ID"),
+-            codex_channel_id=_required_int("CODEX_CHANNEL_ID"),
++            guild_id=guild_id,
++            user_id=user_id,
++            codex_channel_id=codex_channel_id,
+             orca_binary=os.getenv("ORCA_BINARY", "orca").strip() or "orca",
+             wait_timeout_ms=timeout_ms,
+             state_path=Path(os.getenv("STATE_PATH", ".state.json")).expanduser(),
++            additional_codex_channel_ids=_additional_channel_ids(codex_channel_id),
+         )
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..b77b734 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -6,7 +6,7 @@ import json
+ from pathlib import Path
+ import sys
+ from types import SimpleNamespace as NS
+-from unittest.mock import AsyncMock
++from unittest.mock import AsyncMock, Mock
+ 
+ import pytest
+ import orca_discord_bridge
+@@ -144,28 +144,46 @@ def test_non_codex_rejected(cli):
+         asyncio.run(client.validate_codex_binding('term'))
+ 
+ 
+-def settings(path):
+-    return config.Settings('OWNED_SYNTHETIC_TOKEN',1,2,3,'owned-fake-cli',1000,path)
++def settings(path, additional_codex_channel_ids=()):
++    return config.Settings(
++        'OWNED_SYNTHETIC_TOKEN',1,2,3,'owned-fake-cli',1000,path,
++        tuple(additional_codex_channel_ids),
++    )
+ 
+ 
+-@pytest.mark.parametrize('change', ['own','webhook','bot','no-guild','guild','user','channel','empty'])
+-def test_discord_message_boundary(tmp_path, change):
++@pytest.mark.parametrize(
++    'channel_id,additional_channels,channel_allowed',
++    [(3, (), True), (3, (4, 5), True), (4, (4, 5), True), (5, (4, 5), True), (6, (4, 5), False)],
++)
++@pytest.mark.parametrize('change', ['authorized','own','webhook','bot','no-guild','guild','user','empty'])
++def test_discord_message_boundary(tmp_path, change, channel_id, additional_channels, channel_allowed):
++    @asynccontextmanager
++    async def typing():
++        yield
++
+     async def run():
+-        bot = bot_module.BridgeBot(settings(tmp_path / 'state.json'))
++        bot = bot_module.BridgeBot(settings(tmp_path / 'state.json', additional_channels))
+         bot._connection.user = NS(id=99)
++        bot.store.connect('term', 'wt', 'tab:leaf')
+         bot.forward_to_codex = AsyncMock()
+         message = NS(author=NS(id=2,bot=False), webhook_id=None, guild=NS(id=1),
+-                     channel=NS(id=3), content='owned prompt')
++                     channel=NS(id=channel_id,typing=typing), content='owned prompt',
++                     reference=None, id=4, reply=AsyncMock())
+         if change == 'own': message.author.id=99
+         elif change == 'webhook': message.webhook_id=7
+         elif change == 'bot': message.author.bot=True
+         elif change == 'no-guild': message.guild=None
+         elif change == 'guild': message.guild.id=7
+         elif change == 'user': message.author.id=7
+-        elif change == 'channel': message.channel.id=7
+         elif change == 'empty': message.content='  '
+         await bot.on_message(message)
+-        bot.forward_to_codex.assert_not_awaited()
++        authorized_message = change == 'authorized'
++        if authorized_message and channel_allowed:
++            bot.forward_to_codex.assert_awaited_once_with(
++                'owned prompt', origin='Discord message 4'
++            )
++        else:
++            bot.forward_to_codex.assert_not_awaited()
+         await bot.close()
+     asyncio.run(run())
+ 
+@@ -194,14 +212,23 @@ def test_forward_output_routing_and_chunks(tmp_path, output, interrupted):
+     class Channel(bot_module.discord.TextChannel):
+         def __init__(self): self.sent=[]
+         async def send(self, value): self.sent.append(value)
++
++    @asynccontextmanager
++    async def typing():
++        yield
++
+     async def run():
+-        bot = bot_module.BridgeBot(settings(tmp_path / 'state.json'))
++        bot = bot_module.BridgeBot(settings(tmp_path / 'state.json', (4,)))
+         bot.store.connect('term','wt','tab:leaf')
+         binding = orca.TerminalBinding('term','wt','tab','leaf')
+         bot.orca = NS(resolve_binding=AsyncMock(return_value=binding),
+                       exchange=AsyncMock(return_value=orca.ExchangeResult(output,'done',interrupted)))
+-        channel=Channel();bot.get_channel=lambda _:channel
+-        await bot.forward_to_codex('owned prompt',origin='owned')
++        channel=Channel();bot.get_channel=Mock(return_value=channel)
++        message=NS(author=NS(id=2,bot=False),webhook_id=None,guild=NS(id=1),
++                    channel=NS(id=4,typing=typing),content='owned prompt',
++                    reference=None,id=5,reply=AsyncMock())
++        await bot.on_message(message)
++        bot.get_channel.assert_called_once_with(3)
+         assert channel.sent and all(len(chunk)<=1900 for chunk in channel.sent)
+         if not output: assert '출력은 없습니다' in channel.sent[0]
+         elif interrupted: assert '중단' in channel.sent[-1]
+@@ -226,6 +253,16 @@ def test_synthetic_config_validation_and_prompt_data(monkeypatch, tmp_path):
+     for key,value in {'DISCORD_TOKEN':'OWNED_SYNTHETIC_TOKEN','DISCORD_GUILD_ID':'1','DISCORD_USER_ID':'2','CODEX_CHANNEL_ID':'3','STATE_PATH':str(tmp_path/'state.json'),'ORCA_WAIT_TIMEOUT_MS':'1000'}.items():
+         monkeypatch.setenv(key,value)
+     assert config.Settings.load().state_path==tmp_path/'state.json'
++    monkeypatch.setenv('CODEX_CHANNEL_IDS',' 4, 5, 4, 5, 3 ')
++    assert config.Settings.load().additional_codex_channel_ids==(4,5)
++    monkeypatch.delenv('CODEX_CHANNEL_IDS',raising=False)
++    assert config.Settings.load().additional_codex_channel_ids==()
++    monkeypatch.setenv('CODEX_CHANNEL_IDS','   ')
++    assert config.Settings.load().additional_codex_channel_ids==()
++    monkeypatch.setenv('CODEX_CHANNEL_IDS','4, invalid')
++    with pytest.raises(config.ConfigError,match='CODEX_CHANNEL_IDS.*integer'):
++        config.Settings.load()
++    monkeypatch.delenv('CODEX_CHANNEL_IDS',raising=False)
+     monkeypatch.setenv('DISCORD_USER_ID','invalid')
+     with pytest.raises(config.ConfigError,match='integer'):config.Settings.load()
+     message=NS(content='OWNED_UNTRUSTED_INSTRUCTION',embeds=[])
