@@ -4,17 +4,17 @@
   "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
   "required_matched_pairs": 36,
   "required_model_runs": 72,
-  "completed_pairs": 1,
-  "completed_model_runs": 2,
-  "remaining_pairs": 35,
-  "remaining_model_runs": 70,
+  "completed_pairs": 2,
+  "completed_model_runs": 4,
+  "remaining_pairs": 34,
+  "remaining_model_runs": 68,
   "condition_order_counts": {
     "v1_then_v2": 1,
-    "v2_then_v1": 0
+    "v2_then_v1": 1
   },
-  "completed_pair_ids": ["F01"],
-  "next_pair_id": "F02",
-  "next_task": "T11 standard",
-  "next_condition_order": "v2_then_v1",
+  "completed_pair_ids": ["F01", "F02"],
+  "next_pair_id": "F03",
+  "next_task": "T06 standard",
+  "next_condition_order": "v1_then_v2",
   "updated": "2026-10-23"
 }
