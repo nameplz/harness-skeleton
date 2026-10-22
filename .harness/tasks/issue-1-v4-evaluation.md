@@ -6,7 +6,7 @@ Complete GitHub issue [#1: validate v4 harness runtime and agent evaluation](htt
 
 - Retain an execution manifest for source/config/suite/model/runtime/effective permissions, responsibilities, and independent grading.
 - Verify actual hook delivery and file, network, MCP, and process boundaries; leave unobserved claims unknown.
-- Run the issue's 24-trial pilot and separate 72-trial evaluation under matched v1/v2 conditions, retaining failures and unknowns.
+- Follow the current execution plan: first run one matched small task per v1/v2 condition, then expand toward the handoff's 20–30 real-use tasks based on observed blockers. The fixed 24-trial pilot, separate 72-trial evaluation, and mandatory three repetitions are explicitly out of current scope.
 - Validate against a representative real project, fix observed defects, run configured checks and risk-based reviews, and commit verified units.
 - Publish a draft PR against the intended base and wait for required CI; never merge.
 
@@ -14,6 +14,7 @@ Complete GitHub issue [#1: validate v4 harness runtime and agent evaluation](htt
 
 - Target repository: `/Users/yuhyeon/Documents/proj/harness/codex_work/v4/harness-skeleton`.
 - Preserve v1's ban on an external headless runner and sandbox bypass. Do not relabel the baseline/harness ablation as v1/v2.
+- Do not trust candidate-controlled TUI hooks on the host; Codex warns trusted hook commands can execute outside the tool sandbox. Leave unobserved hook and TUI boundaries unknown.
 - Never copy host credentials into a candidate or guest. Use synthetic sentinels; keep external grading outside candidate control.
 - Keep one implementation writer. Reviewers are read-only. Commit only independently verified task units.
 - User authorized completing the work and committing it; the repo workflow calls for a draft PR after the work is complete. No merge authorization.
@@ -27,11 +28,12 @@ Complete GitHub issue [#1: validate v4 harness runtime and agent evaluation](htt
 
 ## Current state
 
-- Repository/issue/branch/base/HEAD: `harness-skeleton`, issue #1, `issue-1-v4-evaluation`, intended base `harness-v2`, HEAD `393f408eb15a993ee36926ac87f1e234089ae03d`.
-- Last completed unit: reproducible `harness-eval` sandbox preflight and source-freeze path handling implemented, fully validated, and reviewed; issue #1 remains active.
-- Validation/review: the host preflight passed with Codex CLI `0.163.0`; Codex and Node binary hashes are recorded in `docs/AGENT_EVALUATION.md`. Twenty-two focused tests pass, including untrusted-binary rejection, post-probe identity changes, and scratch-directory symlink rejection. The configured full check passed: 747 unit tests, 36 risk fixtures, and a dry-run 12-task/36-trial plan; three existing subprocess `ResourceWarning`s remain. Read-only code, security, and test reviews passed. No model trial has run under a qualified v1/v2 path.
-- Pending: a v1-compatible interactive execution path, issue trial set, representative project run, remaining task-unit commits, draft PR, and CI.
+- Repository/issue/branch/base/HEAD: `harness-skeleton`, issue #1, `issue-1-v4-evaluation`, intended base `harness-v2`, HEAD `7b9e7313f5e126a3481aedaa4a138f1118bab177`.
+- Last completed unit: reproducible `harness-eval` sandbox preflight and source-freeze path handling implemented, fully validated, reviewed, and committed as `7b9e731`.
+- Validation/review: the host preflight passed with Codex CLI `0.163.0`; Codex and Node binary hashes are recorded in `docs/AGENT_EVALUATION.md`. Twenty-two focused tests pass, including untrusted-binary rejection, post-probe identity changes, and scratch-directory symlink rejection. The configured full check passed: 747 unit tests, 36 risk fixtures, and a dry-run 12-task/36-trial plan; three existing subprocess `ResourceWarning`s remain. Read-only code, security, and test reviews passed.
+- TUI attempt: an interactive no-model session reached the prompt with `gpt-6-luna` / `max` selected, but Codex requested hook review and warned trusted hooks may run outside the sandbox. The only synthetic hook was left untrusted; no hook, task prompt, or model inference ran. Effective TUI sandbox and actual v1/v2 behavior remain unknown.
+- Pending: a safe boundary for project hooks, one matched v1/v2 task pair, representative project validation, remaining verified work, and authorized draft PR/CI steps. GitHub issue access is unavailable from this environment.
 
 ## Next
 
-Commit the verified sandbox/source-freeze unit. Then resolve the v1 interactive execution path and matched trial conditions before model trials. Continue with the remaining acceptance criteria, task-unit commits, and draft PR/CI.
+Resolve a safe hook boundary before trusting project hooks or sending a task prompt. Then run one matched v1/v2 task pair with common grading and recorded conditions, expand according to the current execution plan, and complete representative project checks. Publish a draft PR or run remote CI only when authorized and reachable.
