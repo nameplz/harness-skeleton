@@ -81,7 +81,7 @@ Doctor checks required workflow references and expected Python hook command/type
 
 ## Evaluation and operational readiness
 
-`eval_harness.py` is an offline classifier-policy regression suite. It does not measure actual agent completion, tool behavior, recovery, review quality, or PR delivery. `check_agent_eval.py` validates an opt-in 12-scenario/three-trial plan and externally captured results; its default full-CI invocation is dry-run and never calls a model. It checks result consistency, not authenticity of grader evidence. See [the evaluation protocol](AGENT_EVALUATION.md).
+`eval_harness.py` is an offline classifier-policy regression suite. It does not measure actual agent completion, tool behavior, recovery, review quality, or PR delivery. `check_agent_eval.py` validates an opt-in 12-scenario/three-trial plan and externally captured results; its default full-CI invocation is dry-run and never calls a model. It checks result consistency, not authenticity of grader evidence. This experimental suite and its audit/receipt backend are optional; they do not impose a fixed trial count or complete OS-audit requirement on the handoff comparison. See [the evaluation protocol](AGENT_EVALUATION.md).
 
 Doctor passing means the skeleton's required layout/config is ready. It does not certify a completed PRD/UI specification, test adequacy, coverage, effective sandbox, or product readiness.
 

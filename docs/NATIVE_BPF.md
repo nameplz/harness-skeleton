@@ -3,7 +3,9 @@
 The supervised Linux session uses numeric fork/exec/exit observations and exact audit-key bindings. This is
 process attribution and event correlation; it does not prove FD/path/network semantics or produce an
 action-audit receipt. Production action-audit/whole-tree flags remain false and
-readiness remains unknown. See [evaluation gates](AGENT_EVALUATION.md).
+readiness remains unknown. This optional qualification backend is outside the
+required [handoff comparison](AGENT_EVALUATION.md); its contracts below still apply
+when it is used. Further BPF/FD/path/network work is not a required follow-up.
 
 ## Qualified installation
 
