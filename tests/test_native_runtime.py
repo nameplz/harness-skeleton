@@ -96,6 +96,36 @@ class NativeRuntimeTests(unittest.TestCase):
         self.assertIn(Path(sys.executable).resolve().parent, roots)
         self.assertIn(Path(sysconfig.get_path('stdlib')).resolve(), roots)
 
+    def test_macos_runtime_allowlist_grants_only_python_libffi_files(self) -> None:
+        libdir = self.root / 'python-lib'
+        libdir.mkdir()
+        libffi = libdir / 'libffi.8.dylib'
+        libffi.touch()
+        (libdir / 'libffi.dylib').symlink_to(libffi.name)
+        outside = self.root / 'outside'
+        outside.mkdir()
+        external_libffi = outside / 'libffi.external.dylib'
+        external_libffi.touch()
+        (libdir / external_libffi.name).symlink_to(external_libffi)
+        get_config_var = sysconfig.get_config_var
+
+        def config_var(name):
+            return str(libdir) if name == 'LIBDIR' else get_config_var(name)
+
+        with patch('evals.native_runtime.sys', SimpleNamespace(executable=sys.executable,
+                                                               platform='darwin')):
+            with patch('evals.native_runtime.sysconfig.get_config_var', side_effect=config_var):
+                roots = runtime_readable_roots()
+
+        self.assertIn(libffi.resolve(), roots)
+        self.assertEqual(1, roots.count(libffi.resolve()))
+        self.assertNotIn(external_libffi.resolve(), roots)
+        self.assertNotIn(libdir.resolve(), roots)
+        options = sandbox_options(writable=True, readable_roots=roots)
+        filesystem = tomllib.loads('\n'.join(options[1::2]))['permissions']['harness-eval']['filesystem']
+        self.assertEqual('read', filesystem[str(libffi.resolve())])
+        self.assertNotIn(str(libdir.resolve()), filesystem)
+
     def test_linux_reexecution_grants_only_the_explicit_native_file(self) -> None:
         binary = Path('/opt/owned-codex/bin/codex')
         with patch('evals.native_runtime.sys', SimpleNamespace(executable=sys.executable, platform='linux')):

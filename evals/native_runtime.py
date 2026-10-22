@@ -22,9 +22,18 @@ def runtime_readable_roots(*, native_binary: Path | None = None) -> tuple[Path, 
                     Path(sysconfig.get_path('stdlib')).resolve())
     apple_tools = Path("/Library/Developer/CommandLineTools/usr")
     git_paths = (apple_tools / 'bin', apple_tools / 'libexec/git-core')
+    # _ctypes may load libffi outside stdlib; grant only in-LIBDIR files.
+    libdir = sysconfig.get_config_var('LIBDIR')
+    libffi_paths = ()
+    if sys.platform == 'darwin' and isinstance(libdir, str) and Path(libdir).is_absolute():
+        library_root = Path(libdir).resolve()
+        libffi_paths = tuple(sorted({resolved for path in library_root.glob('libffi*.dylib')
+                                     if path.is_file()
+                                     for resolved in (path.resolve(),)
+                                     if resolved.is_relative_to(library_root)}))
     # Linux bubblewrap re-executes this file inside the restricted filesystem.
     native_paths = (native_binary,) if sys.platform == 'linux' and native_binary is not None else ()
-    return (*python_paths, *(path for path in git_paths if path.exists()), *native_paths)
+    return (*python_paths, *(path for path in git_paths if path.exists()), *libffi_paths, *native_paths)
 
 
 def sandbox_options(*, writable: bool, readable_roots: tuple[Path, ...] = ()) -> tuple[str, ...]:
