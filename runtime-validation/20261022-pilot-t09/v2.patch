@@ -1,0 +1,53 @@
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..accdd5a 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -128 +128,11 @@ def test_busy_rejected_before_send(cli, busy):
+-@pytest.mark.parametrize('command,screen', [('/status',True),('/clear',False),('/compact',False),('/new',False),('/help',False)])
++@pytest.mark.parametrize(
++    'command,screen',
++    [
++        ('/status', True),
++        ('/clear', False),
++        ('/compact', False),
++        ('/new', False),
++        ('/help', False),
++        ('ordinary prompt', False),
++    ],
++)
+@@ -130,0 +141,9 @@ def test_slash_screen_exception_is_narrow(cli, monkeypatch, command, screen):
++    if command == 'ordinary prompt':
++        snapshots = [
++            row(),
++            row('working', 'old', 2),
++            row('done', 'owned assistant response', 3),
++            row('done', 'owned assistant response', 3),
++        ]
++        path.write_text(json.dumps({'calls': [], 'index': 0, 'snapshots': snapshots}))
++
+@@ -134 +153,2 @@ def test_slash_screen_exception_is_narrow(cli, monkeypatch, command, screen):
+-    result = asyncio.run(client.exchange(orca.TerminalBinding('term','wt','tab','leaf'),command))
++    binding = orca.TerminalBinding('term','wt','tab','leaf')
++    result = asyncio.run(client.exchange(binding, command))
+@@ -136,2 +156,19 @@ def test_slash_screen_exception_is_narrow(cli, monkeypatch, command, screen):
+-    assert any(c[:2] == ['terminal','read'] for c in calls) is screen
+-    assert result.state == 'command'
++    send_calls = [c for c in calls if c[:2] == ['terminal','send']]
++    assert send_calls == [
++        ['terminal','send','--terminal','term','--text',command,'--enter','--json']
++    ]
++    assert sum(c[:2] == ['terminal','read'] for c in calls) == int(screen)
++
++    if command == 'ordinary prompt':
++        assert any(c[:2] == ['worktree','ps'] for c in calls)
++        assert result.state == 'done'
++        assert result.text == 'owned assistant response'
++    else:
++        assert result.state == 'command'
++        if command in {'/clear', '/compact', '/new'}:
++            assert result.text == f'Codex 명령을 전달했습니다: `{command}`'
++        elif command == '/status':
++            assert result.text == 'Status: ready'
++            assert 'prompt' not in result.text and '───' not in result.text
++        else:
++            assert 'slash command를 전달했습니다' in result.text

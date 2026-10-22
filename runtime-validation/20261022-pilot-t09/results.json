@@ -1,0 +1,162 @@
+{
+  "task_id": "T09",
+  "task_name": "Preserve slash-command behavior",
+  "common_setup": {
+    "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+    "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+    "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+    "model": "gpt-6-luna",
+    "reasoning_effort": "max",
+    "codex_cli": "0.163.0",
+    "v1_workflow_commit": "134c98a2f8be326e3e3688f411a6b348bd463f7f",
+    "v2_workflow_commit": "b5e8da26d721ff8b1c9be93a766d526fcf59fc06",
+    "task_sha256": "45fcc8e9df588b14c071ed8642c56d840381a3c4ea0e0ca73902d3defd4677a0",
+    "prompt_sha256": "f0a46ae9133b138afdefe78188e8cf5fe9e6b130fc84691a62b6010d52747803",
+    "acceptance_sha256": "7d5cabe2b8e76cc60d1584ad82c8a077a875c97960a4bf28c16a9c6507c42da9",
+    "host_grader_sha256": "155fc997f6accc11c50f214cfa9127358e0766b93d291a8bd92b46801d41da83",
+    "candidate_config_sha256": "07f9bf088b6792cbee5f137d04212e5899fd1109bd3827362372848293a76107",
+    "candidate_hook_sha256": "07a8aad717ca04a59d7f4b76f21148f7ff6d0bb59e8b4299b7492f297bdc837a",
+    "protected_delivery_sha256": "2f0527b3812cee1e39a2114965a5bbeab2497a8fec34d5ba49198d36252f9431",
+    "protocol_budget_seconds": 1800,
+    "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+    "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+    "condition_order": "v2 then v1",
+    "pilot_progress_after_pair": {
+      "pilot_model_runs": 10,
+      "pilot_required_runs": 24,
+      "pilot_matched_pairs": 5,
+      "pilot_required_pairs": 12,
+      "full_model_runs": 0,
+      "full_required_runs": 72,
+      "full_matched_pairs": 0,
+      "full_required_pairs": 36
+    }
+  },
+  "conditions": {
+    "v1": {
+      "thread_id": null,
+      "turn_id": null,
+      "terminal_handle": "term_58394a53-3a00-4e40-8642-0ed92c596323",
+      "terminal_process_incarnation": "80441517-c79f-4ce8-9e67-2a9c17441a07",
+      "prompt_request_id": "7d52e60a-88a5-419e-aa96-00bd4d805880",
+      "duration": "6m 34s (TUI-reported)",
+      "duration_ms": null,
+      "tokens": null,
+      "model": "gpt-6-luna",
+      "reasoning_effort": "max",
+      "cli_version": "0.163.0",
+      "status": "completed",
+      "candidate_commits": 0,
+      "candidate_branch": "eval-base",
+      "agent_workflow": {
+        "route": "v1 implementation worker, code/test review, security review",
+        "implementation": "pass",
+        "code_review": "pass",
+        "test_review": "pass",
+        "security_review": "pass",
+        "subagent_turns": "not captured"
+      },
+      "workflow_notes": [
+        "An initial code-review ancillary Git check was discarded after it used a Git config override; replacement static review passed without Git."
+      ],
+      "tool_activity": {
+        "shell_command_executions": null,
+        "failed_shell_commands": null,
+        "project_test_result": "59 passed in 6.06s",
+        "candidate_test_result": "59 passed in 3.96s",
+        "focused_review": "6 passed",
+        "candidate_hooks_run": false,
+        "network_or_service_calls": "No successful network or live Discord/Orca calls observed; pip commands were offline.",
+        "ci": "not run",
+        "candidate_commit_note": "Local commit denied when the sandbox blocked creation of .git/index.lock."
+      },
+      "workflow_metadata": [
+        "phases/index.json",
+        "phases/slash-contracts/index.json",
+        "phases/slash-contracts/step0.md",
+        "phases/slash-contracts/step0-output.json",
+        ".harness/runtime/slash-contracts/step0-attempt-1.json"
+      ],
+      "product_diff": {
+        "tracked_files": [
+          "tests/test_harness_compatibility.py"
+        ],
+        "insertions": 35,
+        "deletions": 4,
+        "patch_sha256": "8fb396b5217e39d2a04ba2df0a2da3c1f84f116f751dcb6dafa5415e3c47693f",
+        "final_file_sha256": {
+          "tests/test_harness_compatibility.py": "60c699727fb3d81bb5716cef39126b7092577713644bd4638ded4bc1aed41847"
+        }
+      },
+      "host_grade": {
+        "status": "pass",
+        "build": "pass (independent pinned-snapshot rebuild)",
+        "offline_install": "pass",
+        "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+        "full_project_suite": "pass: 59 passed in 6.06s",
+        "semantic_checks": "host semantic checks passed: slash send-once/ack, /status-only screen read, prompt filtering, ordinary structured route",
+        "scope": "pass: compatibility test only",
+        "external_effects": "pass: no successful external effect observed"
+      },
+      "baseline_check": "58 passed in 5.44s"
+    },
+    "v2": {
+      "thread_id": null,
+      "turn_id": null,
+      "terminal_handle": "term_58394a53-3a00-4e40-8642-0ed92c596323",
+      "terminal_process_incarnation": "80441517-c79f-4ce8-9e67-2a9c17441a07",
+      "prompt_request_id": "a1469113-45fa-414d-866f-9d5f148c98b6",
+      "duration": "2m 41s (TUI-reported)",
+      "duration_ms": null,
+      "tokens": null,
+      "model": "gpt-6-luna",
+      "reasoning_effort": "max",
+      "cli_version": "0.163.0",
+      "status": "completed",
+      "candidate_commits": 0,
+      "candidate_branch": "eval-base",
+      "agent_workflow": {
+        "route": "v2 T1 main-session implementation and validation",
+        "self_review": "reported complete",
+        "independent_reviewers": 0
+      },
+      "workflow_notes": [],
+      "tool_activity": {
+        "shell_command_executions": null,
+        "failed_shell_commands": null,
+        "project_test_result": "59 passed in 5.64s",
+        "candidate_test_result": "59 passed in 3.85s",
+        "focused_review": "not run",
+        "candidate_hooks_run": false,
+        "network_or_service_calls": "No successful network or live Discord/Orca calls observed; pip commands were offline.",
+        "ci": "not run",
+        "candidate_commit_note": "No candidate commit was reported."
+      },
+      "workflow_metadata": [],
+      "product_diff": {
+        "tracked_files": [
+          "tests/test_harness_compatibility.py"
+        ],
+        "insertions": 41,
+        "deletions": 4,
+        "patch_sha256": "8681bba3806aa6b4cb62e9d905b47102d96295718f19ba279b112581c2058297",
+        "final_file_sha256": {
+          "tests/test_harness_compatibility.py": "52584f6ef2f04bd2f01dda233a0a360b281bf248b49739c13bf3c5c610c2bd04"
+        }
+      },
+      "host_grade": {
+        "status": "pass",
+        "build": "pass (independent pinned-snapshot rebuild)",
+        "offline_install": "pass",
+        "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+        "full_project_suite": "pass: 59 passed in 5.64s",
+        "semantic_checks": "host semantic checks passed: slash send-once/ack, /status-only screen read, prompt filtering, ordinary structured route",
+        "scope": "pass: compatibility test only",
+        "external_effects": "pass: no successful external effect observed"
+      },
+      "baseline_check": "58 passed in 5.27s"
+    }
+  },
+  "pair_decision": "pass; both conditions passed frozen semantic acceptance, wheel build/install, full suite, and independent host grading",
+  "evidence_note": "The baseline semantic contract already passed; T09 measured regression-test coverage added by each workflow. Exact Codex thread/turn IDs and token counts were not exposed by the terminal adapter, so they remain unknown. Candidate tool children used the reviewed harness-eval profile; the TUI parent ran on the host. No remote CI, network call, service call, push, publication, or merge occurred."
+}
