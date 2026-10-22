@@ -1,0 +1,80 @@
+diff --git a/src/orca_discord_bridge/orca.py b/src/orca_discord_bridge/orca.py
+index 2707fab..b46fb00 100644
+--- a/src/orca_discord_bridge/orca.py
++++ b/src/orca_discord_bridge/orca.py
+@@ -82,6 +82,13 @@ _DIFF_HEADER_RE = re.compile(
+ )
+ 
+ 
++def _is_screen_decoration_line(line: str) -> bool:
++    return bool(line) and all(
++        ch.isspace() or ch in "-—_" or "\u2500" <= ch <= "\u257f"
++        for ch in line
++    )
++
++
+ def _dig(data: Any, *paths: tuple[str, ...]) -> Any:
+     for path in paths:
+         current = data
+@@ -506,7 +513,7 @@ class OrcaClient:
+                     continue
+                 if "ask codex to do anything" in line.casefold():
+                     continue
+-                if all(ch in "─━═╌╍┄┅-—_ " for ch in line):
++                if _is_screen_decoration_line(line):
+                     continue
+                 lines.append(line)
+             value = "\n".join(lines).strip()
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..af062ea 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -25,7 +25,7 @@ elif args[:2]==['terminal','show']:
+     result={'terminal':{'handle':'term','worktreeId':'wt','tabId':'tab','leafId':'leaf','worktreePath':'/owned/worktree'}}
+ elif args[:2]==['terminal','list']:
+     result={'terminals':[{'handle':'term','title':'owned','agent':'codex','worktreePath':'/owned/worktree'}]}
+-elif args[:2]==['terminal','read']:result={'terminal':{'source':'screen','tail':['> prompt','───','Status: ready']}}
++elif args[:2]==['terminal','read']:result={'terminal':{'source':'screen','tail':['> prompt','───','╭──────────╮','Status: ready','╰──────────╯']}}
+ else:result={}
+ path.write_text(json.dumps(state))
+ if mode=='timeout':time.sleep(3)
+@@ -125,16 +125,36 @@ def test_busy_rejected_before_send(cli, busy):
+     assert not any(c[:2] == ['terminal','send'] for c in json.loads(path.read_text())['calls'])
+ 
+ 
+-@pytest.mark.parametrize('command,screen', [('/status',True),('/clear',False),('/compact',False),('/new',False),('/help',False)])
++@pytest.mark.parametrize('command,screen', [('/status',True),('/clear',False),('/compact',False),('/new',False),('/help',False),('ordinary prompt',False)])
+ def test_slash_screen_exception_is_narrow(cli, monkeypatch, command, screen):
+     client, path = cli
++    if command == 'ordinary prompt':
++        snapshots = [row(), row('done','owned ordinary response',2), row('done','owned ordinary response',2)]
++        path.write_text(json.dumps({'calls': [], 'index': 0, 'snapshots': snapshots}))
+     async def short_sleep(_):
+         return None
+     monkeypatch.setattr(orca.asyncio, 'sleep', short_sleep)
+     result = asyncio.run(client.exchange(orca.TerminalBinding('term','wt','tab','leaf'),command))
+     calls = json.loads(path.read_text())['calls']
+-    assert any(c[:2] == ['terminal','read'] for c in calls) is screen
+-    assert result.state == 'command'
++    send_calls = [c for c in calls if c[:2] == ['terminal','send']]
++    assert send_calls == [['terminal','send','--terminal','term','--text',command,'--enter','--json']]
++    read_calls = [c for c in calls if c[:2] == ['terminal','read']]
++    assert bool(read_calls) is screen
++    assert result.text
++    if command == '/status':
++        assert result.text == 'Status: ready'
++        assert '> prompt' not in result.text and '───' not in result.text
++        assert '╭──────────╮' not in result.text and '╰──────────╯' not in result.text
++    elif command in {'/clear','/compact','/new'}:
++        assert result.state == 'command'
++        assert 'Codex 명령을 전달했습니다' in result.text
++    elif command == '/help':
++        assert result.state == 'command'
++        assert 'slash command를 전달했습니다' in result.text
++    else:
++        assert result.state == 'done'
++        assert result.text == 'owned ordinary response'
++        assert any(c[:2] == ['worktree','ps'] for c in calls)
+ 
+ 
+ def test_non_codex_rejected(cli):

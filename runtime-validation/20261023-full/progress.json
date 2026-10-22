@@ -4,13 +4,13 @@
   "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
   "required_matched_pairs": 36,
   "required_model_runs": 72,
-  "completed_pairs": 19,
-  "completed_model_runs": 38,
-  "remaining_pairs": 17,
-  "remaining_model_runs": 34,
+  "completed_pairs": 20,
+  "completed_model_runs": 40,
+  "remaining_pairs": 16,
+  "remaining_model_runs": 32,
   "condition_order_counts": {
     "v1_then_v2": 13,
-    "v2_then_v1": 6
+    "v2_then_v1": 7
   },
   "completed_pair_ids": [
     "F01",
@@ -31,10 +31,11 @@
     "F16",
     "F17",
     "F18",
-    "F19"
+    "F19",
+    "F20"
   ],
-  "next_pair_id": "F20",
-  "next_task": "T09 standard",
+  "next_pair_id": "F21",
+  "next_task": "T13 legacy_sqlite_migration",
   "next_condition_order": "v2_then_v1",
   "updated": "2026-10-23"
 }
