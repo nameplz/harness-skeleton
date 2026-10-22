@@ -1,0 +1,55 @@
+{
+  "condition": "v2",
+  "prompt_request_id": "1dc173bb-e7e0-4e92-be06-bc5815993ef0",
+  "duration": "2m 51s (TUI-reported)",
+  "duration_ms": 171000,
+  "tokens": null,
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "candidate_branch": "eval-base",
+  "candidate_commits": 0,
+  "main_prompt_count": 1,
+  "model_turns": "not captured",
+  "tui_candidate_suite": "59 passed in 3.44s",
+  "reviews": {
+    "workflow_route": "v2 T1 main-session implementation",
+    "candidate_self_review": "pass; final source/test diff and scope reviewed",
+    "independent_review_agents": "not launched under T1 route"
+  },
+  "product_diff": {
+    "files": [
+      "src/orca_discord_bridge/bot.py",
+      "tests/test_harness_compatibility.py"
+    ],
+    "insertions": 96,
+    "deletions": 8,
+    "patch_sha256": "f041962413c304d7c42733fd8bd4cba9cb08a9e2c121d233d0c1f07a8a7acf06"
+  },
+  "host_grade": {
+    "status": "pass",
+    "fresh_wheel_build": "pass",
+    "offline_install": "pass",
+    "wheel_sha256": "57e87b7b50139a2d9ef693f4240049d35a74ad97a1894fd594b001a966e19857",
+    "full_project_suite": "59 passed in 5.45s",
+    "semantic_checks": "pass; 17 targeted cases passed; shared policy seam and denied message/command call spies verified",
+    "scope": true
+  },
+  "process_observations": {
+    "harness_risk_check": "unavailable; product snapshot lacks scripts/harness.py and .harness/config.toml",
+    "network_or_live_services": "none observed; local synthetic Discord and Orca fakes only",
+    "remote_writes": false,
+    "pip_environment_deviation": [
+      "none; non-fatal local pip cache warning"
+    ],
+    "candidate_commit": "not made; sandbox denied creation of .git/index.lock; no workaround attempted",
+    "candidate_hook": "no direct hook command reported",
+    "hosted_ci": "not run"
+  },
+  "metrics_limits": {
+    "token_usage": "unknown; TUI did not provide per-condition usage",
+    "shell_command_counts": "not captured",
+    "subagent_turns": "not captured"
+  }
+}
