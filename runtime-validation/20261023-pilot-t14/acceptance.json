@@ -1,0 +1,86 @@
+{
+  "task_id": "T14",
+  "task_name": "Make subprocess timeout and cancellation cleanup robust",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "budget_seconds": 1800,
+  "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+  "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+  "condition_order": "v1 then v2",
+  "v1_workflow_commit": "134c98a2f8be326e3e3688f411a6b348bd463f7f",
+  "v2_workflow_commit": "b5e8da26d721ff8b1c9be93a766d526fcf59fc06",
+  "hashes": {
+    "task_sha256": "4272bbcd457ddd6bbc9bbd6296066c3e0c82b44c2ca053a52291ad6d5b22bae4",
+    "prompt_sha256": "16a785cf9609ee6ce9fcd63d10756401651fcaae81a227a0742fc86e41b11268",
+    "host_grader_sha256": "24a48a35618a18a84422527abc8a39ffb0a7a785cdbeb175f092201d8d861e2e",
+    "semantic_sha256": "a056d489ff655be111a933471a59e70ab81c97a12d991af1e01755fa1a8491d3",
+    "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae"
+  },
+  "criteria": [
+    {
+      "id": "visible_failures",
+      "check": "Nonzero exit, non-JSON output, timeout, and cancellation remain visible as OrcaError/CancelledError outcomes."
+    },
+    {
+      "id": "timeout_cleanup",
+      "check": "A timed-out direct child is terminated if needed and awaited/reaped before OrcaError is raised."
+    },
+    {
+      "id": "cancellation_cleanup",
+      "check": "Cancellation terminates a still-running direct child, awaits/reaps it, and re-raises CancelledError."
+    },
+    {
+      "id": "literal_argv",
+      "check": "The subprocess uses argv execution; literal $(...) input is not interpreted by a shell."
+    },
+    {
+      "id": "regression_tests",
+      "check": "Subprocess compatibility tests capture timeout/cancellation lifecycle and local fake-CLI error/argv behavior."
+    },
+    {
+      "id": "build_and_suite",
+      "check": "A fresh wheel builds and installs offline; the full project suite passes."
+    },
+    {
+      "id": "scope",
+      "check": "Product diff is limited to orca.py and test_harness_compatibility.py."
+    },
+    {
+      "id": "external_effects",
+      "check": "No candidate network, live service call, publication, push, or merge."
+    }
+  ],
+  "baseline_calibration": {
+    "baseline_project_suite": "58 passed in 4.70s",
+    "baseline_wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+    "host_grade_status": "expected failure on cancellation_cleanup only",
+    "semantic_checks": {
+      "cancellation_cleanup": {
+        "detail": "cancellation propagates after direct child exits and is reaped",
+        "status": "fail"
+      },
+      "literal_argv": {
+        "detail": "shell-like text remains one literal argv value and creates no marker",
+        "status": "pass"
+      },
+      "non_json_error": {
+        "detail": "invalid JSON is surfaced as OrcaError",
+        "status": "pass"
+      },
+      "nonzero_error": {
+        "detail": "nonzero exit is surfaced as OrcaError",
+        "status": "pass"
+      },
+      "timeout_cleanup": {
+        "detail": "timeout is surfaced and direct child has exited and been reaped",
+        "status": "pass"
+      }
+    },
+    "note": "Baseline wheel build, offline install, and all 58 existing tests pass. The frozen semantic grader passes nonzero/non-JSON visibility, timeout cleanup, and literal argv; it fails cancellation cleanup because the child is left running. The grader returns nonzero for any failed semantic criterion."
+  },
+  "network": "offline pip and local fake CLI only"
+}

@@ -1,0 +1,258 @@
+{
+  "task_id": "T14",
+  "task_name": "Make subprocess timeout and cancellation cleanup robust",
+  "common_setup": {
+    "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+    "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+    "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+    "initial_source_hashes": {
+      "README.md": "4f7887b9b9e09c8a6d408ecf6e9fefdd0d589b4c9b5385960d2ff22e707178de",
+      "pyproject.toml": "816c5939bc4c9fbf43c4de4a31e2869c17cdcbcc48b1527c07002a08122aab77",
+      "src/orca_discord_bridge/__init__.py": "91447944015cec709e8aa7655f7e9d64e1e4508e7023a57fe3746911c0fc6fed",
+      "src/orca_discord_bridge/__main__.py": "b067b3b6cf589476ea658bcf7216d698cb2a810875649e2b6003fcd1253c2fb8",
+      "src/orca_discord_bridge/bot.py": "412b7868b0794eac6ed02db59b6ee831e5cc9ad2249cb4c7b4efe7b3adcdc2fd",
+      "src/orca_discord_bridge/config.py": "58b70198d68b16f44bdeafdf55951591a8bd6dfd43fc55715346c816356dc139",
+      "src/orca_discord_bridge/formatting.py": "9b2226e57b6a7098066e4c1b4c33a62a63953f385f895b51b64c2b545434ff0b",
+      "src/orca_discord_bridge/orca.py": "8b1b1b872895a8740f9a727bb8092ab597fd14a8ee36e18a62d26a5e38faf4be",
+      "src/orca_discord_bridge/state.py": "b185bf61b606aab3b3abc5e95be9faa9997ab22382bd688397a3e9b0b9246424",
+      "tests/test_orca_parsing.py": "71295e7c42ef342ee719cadfd1ffc5f5f88d5442eda5be6e119f504a4de4c64c"
+    },
+    "model": "gpt-6-luna",
+    "reasoning_effort": "max",
+    "codex_cli": "0.163.0",
+    "v1_workflow_commit": "134c98a2f8be326e3e3688f411a6b348bd463f7f",
+    "v2_workflow_commit": "b5e8da26d721ff8b1c9be93a766d526fcf59fc06",
+    "task_sha256": "4272bbcd457ddd6bbc9bbd6296066c3e0c82b44c2ca053a52291ad6d5b22bae4",
+    "prompt_sha256": "16a785cf9609ee6ce9fcd63d10756401651fcaae81a227a0742fc86e41b11268",
+    "host_grader_sha256": "24a48a35618a18a84422527abc8a39ffb0a7a785cdbeb175f092201d8d861e2e",
+    "semantic_sha256": "a056d489ff655be111a933471a59e70ab81c97a12d991af1e01755fa1a8491d3",
+    "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+    "protocol_budget_seconds": 1800,
+    "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+    "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+    "condition_order": "v1 then v2",
+    "condition_order_balance_after_pair": {
+      "v1_then_v2": 5,
+      "v2_then_v1": 5
+    },
+    "pilot_progress_after_pair": {
+      "pilot_model_runs": 20,
+      "pilot_required_runs": 24,
+      "pilot_matched_pairs": 10,
+      "pilot_required_pairs": 12,
+      "full_model_runs": 0,
+      "full_required_runs": 72,
+      "full_matched_pairs": 0,
+      "full_required_pairs": 36
+    }
+  },
+  "conditions": {
+    "v1": {
+      "thread_id": null,
+      "turn_id": null,
+      "terminal_handle": "term_58394a53-3a00-4e40-8642-0ed92c596323",
+      "terminal_process_incarnation": "80441517-c79f-4ce8-9e67-2a9c17441a07",
+      "prompt_request_id": "bb228fb9-4f7b-471b-8680-cebb918e7e68",
+      "duration": "14m 03s (TUI-reported)",
+      "duration_ms": null,
+      "tokens": null,
+      "model": "gpt-6-luna",
+      "reasoning_effort": "max",
+      "cli_version": "0.163.0",
+      "status": "host acceptance passed; candidate workflow incomplete (error_no_commit after three test-review attempts)",
+      "candidate_branch": "eval-base",
+      "candidate_commits": 0,
+      "agent_workflow": {
+        "route": "v1 T3 implementation worker with independent code, test, and security reviewers",
+        "implementation": "pass",
+        "self_review": "pass",
+        "code_review": "pass",
+        "security_review": "pass",
+        "test_review": "fail",
+        "review_findings": [
+          "Test reviewer did not approve deterministic evidence that subprocess reaping completes before timeout/cancellation propagates; requested a gated communication test and pending-task assertion. Three attempts were exhausted."
+        ],
+        "subagent_turns": "not captured"
+      },
+      "workflow_notes": [
+        "The final code and security reviews passed. The required test-review gate failed after the maximum three attempts because the reviewer found that the tests did not deterministically establish reap completion before propagation.",
+        "The frozen host grader nevertheless passed the v1 patch: fresh offline wheel, all 60 tests, and all five semantic checks. Host acceptance does not change the candidate workflow failure.",
+        "The candidate checkout lacks scripts/harness.py, so the Harness risk and full-check commands were unavailable."
+      ],
+      "tool_activity": {
+        "shell_command_executions": null,
+        "failed_shell_commands": null,
+        "candidate_project_suite": "60 passed in 5.18s (final TUI run)",
+        "candidate_hooks_run": false,
+        "session_start": "Orca TUI recorded the approved synthetic SessionStart event; no direct candidate hook command was run.",
+        "network_or_service_calls": "No candidate-initiated network or live Discord/Orca calls observed; pip commands were offline.",
+        "local_harness_risk": "unavailable: scripts/harness.py is absent from the external project snapshot",
+        "ci": "not run",
+        "candidate_commit_note": "No candidate commit; candidate-side Git branch/commit writes were blocked. The operator retained the patch and graded it against the pinned snapshot."
+      },
+      "workflow_metadata": [
+        "A new Codex conversation was opened before this condition; exact thread/turn IDs were unavailable."
+      ],
+      "product_diff": {
+        "tracked_files": [
+          "src/orca_discord_bridge/orca.py",
+          "tests/test_harness_compatibility.py"
+        ],
+        "insertions": 178,
+        "deletions": 5,
+        "patch_sha256": "5b123bbb086f98e2f410607b30637292fe94715e344a09b8e423073b9bca6bf4",
+        "final_file_sha256": {
+          "src/orca_discord_bridge/orca.py": "23e1a29634e5e07b8b655bf2976637bcf288b40dd6450c53bfe323a7b3321b10",
+          "tests/test_harness_compatibility.py": "e719f6f1f2e7760030755a038a9d360b1f4a5d56c9a6e48ea784e1c73e795055"
+        }
+      },
+      "host_grade": {
+        "status": "pass",
+        "build": "pass (independent pinned-snapshot rebuild)",
+        "offline_install": "pass",
+        "wheel_sha256": "17bbaca65ae44295c185242d5d5eea9294d09b2e2d6f2e048acc49ba47267491",
+        "full_project_suite": "pass: 60 passed in 6.90s",
+        "semantic_checks": {
+          "cancellation_cleanup": {
+            "detail": "cancellation propagates after direct child exits and is reaped",
+            "status": "pass"
+          },
+          "literal_argv": {
+            "detail": "shell-like text remains one literal argv value and creates no marker",
+            "status": "pass"
+          },
+          "non_json_error": {
+            "detail": "invalid JSON is surfaced as OrcaError",
+            "status": "pass"
+          },
+          "nonzero_error": {
+            "detail": "nonzero exit is surfaced as OrcaError",
+            "status": "pass"
+          },
+          "timeout_cleanup": {
+            "detail": "timeout is surfaced and direct child has exited and been reaped",
+            "status": "pass"
+          }
+        },
+        "scope": "pass: src/orca_discord_bridge/orca.py, tests/test_harness_compatibility.py only",
+        "external_effects": "pass: no candidate-initiated network or live service call, publish, push, or merge observed"
+      },
+      "baseline_check": "58 passed (per-condition baseline setup; see baseline_calibration for frozen calibration run)"
+    },
+    "v2": {
+      "thread_id": null,
+      "turn_id": null,
+      "terminal_handle": "term_58394a53-3a00-4e40-8642-0ed92c596323",
+      "terminal_process_incarnation": "80441517-c79f-4ce8-9e67-2a9c17441a07",
+      "prompt_request_id": "358595cc-e12d-4319-94de-9106e9c0ddfa",
+      "duration": "8m 25s (TUI-reported)",
+      "duration_ms": null,
+      "tokens": null,
+      "model": "gpt-6-luna",
+      "reasoning_effort": "max",
+      "cli_version": "0.163.0",
+      "status": "host acceptance passed; final implementation and independent reviews passed; candidate commit blocked by Git index.lock permission",
+      "candidate_branch": "eval-base",
+      "candidate_commits": 0,
+      "agent_workflow": {
+        "route": "v2 T3 main-session implementation with independent code and security reviewers",
+        "implementation": "pass",
+        "self_review": "pass",
+        "code_review": "pass",
+        "security_review": "pass",
+        "test_review": "not required by v2 T3 route",
+        "review_findings": [],
+        "first_code_review_finding": "A descendant holding inherited output pipes could keep communicate() pending after the direct child exited. Cleanup was revised to track/reap the direct child and close/cancel remaining pipe reads; a fake-CLI regression test was added.",
+        "subagent_turns": "not captured"
+      },
+      "workflow_notes": [
+        "The first review round found that a descendant could retain inherited pipes after the direct child exited. The implementation and fake-CLI regression test were updated; the final 61-test suite passed and code/security reviews approved the final diff with no findings.",
+        "The candidate checkout lacks scripts/harness.py, so the Harness risk and full-check commands were unavailable.",
+        "The candidate could not create .git/index.lock; its reviewed two-file patch remained uncommitted and was extracted read-only for host grading."
+      ],
+      "tool_activity": {
+        "shell_command_executions": null,
+        "failed_shell_commands": null,
+        "candidate_project_suite": "61 passed in 8.37s (final TUI run)",
+        "candidate_hooks_run": false,
+        "session_start": "Orca TUI recorded the approved synthetic SessionStart event; no direct candidate hook command was run.",
+        "network_or_service_calls": "No candidate-initiated network or live Discord/Orca calls observed; pip commands were offline.",
+        "local_harness_risk": "unavailable: scripts/harness.py is absent from the external project snapshot",
+        "ci": "not run",
+        "candidate_commit_note": "No candidate commit; Git denied creation of .git/index.lock. The reviewed patch remained uncommitted and was independently host-graded."
+      },
+      "workflow_metadata": [
+        "A new Codex conversation was opened before this condition; exact thread/turn IDs were unavailable."
+      ],
+      "product_diff": {
+        "tracked_files": [
+          "src/orca_discord_bridge/orca.py",
+          "tests/test_harness_compatibility.py"
+        ],
+        "insertions": 171,
+        "deletions": 2,
+        "patch_sha256": "4d0b12e1d79d816b0069c09efa3b28dcbc9d9749ce186b35aaf7c0cbb6d34786",
+        "final_file_sha256": {
+          "src/orca_discord_bridge/orca.py": "35a9dbdc71d80f9d019df203184d166a3c1f6a5bc796aedebcb0c000be6ffc99",
+          "tests/test_harness_compatibility.py": "87a01c29d0fd7e1d42f2b30a444a19e7f1def85507b491bc28f058b101e27329"
+        }
+      },
+      "host_grade": {
+        "status": "pass",
+        "build": "pass (independent pinned-snapshot rebuild)",
+        "offline_install": "pass",
+        "wheel_sha256": "1145719545d1b85273c62bad63511308a78754dd60e4c29a98699dc0d8cd04d5",
+        "full_project_suite": "pass: 61 passed in 8.27s",
+        "semantic_checks": {
+          "cancellation_cleanup": {
+            "detail": "cancellation propagates after direct child exits and is reaped",
+            "status": "pass"
+          },
+          "literal_argv": {
+            "detail": "shell-like text remains one literal argv value and creates no marker",
+            "status": "pass"
+          },
+          "non_json_error": {
+            "detail": "invalid JSON is surfaced as OrcaError",
+            "status": "pass"
+          },
+          "nonzero_error": {
+            "detail": "nonzero exit is surfaced as OrcaError",
+            "status": "pass"
+          },
+          "timeout_cleanup": {
+            "detail": "timeout is surfaced and direct child has exited and been reaped",
+            "status": "pass"
+          }
+        },
+        "scope": "pass: src/orca_discord_bridge/orca.py, tests/test_harness_compatibility.py only",
+        "external_effects": "pass: no candidate-initiated network or live service call, publish, push, or merge observed"
+      },
+      "baseline_check": "58 passed (per-condition baseline setup; see baseline_calibration for frozen calibration run)"
+    }
+  },
+  "pair_decision": "T14 counts as the tenth pilot matched pair: both frozen host grades passed fresh offline wheel build/install, all 60/61 project tests, and all five semantic checks. The v1 candidate workflow is incomplete because its required test-review gate failed after three attempts; the v2 final code and security reviews passed. Record these as distinct workflow and host-acceptance outcomes.",
+  "baseline_calibration": {
+    "baseline_project_suite": "58 passed in 4.70s",
+    "baseline_wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+    "semantic_checks": {
+      "cancellation_cleanup": "fail",
+      "literal_argv": "pass",
+      "non_json_error": "pass",
+      "nonzero_error": "pass",
+      "timeout_cleanup": "pass"
+    },
+    "note": "Baseline wheel build, offline install, and all 58 existing tests pass. The frozen semantic grader passes nonzero/non-JSON visibility, timeout cleanup, and literal argv; it fails cancellation cleanup because the child is left running. The grader returns nonzero for any failed semantic criterion."
+  },
+  "first_pass_outcomes": {
+    "v1": "Final candidate code passed the suite and host behavior checks, but the test-review workflow gate did not approve deterministic reap-timing evidence within three attempts.",
+    "v2": "The first reviewed implementation exposed an inherited-pipe cleanup edge case; the final implementation added cleanup and regression coverage, after which both reviews and host acceptance passed."
+  },
+  "protocol_limitations": [
+    "The interactive Codex TUI parent ran on the host; harness-eval applied to tool children only, so this was not a VM-isolated TUI run.",
+    "scripts/harness.py was absent from the candidate snapshot, so candidate-side Harness risk/full checks did not run.",
+    "Tokens, shell-command counts, CI, universal descendant cleanup, and OS-level action audit were not measured.",
+    "No network, live service, push, publish, or merge was performed; the recorded patches remain local."
+  ],
+  "evidence_note": "Task, prompt, grader, and semantic criteria were frozen before both conditions. Host grades are preserved as host-grade-v1.json and host-grade-v2.json; exact candidate diffs are v1.patch and v2.patch."
+}
