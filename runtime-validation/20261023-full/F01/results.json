@@ -1,0 +1,38 @@
+{
+  "task_id": "T14",
+  "task_instance": "cancellation_vs_timeout",
+  "batch": "full",
+  "pair_id": "F01",
+  "condition_order": "v1_then_v2",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "task_sha256": "f1553dabc4217e74735af326df830f49d9df7fb57fb7bc9af98f80c9a142e5da",
+  "prompt_sha256": "1fd78b5cba8d7d6a615abc4cbf1605b9d4f2a20102dcb4aa822fb171b4826d64",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "conditions": {
+    "v1": {
+      "run_record": "v1-run.json",
+      "patch": "v1.patch",
+      "host_grade": "host-grade-v1.json",
+      "status": "pass"
+    },
+    "v2": {
+      "run_record": "v2-run.json",
+      "patch": "v2.patch",
+      "host_grade": "host-grade-v2.json",
+      "status": "pass"
+    }
+  },
+  "pair_decision": "Both conditions pass the frozen host acceptance: fresh offline wheel build/install, all semantic checks (including cancellation and timeout cleanup), exact two-file scope, and the full project suite. v1 required a security fix for repeated cancellation during cleanup; final code, test, and security reviews passed. v2's independent reviews found and resolved bounded termination, failing-test cleanup, and repeated-cancellation coverage issues; its final code and security reviews passed.",
+  "metrics_limits": {
+    "token_usage": "unknown; TUI did not provide per-condition usage",
+    "shell_command_counts": "not captured",
+    "actual_hosted_ci": "not run",
+    "candidate_commits": "none; candidate checkouts remained on eval-base"
+  },
+  "protocol_limitations": [
+    "The TUI parent ran on the host; harness-eval applied to tool children only, so this was not a VM-isolated TUI run.",
+    "The pinned external snapshot lacks scripts/harness.py and .harness/config.toml, so the candidate-side Harness risk/full checks were unavailable.",
+    "The hosted GitHub workflow was not dispatched."
+  ]
+}

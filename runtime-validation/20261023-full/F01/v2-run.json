@@ -1,0 +1,64 @@
+{
+  "condition": "v2",
+  "prompt_request_id": "c0f933dc-7e2f-435e-aed0-bffa4e4e09cc",
+  "duration": "6m 33s (TUI-reported)",
+  "duration_ms": 393000,
+  "tokens": null,
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "candidate_branch": "eval-base",
+  "candidate_commits": 0,
+  "main_prompt_count": 1,
+  "delegated_agent_launches": 2,
+  "model_turns": "not captured",
+  "tui_candidate_suite": "60 passed in 13.34s",
+  "reviews": {
+    "final_code_review": "pass; no findings on the final diff",
+    "final_security_review": "pass; no findings on the final diff",
+    "review_findings_resolved": [
+      "Escalate terminate to kill after bounded cleanup grace for a SIGTERM-resistant child.",
+      "Keep fake-child test cleanup bounded if an assertion fails.",
+      "Cover a second cancellation during shielded child cleanup."
+    ]
+  },
+  "product_diff": {
+    "files": [
+      "src/orca_discord_bridge/orca.py",
+      "tests/test_harness_compatibility.py"
+    ],
+    "insertions": 111,
+    "deletions": 7,
+    "patch_sha256": "a292dc66e87d80a858baa3b2d02ad59795936b1b10890ee596d55caf5b1ca265"
+  },
+  "host_grade": {
+    "status": "pass",
+    "fresh_wheel_build": "pass",
+    "offline_install": "pass",
+    "wheel_sha256": "0704a41a7572a179492531257a64db91229b08e821fee4c5cb232825911749ed",
+    "full_project_suite": "60 passed in 15.22s",
+    "semantic_checks": {
+      "cancellation_cleanup": "pass",
+      "literal_argv": "pass",
+      "non_json_error": "pass",
+      "nonzero_error": "pass",
+      "timeout_cleanup": "pass"
+    },
+    "scope": true
+  },
+  "process_observations": {
+    "harness_risk_check": "unavailable; product snapshot lacks scripts/harness.py and .harness/config.toml",
+    "network_or_live_services": "none observed",
+    "workflow_dispatch": false,
+    "remote_writes": false,
+    "pip_environment_deviation": ["none observed"],
+    "direct_hook": "not run; SessionStart delivery record left untouched",
+    "candidate_commit": "not made; candidate remained on eval-base"
+  },
+  "metrics_limits": {
+    "token_usage": "unknown; TUI did not provide per-condition usage",
+    "shell_command_counts": "not captured",
+    "subagent_turns": "not captured"
+  }
+}
