@@ -1,0 +1,34 @@
+{
+  "changed_files": [
+    "src/orca_discord_bridge/bot.py",
+    "tests/test_harness_compatibility.py"
+  ],
+  "pinned_snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+  "wheel": {
+    "exit_code": 0,
+    "output": "Processing ./source\n  Preparing metadata (pyproject.toml): started\n  Preparing metadata (pyproject.toml): finished with status 'done'\nBuilding wheels for collected packages: orca-discord-bridge\n  Building wheel for orca-discord-bridge (pyproject.toml): started\n  Building wheel for orca-discord-bridge (pyproject.toml): finished with status 'done'\n  Created wheel for orca-discord-bridge: filename=orca_discord_bridge-0.2.0-py3-none-any.whl size=19320 sha256=5ea2e53dfbd5a45c193f2f8e7e45623b3fad20840bf279ca04102cdefa4f8061\n  Stored in directory: /private/tmp/hook-delivery-confirm-n61qez_h/F12-host-grade-v2/tmp/pip-ephem-wheel-cache-d35s83ns/wheels/fa/a9/44/0330b699b92a31356269c64f91029821d6e0dea423e3af3e78\nSuccessfully built orca-discord-bridge\n"
+  },
+  "wheel_sha256": "5ea2e53dfbd5a45c193f2f8e7e45623b3fad20840bf279ca04102cdefa4f8061",
+  "install": {
+    "exit_code": 0,
+    "output": "Looking in links: /private/tmp/hook-delivery-confirm-n61qez_h/F12-host-grade-v2/wheelhouse\nProcessing ./wheelhouse/orca_discord_bridge-0.2.0-py3-none-any.whl\nInstalling collected packages: orca-discord-bridge\nSuccessfully installed orca-discord-bridge-0.2.0\n"
+  },
+  "suite": {
+    "exit_code": 0,
+    "output": "...........................................................              [100%]\n59 passed in 5.14s\n"
+  },
+  "focused_nodes": [
+    "tests/test_harness_compatibility.py::test_forward_recovers_stale_binding_after_layout_change"
+  ],
+  "focused": {
+    "exit_code": 0,
+    "output": ".                                                                        [100%]\n1 passed in 0.11s\n"
+  },
+  "semantic": {
+    "exit_code": 0,
+    "output": "host semantic checks passed: pane/worktree drift revalidation, validated binding persistence/use, unchanged path, and fail-closed behavior\n"
+  },
+  "scope": true,
+  "status": "pass"
+}

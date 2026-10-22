@@ -1,0 +1,49 @@
+{
+  "task_id": "T03",
+  "task_instance": "stale_layout",
+  "batch": "full",
+  "pair_id": "F12",
+  "condition_order": "v1_then_v2",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "task_sha256": "359c949f25ad27c135cfe736dcf4be35ec4073ed97722dc8b222443f54c58719",
+  "prompt_sha256": "1758d25ba3dea72857f2ceb1fda1df541c928f9e0dc858e00ac925f9d717b49b",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "conditions": {
+    "v1": {
+      "run_record": "v1-run.json",
+      "patch": "v1.patch",
+      "patch_sha256": "6450ce00945c3954b0be3851a947cac82bcf1a3e0d33f64a2179d6a839b8885b",
+      "host_grade": "host-grade-v1.json",
+      "raw_status": "pass",
+      "suite": "59 passed",
+      "focused": "1 passed",
+      "workflow_status": "complete; independent code/test/security reviews passed after restricting no-reply behavior to stale-binding validation failures"
+    },
+    "v2": {
+      "run_record": "v2-run.json",
+      "patch": "v2.patch",
+      "patch_sha256": "f5d797dbd5b269f0ffded1001b2502708f5240eb14eebdc938079b7190b761a3",
+      "host_grade": "host-grade-v2.json",
+      "raw_status": "pass",
+      "suite": "59 passed",
+      "focused": "1 passed",
+      "supplemental_caller_path": "fail: ForwardModal sends an ephemeral follow-up on stale-binding validation failure",
+      "workflow_status": "T1 self-review completed; separate reviewer results not captured"
+    }
+  },
+  "pair_decision": "F12 frozen host grades pass for both v1 and v2. However, the frozen semantic checker directly validates BridgeBot.forward_to_codex and does not exercise ForwardModal.on_submit. A post-run local fake interaction diagnostic found that v2 catches _StaleBindingValidationError as generic OrcaError in ForwardModal and sends one ephemeral follow-up when stale-binding validation fails. This violates the task wording not to send a reply, so paired acceptance is not fully satisfied. v1 catches this specific failure in both message and modal callers and suppresses follow-up content.",
+  "metrics_limits": {
+    "token_usage": "unknown",
+    "model_turns": "not captured",
+    "v1_duration": "7m 52s",
+    "v2_duration": "3m 27s"
+  },
+  "limitations": [
+    "Candidate TUI is a host process; harness-eval applies to tool children only.",
+    "Harness quick/risk scripts were absent from the external checkout; .harness/config.toml was also absent.",
+    "V2 candidate Git status was blocked by system config access; no workaround was attempted.",
+    "No hosted CI was run; token usage and model-turn counts are unknown.",
+    "Neither candidate condition created a local commit."
+  ]
+}

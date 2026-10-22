@@ -1,0 +1,153 @@
+diff --git a/src/orca_discord_bridge/bot.py b/src/orca_discord_bridge/bot.py
+index 18a9e6f..cc5a388 100644
+--- a/src/orca_discord_bridge/bot.py
++++ b/src/orca_discord_bridge/bot.py
+@@ -23,6 +23,10 @@ log = logging.getLogger(__name__)
+ orca_group = app_commands.Group(name="orca", description="Orca/Codex bridge controls")
+ 
+ 
++class _StaleBindingValidationError(OrcaError):
++    """A stale saved binding could not be safely revalidated for forwarding."""
++
++
+ def _bridge(interaction: discord.Interaction) -> "BridgeBot":
+     assert isinstance(interaction.client, BridgeBot)
+     return interaction.client
+@@ -282,15 +286,20 @@ class BridgeBot(commands.Bot):
+         try:
+             async with message.channel.typing():
+                 await self.forward_to_codex(text, origin=f"Discord message {message.id}")
++        except _StaleBindingValidationError as exc:
++            log.warning("Could not validate the stale Orca binding; message was not forwarded: %s", exc)
+         except OrcaError as exc:
+             await message.reply(f"Orca 오류: {exc}", mention_author=False)
+ 
+     async def forward_to_codex(self, prompt: str, *, origin: str) -> None:
+-        handle = self.store.state.terminal_handle
++        saved_binding = self.store.state
++        handle = saved_binding.terminal_handle
+         if not handle:
+             raise OrcaError("No Orca terminal is connected")
+ 
+-        if not self.store.state.worktree_id or not self.store.state.pane_key:
++        saved_worktree_id = saved_binding.worktree_id
++        saved_pane_key = saved_binding.pane_key
++        if not saved_worktree_id or not saved_pane_key:
+             binding = await self.orca.validate_codex_binding(handle)
+             self.store.connect(binding.handle, binding.worktree_id, binding.pane_key)
+         else:
+@@ -298,10 +307,13 @@ class BridgeBot(commands.Bot):
+             # silently route status from a stale pane mapping.
+             binding = await self.orca.resolve_binding(handle)
+             if (
+-                binding.worktree_id != self.store.state.worktree_id
+-                or binding.pane_key != self.store.state.pane_key
++                binding.worktree_id != saved_worktree_id
++                or binding.pane_key != saved_pane_key
+             ):
+-                binding = await self.orca.validate_codex_binding(handle)
++                try:
++                    binding = await self.orca.validate_codex_binding(handle)
++                except OrcaError as exc:
++                    raise _StaleBindingValidationError(str(exc)) from exc
+                 self.store.connect(binding.handle, binding.worktree_id, binding.pane_key)
+ 
+         result = await self.orca.exchange(binding, prompt)
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..5378ce4 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -211,6 +211,93 @@ def test_forward_output_routing_and_chunks(tmp_path, output, interrupted):
+     asyncio.run(run())
+ 
+ 
++def test_forward_recovers_stale_binding_after_layout_change(tmp_path):
++    class Channel(bot_module.discord.TextChannel):
++        def __init__(self): self.sent=[]
++        async def send(self, value): self.sent.append(value)
++
++    async def make_bot(name):
++        bot=bot_module.BridgeBot(settings(tmp_path/f'{name}.json'))
++        bot.store.connect('saved-term','saved-wt','saved-tab:saved-leaf')
++        channel=Channel()
++        bot.get_channel=lambda _:channel
++        return bot,channel
++
++    async def run():
++        validated=orca.TerminalBinding('saved-term','validated-wt','validated-tab','validated-leaf')
++        result=orca.ExchangeResult('owned assistant reply','done')
++
++        # Pane-only and worktree-only layout changes both require validation. The
++        # exchange and persisted state must use what validation returned.
++        for name,live in (
++            ('pane-change',orca.TerminalBinding('saved-term','saved-wt','new-tab','new-leaf')),
++            ('worktree-change',orca.TerminalBinding('saved-term','new-wt','saved-tab','saved-leaf')),
++        ):
++            bot,channel=await make_bot(name)
++            bot.orca=NS(resolve_binding=AsyncMock(return_value=live),
++                        validate_codex_binding=AsyncMock(return_value=validated),
++                        exchange=AsyncMock(return_value=result))
++
++            await bot.forward_to_codex('owned prompt',origin='owned')
++
++            bot.orca.resolve_binding.assert_awaited_once_with('saved-term')
++            bot.orca.validate_codex_binding.assert_awaited_once_with('saved-term')
++            bot.orca.exchange.assert_awaited_once_with(validated,'owned prompt')
++            assert (bot.store.state.terminal_handle,bot.store.state.worktree_id,bot.store.state.pane_key)==(
++                'saved-term','validated-wt','validated-tab:validated-leaf')
++            assert json.loads(bot.store.path.read_text())=={
++                'terminal_handle':'saved-term',
++                'worktree_id':'validated-wt',
++                'pane_key':'validated-tab:validated-leaf',
++            }
++            assert channel.sent==['owned assistant reply']
++            await bot.close()
++
++        # An unchanged identity is exchanged directly without a second validation.
++        bot,channel=await make_bot('unchanged')
++        unchanged=orca.TerminalBinding('saved-term','saved-wt','saved-tab','saved-leaf')
++        bot.orca=NS(resolve_binding=AsyncMock(return_value=unchanged),
++                    validate_codex_binding=AsyncMock(),
++                    exchange=AsyncMock(return_value=result))
++
++        await bot.forward_to_codex('owned prompt',origin='owned')
++
++        bot.orca.resolve_binding.assert_awaited_once_with('saved-term')
++        bot.orca.validate_codex_binding.assert_not_awaited()
++        bot.orca.exchange.assert_awaited_once_with(unchanged,'owned prompt')
++        assert channel.sent==['owned assistant reply']
++        await bot.close()
++
++        # Failed validation must neither exchange/send a channel reply nor change
++        # the last known good binding in memory or on disk.
++        bot,channel=await make_bot('validation-failed')
++        saved_state=json.loads(bot.store.path.read_text())
++        changed=orca.TerminalBinding('saved-term','new-wt','saved-tab','saved-leaf')
++        bot.orca=NS(resolve_binding=AsyncMock(return_value=changed),
++                    validate_codex_binding=AsyncMock(side_effect=orca.OrcaError('validation failed')),
++                    exchange=AsyncMock())
++
++        @asynccontextmanager
++        async def typing():
++            yield
++
++        message=NS(author=NS(id=2,bot=False),webhook_id=None,guild=NS(id=1),
++                   channel=NS(id=3,typing=typing),content='owned prompt',reference=None,
++                   id=9,reply=AsyncMock())
++        await bot.on_message(message)
++
++        bot.orca.validate_codex_binding.assert_awaited_once_with('saved-term')
++        bot.orca.exchange.assert_not_awaited()
++        assert channel.sent==[]
++        message.reply.assert_not_awaited()
++        assert (bot.store.state.terminal_handle,bot.store.state.worktree_id,bot.store.state.pane_key)==(
++            'saved-term','saved-wt','saved-tab:saved-leaf')
++        assert json.loads(bot.store.path.read_text())==saved_state
++        await bot.close()
++
++    asyncio.run(run())
++
++
+ def test_state_roundtrip_and_malformed_json(tmp_path):
+     path=tmp_path/'owned/state.json';store=StateStore(path)
+     assert store.state.terminal_handle is None
