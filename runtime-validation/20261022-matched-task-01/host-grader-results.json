@@ -26,7 +26,11 @@
     "valid object state loads and round-trips",
     "connect/disconnect persist canonical state"
   ],
-  "network_or_live_services": "not used",
+  "live_services": "not used",
+  "network_observations": [
+    "The first v1 TUI implementation-worker wheel build attempted pip's automatic PyPI version check and failed because SSL support was unavailable; no dependencies were fetched.",
+    "All final pip build/install reruns set PIP_NO_INDEX=1 and PIP_DISABLE_PIP_VERSION_CHECK=1."
+  ],
   "logs": [
     "v1-build.log",
     "v1-install.log",

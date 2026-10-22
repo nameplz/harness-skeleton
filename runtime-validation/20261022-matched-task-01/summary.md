@@ -11,6 +11,8 @@ The requested change makes `StateStore._load()` return an empty state when valid
 
 The independent host grader rebuilt from a separate source copy plus each saved condition diff and graded outside candidate control. Both wheel builds produced SHA-256 `5acba3395d1d9209bedefbaec171d463ddfafefe5ff33d94c922c2b0d09e166f`. Logs, task prompt, setup manifests, and structured results are preserved beside this file. Exact task diffs are kept as `v1.patch.gz` and `v2.patch.gz`; their uncompressed SHA-256 values are in `evidence-manifest.json`.
 
+The first v1 TUI implementation-worker wheel build attempted pip's automatic PyPI version check and failed because SSL support was unavailable; it fetched no dependencies. All final pip build/install reruns set `PIP_NO_INDEX=1 PIP_DISABLE_PIP_VERSION_CHECK=1`. Future evaluation runs should set both from the start.
+
 The observed blocker was fixed in `evals/native_runtime.py`: Darwin now grants only unique canonical `libffi*.dylib` files inside the trusted interpreter `LIBDIR`. Tests verify internal symlink deduplication, rejection of a symlink escaping that directory, and file-only sandbox grants. The no-model sandbox preflight and an isolated `import _ctypes` passed after this fix.
 
 This is one matched pair and does not establish general quality, cost, or time superiority. The TUI parent remains a trusted host process, not a VM; MCP scope and universal descendant cleanup remain unmeasured. CI and the draft PR have not run yet.
