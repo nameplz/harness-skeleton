@@ -1,0 +1,74 @@
+{
+  "task_id": "T09",
+  "task_name": "Preserve slash-command behavior",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "grader_mode": "The host applies only the final candidate patch to the pinned snapshot, builds and installs offline, runs the full project suite, then runs the named regression test and verifies that the task's six command/prompt cases pass. The regression is the independent executable semantic check because the pinned product already follows the requested slash-command behavior.",
+  "budget_seconds": 1800,
+  "task_sha256": "45fcc8e9df588b14c071ed8642c56d840381a3c4ea0e0ca73902d3defd4677a0",
+  "prompt_sha256": "f0a46ae9133b138afdefe78188e8cf5fe9e6b130fc84691a62b6010d52747803",
+  "host_grader_sha256": "155fc997f6accc11c50f214cfa9127358e0766b93d291a8bd92b46801d41da83",
+  "criteria": [
+    {
+      "id": "send_once",
+      "check": "/clear, /compact, /new, /help, and /status each issue exactly one terminal send."
+    },
+    {
+      "id": "status_only_screen",
+      "check": "Only /status reads the screen; it excludes the prompt and terminal decoration."
+    },
+    {
+      "id": "acknowledgements",
+      "check": "/clear, /compact, and /new acknowledge the command."
+    },
+    {
+      "id": "ordinary_prompt",
+      "check": "Ordinary prompts use structured status and never read the terminal screen."
+    },
+    {
+      "id": "regression_tests",
+      "check": "Extend test_slash_screen_exception_is_narrow to cover send count, acknowledgements, filtered /status, and ordinary-prompt routing."
+    },
+    {
+      "id": "build_and_suite",
+      "check": "A fresh wheel built from the candidate installs offline and the full project suite passes."
+    },
+    {
+      "id": "scope",
+      "check": "Product changes are limited to src/orca_discord_bridge/orca.py and tests/test_harness_compatibility.py."
+    },
+    {
+      "id": "external_effects",
+      "check": "No live Discord/Orca calls, successful network access, publication, push, or merge."
+    }
+  ],
+  "baseline_calibration": {
+    "result": "expected failure on incomplete regression coverage",
+    "status": "expected_fail",
+    "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+    "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+    "suite": "58 passed",
+    "focused": "5 passed",
+    "checks": [
+      "Pinned baseline wheel/install and full suite pass.",
+      "Existing named regression has five cases; frozen acceptance requires six, including ordinary-prompt routing and complete send/ack/filter assertions."
+    ]
+  },
+  "batch": "full",
+  "pair_id": "F20",
+  "task_instance": "standard",
+  "condition_order": "v2_then_v1",
+  "full_plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "positive_control_calibration": {
+    "result": "pass",
+    "status": "pass",
+    "patch_sha256": "43367756fb138562a35c39cb18118736bffb0fc956b1cbb1b1ca8c82efefb10f",
+    "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+    "suite": "59 passed",
+    "focused": "6 passed",
+    "scope": true,
+    "checks": [
+      "One-file test-only regression patch passes exact frozen semantics, offline wheel/install, full suite, and six focused cases."
+    ]
+  }
+}

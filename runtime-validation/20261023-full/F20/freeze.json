@@ -1,0 +1,28 @@
+{
+  "pair_id": "F20",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "frozen_inputs": {
+    "task.md": "45fcc8e9df588b14c071ed8642c56d840381a3c4ea0e0ca73902d3defd4677a0",
+    "task-prompt.txt": "f0a46ae9133b138afdefe78188e8cf5fe9e6b130fc84691a62b6010d52747803",
+    "acceptance.json": "8888798e6a91425336f0424258687de6399cb8b591d8702b8b0f7f479f02bbd0",
+    "host-grader.py": "891893ce50df803e72019f555bafbaf48511c84d4dd724721ea66c09714b809a",
+    "semantic.py": "f8d4c091d3cab7f6f7226789594f145d7c648ad0f39f0853c5e6fdc9d265564f",
+    "baseline_test_harness_compatibility.py": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+    "baseline-grade.json": "810b2bf47f24526c425784c511561ba181de2d9541dc285dc15c89a55c28bab3",
+    "positive-control-grade.json": "5fc3f1304f344b418c2597d65a4702a7633fdb8be24ad138fcca07419e48a2f3",
+    "positive-control.patch": "43367756fb138562a35c39cb18118736bffb0fc956b1cbb1b1ca8c82efefb10f"
+  },
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+  "positive_control_patch_sha256": "43367756fb138562a35c39cb18118736bffb0fc956b1cbb1b1ca8c82efefb10f",
+  "baseline_calibration": "Pinned baseline wheel/install and full 58-test suite pass; the named regression has 5 cases, below the frozen six-case requirement.",
+  "positive_control_calibration": "One-file regression-only patch passes offline wheel/install, 59-test full suite, six focused cases, semantics, and scope.",
+  "order": "v2_then_v1",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "budget_seconds_per_condition": 1800,
+  "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+  "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+  "network": "offline pip and local fake Orca only"
+}

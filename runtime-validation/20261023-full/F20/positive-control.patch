@@ -1,0 +1,56 @@
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..b25766f 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -125,16 +125,47 @@ def test_busy_rejected_before_send(cli, busy):
+     assert not any(c[:2] == ['terminal','send'] for c in json.loads(path.read_text())['calls'])
+ 
+ 
+-@pytest.mark.parametrize('command,screen', [('/status',True),('/clear',False),('/compact',False),('/new',False),('/help',False)])
+-def test_slash_screen_exception_is_narrow(cli, monkeypatch, command, screen):
++@pytest.mark.parametrize('command', ['/status','/clear','/compact','/new','/help','ordinary prompt'])
++def test_slash_screen_exception_is_narrow(cli, monkeypatch, command):
+     client, path = cli
++    ordinary_prompt = command == 'ordinary prompt'
++    if ordinary_prompt:
++        path.write_text(json.dumps({
++            'calls': [],
++            'index': 0,
++            'snapshots': [row(), row('done','owned final',2), row('done','owned final',2)],
++        }))
++
+     async def short_sleep(_):
+         return None
+     monkeypatch.setattr(orca.asyncio, 'sleep', short_sleep)
+     result = asyncio.run(client.exchange(orca.TerminalBinding('term','wt','tab','leaf'),command))
+     calls = json.loads(path.read_text())['calls']
+-    assert any(c[:2] == ['terminal','read'] for c in calls) is screen
+-    assert result.state == 'command'
++    sends = [c for c in calls if c[:2] == ['terminal','send']]
++    reads = [c for c in calls if c[:2] == ['terminal','read']]
++    assert len(sends) == 1
++    assert sends[0][sends[0].index('--text') + 1] == command
++
++    if command == '/status':
++        assert len(reads) == 1
++        assert result.state == 'command'
++        assert result.text == 'Status: ready'
++    elif command in {'/clear','/compact','/new'}:
++        assert not reads
++        assert result.state == 'command'
++        assert 'Codex 명령을 전달했습니다' in result.text
++        assert f'`{command}`' in result.text
++    elif command == '/help':
++        assert not reads
++        assert result.state == 'command'
++        assert 'Codex slash command를 전달했습니다' in result.text
++    else:
++        assert ordinary_prompt
++        assert not reads
++        assert result.state == 'done'
++        assert result.text == 'owned final'
++        status_calls = [c for c in calls if c[:3] == ['worktree','ps','--limit']]
++        assert len(status_calls) >= 3
+ 
+ 
+ def test_non_codex_rejected(cli):
