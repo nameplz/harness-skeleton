@@ -1,0 +1,60 @@
+{
+  "condition": "v1",
+  "prompt_request_id": "not captured; TUI send returned no receipt in the local command output",
+  "duration": "6m 54s (TUI-reported)",
+  "duration_ms": 414000,
+  "tokens": null,
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "candidate_branch": "eval-base; feat-task creation denied by sandbox",
+  "candidate_commits": 0,
+  "main_prompt_count": 1,
+  "delegated_agent_launches": 4,
+  "model_turns": "not captured",
+  "tui_candidate_suite": "83 passed",
+  "tui_focused_acceptance": "38 passed; parser, snake-case client, literal argv and non-Codex",
+  "reviews": {
+    "implementation_worker": "pass; scope limited to parser and requested regressions",
+    "code_review": "pass; no findings",
+    "test_review": "pass; no findings",
+    "security_review": "pass; no findings"
+  },
+  "product_diff": {
+    "files": [
+      "src/orca_discord_bridge/orca.py",
+      "tests/test_harness_compatibility.py",
+      "tests/test_orca_parsing.py"
+    ],
+    "insertions": 202,
+    "deletions": 20,
+    "patch_sha256": "4ab8c4798144a56c5c93beef28cac23d9d99b7055f996857f6831ee31e641665"
+  },
+  "host_grade": {
+    "raw_status": "fail",
+    "fresh_wheel_build": "pass",
+    "offline_install": "pass",
+    "wheel_sha256": "3727ea8a11ecf7cae979cd611ce27ed1132aa98251e9c60efdd9c48dee450e23",
+    "full_project_suite": "83 passed in 5.39s",
+    "frozen_focused_step": "failed to collect because the grader expected two test node names absent from the task prompt; candidate added equivalent tests under different names",
+    "host_semantic": "pass; aliases, envelopes, required identity, exact worktree/pane and non-Codex rejection",
+    "scope": true
+  },
+  "supplemental_host_focused": "27 passed in 0.79s using the candidate-added test node IDs plus existing literal-argv and non-Codex nodes; supplemental only and does not alter frozen raw grade",
+  "process_observations": {
+    "harness_profile": "unavailable; snapshot lacks .harness/validation.json",
+    "network_or_live_services": "none observed",
+    "remote_writes": false,
+    "pip_environment_deviation": [],
+    "candidate_git": "feature branch creation denied at .git/refs/heads/feat-task.lock; no commit attempted",
+    "candidate_hook": "synthetic SessionStart receipt observed; no direct project hook command reported",
+    "hosted_ci": "not run",
+    "phase_metadata": "left pending; phases/ preserved untracked to maintain exact product scope"
+  },
+  "metrics_limits": {
+    "token_usage": "unknown; TUI did not provide per-condition usage",
+    "shell_command_counts": "not captured",
+    "subagent_turns": "not captured; implementation plus three reviewers observed"
+  }
+}

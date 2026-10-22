@@ -1,0 +1,12 @@
+{
+  "pair_id": "F08",
+  "status": "complete; both raw frozen host grades fail at focused-test collection because expected node IDs were not required by TASK.md; supplemental equivalent checks pass",
+  "condition_order": "v1_then_v2",
+  "model_runs_completed": 2,
+  "v1_candidate_suite": "83 passed",
+  "v2_candidate_suite": "83 passed",
+  "v1_host_grade": "raw fail; wheel/install, suite, semantic, scope pass; frozen focused node collection fails",
+  "v2_host_grade": "raw fail; wheel/install, suite, semantic, scope pass; frozen focused node collection fails",
+  "v1_supplemental_focused": "27 passed",
+  "v2_supplemental_focused": "27 passed"
+}
