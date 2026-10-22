@@ -2,6 +2,8 @@
 
 Both native TUI conditions used the same Orca Discord Bridge snapshot, baseline commit, task bytes, prompt, Codex CLI `0.163.0`, Python `3.13.12`, model `gpt-6-luna`, `max` reasoning, and `harness-eval (workspace, never)` child-tool profile. Setup manifests record each source-file hash. The task and prompt hashes are `2ed69d333d60667f2aecc845e1408ed4e7b6bd2becace1c0e93569f633828958` and `f2a47cf34308ff8fa181cbdcf45d234e62edd2e4ca80b0a3bf8e9cc6a61c07f3`.
 
+This is exploratory evidence only, not a formal pilot pair: neither condition had a predeclared wall-clock execution budget. Both measured durations are preserved below; the pair is excluded from the issue's 24-run pilot count.
+
 The requested change makes `StateStore._load()` return an empty state when valid JSON has a non-object root, while retaining missing-file, malformed-JSON, valid-object, and persistence behavior. The five root-type cases were `null`, array, string, number, and boolean. No live Discord or Orca services were used.
 
 | Condition | Workflow and observed effort | TUI suite result | Independent host result |
