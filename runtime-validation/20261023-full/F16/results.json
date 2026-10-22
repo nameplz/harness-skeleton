@@ -1,0 +1,67 @@
+{
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "batch": "full",
+  "condition_order": "v1_then_v2",
+  "conditions": {
+    "v1": {
+      "host_grade": "host-grade-v1.json",
+      "patch": "v1.patch",
+      "patch_sha256": "c63dcfbc38c821e1569421ae0c140accd3c4ecfd8543c110ff49bfa85df4aeb3",
+      "raw_semantic_failures": [
+        "context_authorization_and_data_boundary",
+        "delimiter_forgery"
+      ],
+      "raw_status": "fail",
+      "reviews": {
+        "code_review": "passed on final patch with no findings",
+        "security_review": "passed on final patch with no findings",
+        "test_review": "passed on final patch after adding modal-path forgery and replied-user mention assertions; first review found both gaps"
+      },
+      "run_record": "v1-run.json",
+      "setup_record": "v1-setup.json",
+      "suite": "66 passed in 5.30s",
+      "supplemental_semantic": "pass all four checks with actual marker/label alignment"
+    },
+    "v2": {
+      "host_grade": "host-grade-v2.json",
+      "patch": "v2.patch",
+      "patch_sha256": "67611055d48134d5080da683f655a082d27217800c893adf95239c568f3919a3",
+      "raw_semantic_failures": [
+        "context_authorization_and_data_boundary",
+        "delimiter_forgery"
+      ],
+      "raw_status": "fail",
+      "reviews": {
+        "code_review": "passed on final patch with no findings",
+        "security_review": "passed on final patch with no findings",
+        "test_review": "not a separate v2 T1 gate; two requested read-only reviewers were code and security"
+      },
+      "run_record": "v2-run.json",
+      "setup_record": "v2-setup.json",
+      "suite": "62 passed in 5.10s",
+      "supplemental_semantic": "pass all four checks with actual marker alignment"
+    }
+  },
+  "limitations": [
+    "The frozen semantic checker recognizes only a fixed set of boundary strings and the legacy instruction label; both candidates use different explicit boundary tokens, and v1 also uses an authenticated-instruction label. Supplemental matcher-aligned checks pass but do not replace the failed raw grades.",
+    "TUI parent was a host process; harness-eval applied to tool children only.",
+    "The candidate lacks scripts/harness.py, so its risk wrapper was unavailable.",
+    "Candidate branch/commit creation was sandbox-blocked in both conditions; no candidate commit.",
+    "No hosted CI, network, live service, publication, push, or merge occurred.",
+    "Token use and exact model-turn counts are unknown."
+  ],
+  "metrics_limits": {
+    "model_turn_counts": "not captured",
+    "token_usage": "unknown",
+    "v1_duration": "7m 13s phase; 9m 37s TUI total",
+    "v2_duration": "5m 26s TUI-reported"
+  },
+  "pair_decision": "fail: both frozen raw host grades fail two semantic matcher checks, although independent post-run diagnostics recognizing each candidate's boundary tokens and instruction label pass all four semantic checks. Raw grades remain authoritative and unmodified.",
+  "pair_id": "F16",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "prompt_sha256": "d1e8feba0ba39d9797e21e45006b268869e0c5470410f6bb175ba83dca791754",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "task_id": "T08",
+  "task_instance": "webhook_injection",
+  "task_sha256": "81ca0cdbc848ab2ce41f80de79cfddbe040507360ac2085919233cc063295e84"
+}

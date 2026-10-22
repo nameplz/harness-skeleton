@@ -1,0 +1,7 @@
+# F16 — T08 webhook injection
+
+Both conditions passed offline wheel build/install, their full suites (v1: 66; v2: 62), exact scope, and required final read-only reviews. Both frozen raw host grades fail the same two semantic checks: context authorization/data boundary and delimiter forgery. The checker accepts only a fixed list of marker strings and a fixed legacy instruction label, while these candidates use different explicit boundary tokens (and v1 uses an authenticated-instruction label). Separate post-run diagnostics accepting the actual candidate formatting passed all four semantic checks for each patch. Those diagnostics do not replace or alter either failed frozen grade; the matched-pair decision remains **fail**.
+
+v1's test reviewer requested stronger modal-path forgery and replied-user mention assertions; both were added and final reviews passed. v2 restored disconnected-modal and Orca-error regression assertions before its final 62-test run; its final code and security reviews passed. Candidate branch/commit creation was blocked by sandbox Git ref/index locks, so both patches remain uncommitted. The candidate checkout lacks `scripts/harness.py`, hosted CI was not run, and no network, live services, push, publish, or merge occurred.
+
+See the frozen task and calibration, setup/run records, patches, raw host grades, supplemental diagnostics, and pair result in this directory.

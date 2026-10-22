@@ -1,0 +1,6 @@
+{
+  "diagnostic": "post-run semantic matcher alignment; original frozen grader unchanged",
+  "exit_code": 0,
+  "output": "{\"context_authorization_and_data_boundary\": {\"detail\": \"unauthorized context action stopped; authorized modal sent once with selected text fenced as data and user instruction last\", \"status\": \"pass\"}, \"delimiter_forgery\": {\"detail\": \"source-embedded closing marker remains inert inside the selected-message data boundary\", \"status\": \"pass\"}, \"explicit_message_gate\": {\"detail\": \"webhook content caused no call; configured human message caused exactly one call with its text\", \"status\": \"pass\"}, \"mentions_disabled\": {\"detail\": \"BridgeBot default allowed_mentions blocks everyone, users, roles, and replied-user pings\", \"status\": \"pass\"}}\n",
+  "alignment": "accepted the actual candidate boundary tokens and authenticated-user instruction label in both modal and forgery checks"
+}

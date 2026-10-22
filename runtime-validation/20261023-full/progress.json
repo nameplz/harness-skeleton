@@ -4,12 +4,12 @@
   "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
   "required_matched_pairs": 36,
   "required_model_runs": 72,
-  "completed_pairs": 15,
-  "completed_model_runs": 30,
-  "remaining_pairs": 21,
-  "remaining_model_runs": 42,
+  "completed_pairs": 16,
+  "completed_model_runs": 32,
+  "remaining_pairs": 20,
+  "remaining_model_runs": 40,
   "condition_order_counts": {
-    "v1_then_v2": 10,
+    "v1_then_v2": 11,
     "v2_then_v1": 5
   },
   "completed_pair_ids": [
@@ -27,10 +27,11 @@
     "F12",
     "F13",
     "F14",
-    "F15"
+    "F15",
+    "F16"
   ],
-  "next_pair_id": "F16",
-  "next_task": "T08 webhook_injection",
-  "next_condition_order": "v1_then_v2",
+  "next_pair_id": "F17",
+  "next_task": "T02 standard",
+  "next_condition_order": "v2_then_v1",
   "updated": "2026-10-23"
 }

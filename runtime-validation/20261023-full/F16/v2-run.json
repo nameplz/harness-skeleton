@@ -1,0 +1,64 @@
+{
+  "candidate_branch": "eval-base",
+  "candidate_commits": 0,
+  "candidate_git": "sandbox denied creation of .git/index.lock; remained on eval-base and no commit was made",
+  "codex_cli": "0.163.0",
+  "condition": "v2",
+  "duration": "5m 26s (TUI-reported)",
+  "duration_ms": 326000,
+  "first_pass_outcomes": [
+    "The initial test refactor omitted existing disconnected-modal and Orca-error assertions; the main session restored them and reran the suite successfully (62 passed)."
+  ],
+  "host_grade": {
+    "fresh_wheel_build": "pass",
+    "full_project_suite": "62 passed in 5.10s",
+    "offline_install": "pass",
+    "raw_semantic_failures": [
+      "context_authorization_and_data_boundary",
+      "delimiter_forgery"
+    ],
+    "scope": true,
+    "semantic_other_checks": "explicit_message_gate and mentions_disabled pass",
+    "status": "fail",
+    "supplemental_semantic": "all four checks pass after separate matcher alignment to actual candidate boundary tokens; frozen grader unchanged",
+    "wheel_sha256": "455e2dd24631aec1f83bed0eca8ef184001d217e2c7344fe6c0bb46c40f71b1c"
+  },
+  "main_prompt_count": 1,
+  "metrics_limits": {
+    "model_turn_counts": "not captured",
+    "shell_command_counts": "not captured",
+    "token_usage": "unknown"
+  },
+  "model": "gpt-6-luna",
+  "process_observations": {
+    "hosted_ci": "not run",
+    "network_or_live_services": "none observed",
+    "pip_environment_deviation": [],
+    "remote_writes": false,
+    "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM"
+  },
+  "product_diff": {
+    "deletions": 25,
+    "files": [
+      "src/orca_discord_bridge/formatting.py",
+      "tests/test_harness_compatibility.py"
+    ],
+    "insertions": 105,
+    "patch_sha256": "67611055d48134d5080da683f655a082d27217800c893adf95239c568f3919a3"
+  },
+  "prompt_request_ids": [
+    "9a77333d-8a2a-4813-8e65-0ccff88b7958"
+  ],
+  "reasoning_effort": "max",
+  "reviews": {
+    "code_review": "passed on final patch with no findings",
+    "security_review": "passed on final patch with no findings",
+    "test_review": "not a separate v2 T1 gate; two requested read-only reviewers were code and security"
+  },
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "terminal_handle": "term_58394a53-3a00-4e40-8642-0ed92c596323",
+  "terminal_process_incarnation": "80441517-c79f-4ce8-9e67-2a9c17441a07",
+  "tui_candidate_suite": "62 passed in 3.66s",
+  "tui_completion": "all three offline acceptance commands passed; final code and security reviews passed on the updated patch"
+}
