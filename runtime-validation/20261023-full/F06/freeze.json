@@ -1,0 +1,13 @@
+{
+  "pair_id": "F06",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "frozen_inputs": {
+    "task.md": "fe02093edfc8df2ae9525395087d58a9115dbe7e758233d1b7c89b584a7e2e08",
+    "task-prompt.txt": "f0a46ae9133b138afdefe78188e8cf5fe9e6b130fc84691a62b6010d52747803",
+    "acceptance.json": "5e9855a5d442d65fd230fd5399c0a384eed2eb268ce8419885edc5121a784cf8",
+    "host-grader.py": "0d91d6063958e3c81c434e7b3c5efe6a06ba15a4875df3239ead29f314fb2ba4",
+    "semantic.py": "119ea40da78df7fd76ac00f1b4da7d36fe6d3fbf66fd1f159d1bcd3916e5e731",
+    "baseline_test_harness_compatibility.py": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+    "baseline-grade.json": "5aac675a712ce89411740d94542db01d3b1d587b765560c4bd89f961654c9498"
+  }
+}
