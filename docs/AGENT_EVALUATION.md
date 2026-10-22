@@ -6,7 +6,7 @@ Updated 2026-10-22. The handoff asks whether a Codex-native workflow preserves t
 
 Use at least 20 real-use task types. The pilot covers 12 representative task instances, one matched pair each. The separate full batch covers all 20 task types in 36 matched pairs: 20 task instances once and 16 predeclared task instances or variants a second time. The handoff sets no numeric budget, so use the same hard 30-minute wall-clock allowance per condition, from task submission through the final candidate response; host grading is outside that clock. Stop without extension at the cap and retain partial results. Record token usage as an outcome. Freeze task, prompt, acceptance, host-owned grader, model/reasoning, budget, starting snapshot, runtime and permission boundary before the paired runs. Randomize v1/v2 order where practical, reset the candidate between conditions, and retain failures, timeouts and unknown outcomes. Keep the grader and expected results outside candidate control. Synthetic suites and dry-run counts do not count toward either allocation.
 
-The existing pair records the same model, reasoning effort, snapshot, task and prompt hashes, and child-tool profile. Its setup manifests do not state a predeclared execution budget. Although both measured durations were under 30 minutes, do not retroactively count it against the formal pilot. All 24 pilot runs (12 pairs) remain; the separate full evaluation requires 72 model runs (36 pairs).
+The existing pair records the same model, reasoning effort, snapshot, task and prompt hashes, and child-tool profile. Its setup manifests do not state a predeclared execution budget. Although both measured durations were under 30 minutes, do not retroactively count it against the formal pilot. The separate full evaluation requires 72 model runs (36 pairs).
 
 ## Predeclared real-use task bank
 
@@ -116,6 +116,10 @@ One pair does not establish statistical superiority or non-inferiority. The TUI 
 3. Before each condition, reinitialize only the exact one-time-approved private candidate path from the pinned snapshot and verify source plus `.codex` hook/command hashes. Review the current hook and trust in the normal UI; if new trust is required, stop for fresh approval. Reset the starting state between conditions. Have the operator inspect each diff and run the same host-owned acceptance outside candidate control. Complete the 12-pair pilot, then the separate 36-pair evaluation over at least 20 real-use task types. Set `PIP_NO_INDEX=1 PIP_DISABLE_PIP_VERSION_CHECK=1` before any pip command.
 
 The handoff recommends 20–30 real-use task types across ordinary edits, bugs, regressions, API/module changes, dependencies, CI and security-sensitive changes. The live issue's 24 pilot and separate 72 full model runs are required and map to 12 and 36 matched pairs. Retain failures and unknowns, and do not substitute the earlier `baseline`/`harness` ablation or synthetic fixture counts for v1/v2 task results.
+
+## Formal pilot progress
+
+As of 2026-10-22, one pilot pair is complete: 2 of 24 pilot model runs (1 of 12 pairs). The separate full evaluation remains at 0 of 72 runs. The first pair is T19, operational documentation, with both conditions passing the host-owned source-to-README acceptance rubric. See [`runtime-validation/20261022-pilot-t19/summary.md`](../runtime-validation/20261022-pilot-t19/summary.md) for metrics, review findings, frozen prompt and final README outputs.
 
 ## Metrics and interpretation
 
