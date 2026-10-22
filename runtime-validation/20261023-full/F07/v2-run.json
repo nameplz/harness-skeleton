@@ -1,0 +1,55 @@
+{
+  "condition": "v2",
+  "prompt_request_id": "34850b1d-2e7e-4b0e-b826-7be3ebf9a2e7",
+  "duration": "2m 58s (TUI-reported)",
+  "duration_ms": 178000,
+  "tokens": null,
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "candidate_branch": "eval-base",
+  "candidate_commits": 0,
+  "main_prompt_count": 1,
+  "model_turns": "not captured",
+  "tui_candidate_suite": "59 passed in 5.81s",
+  "reviews": {
+    "workflow_route": "v2 T1 main-session implementation",
+    "candidate_self_review": "pass; final scope, syntax, and executable mode checked",
+    "independent_review_agents": "not launched under T1 route"
+  },
+  "product_diff": {
+    "files": [
+      "start.command",
+      "tests/test_harness_compatibility.py"
+    ],
+    "insertions": 108,
+    "deletions": 0,
+    "patch_sha256": "9ba5009d8443996a98cef72a8a5a0c53b8baed4310978ad9c81032ac8dbf1fd4"
+  },
+  "host_grade": {
+    "status": "pass",
+    "fresh_wheel_build": "pass",
+    "offline_install": "pass",
+    "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+    "full_project_suite": "59 passed in 6.23s",
+    "semantic_checks": "pass; 1 focused regression passed, including paths with spaces, missing-Python guidance, token redaction, first install, and venv reuse",
+    "scope": true
+  },
+  "process_observations": {
+    "harness_risk_check": "unavailable; product snapshot lacks scripts/harness.py and .harness/config.toml",
+    "network_or_live_services": "none observed",
+    "remote_writes": false,
+    "pip_environment_deviation": [
+      "none observed"
+    ],
+    "candidate_git": "local commit denied creating .git/index.lock; no bypass attempted",
+    "candidate_hook": "no project hook command reported; sample Git hooks disabled",
+    "hosted_ci": "not run"
+  },
+  "metrics_limits": {
+    "token_usage": "unknown; TUI did not provide per-condition usage",
+    "shell_command_counts": "not captured",
+    "subagent_turns": "not captured"
+  }
+}
