@@ -1,0 +1,26 @@
+{
+  "pair_id": "F11",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "frozen_inputs": {
+    "task.md": "77f07e5cad3d12dbada23efed713782cf31cf63b0b7dc5338c465a623bc4c9da",
+    "task-prompt.txt": "f0a46ae9133b138afdefe78188e8cf5fe9e6b130fc84691a62b6010d52747803",
+    "acceptance.json": "daee0fa224483ec5e91eb60560a44ac7a76751de6b7793ee26f72899f59ebf4a",
+    "host-grader.py": "88ab666c03123315177e3808c531488bb7bab53bb3975eca7affd0a8661e21a9",
+    "semantic.py": "0d0756533962c7c3e3a94aed1864c5c9185e683883a5bbb4e230366b749eb403",
+    "baseline-grade.json": "84f4e739675b61a4bbd157cbb91dd8bf0157bf06e64cf2f7cafce71cc43f7d3c",
+    "positive-control-grade.json": "75e0c8248705fd065f66e0f85bb7dd43bc8c26c52577ba044807917e972e0a51"
+  },
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+  "positive_control_patch_sha256": "9007d89b5f59f7032be1318a5128136323afe2064e6ba70565d67f02fd6d3c5e",
+  "baseline_calibration": "Pinned baseline wheel builds/installs offline and 58 tests pass; host semantic check detects a forged closing reply delimiter; focused unresolved-reply test is absent.",
+  "positive_control_calibration": "Synthetic patch passes exact allowed scope, fresh offline wheel/install, 59-test full suite, dynamically selected unresolved-reply test, and all host-owned semantics.",
+  "order": "v1_then_v2",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "budget_seconds_per_condition": 1800,
+  "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+  "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+  "network": "offline pip and local Discord message objects/mocks only"
+}
