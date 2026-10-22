@@ -1,0 +1,258 @@
+{
+  "task_id": "T17",
+  "task_name": "Add minimal GitHub Actions CI",
+  "common_setup": {
+    "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+    "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+    "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+    "task_sha256": "284cf8ac97aba1734170adce534e6e686454837449abe11b7c1d6d503b40a8c3",
+    "prompt_sha256": "8d1af6f1a77ab08091f815997913500c3cccd8647108cbcb2c3addb69fd4e4e7",
+    "host_grader_sha256": "a10c41b13c4e5b7e0762957b3489fbe452536217165c4e7a25f8725c47ce0802",
+    "semantic_sha256": "66eaa888790cb58d9e3034f9cf537484b68498a391132b199bf6ccb665922737",
+    "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+    "model": "gpt-6-luna",
+    "reasoning_effort": "max",
+    "codex_cli": "0.163.0",
+    "protocol_budget_seconds": 1800,
+    "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+    "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+    "condition_order": "v1 then v2",
+    "condition_order_balance_after_pair": {
+      "v1_then_v2": 6,
+      "v2_then_v1": 6
+    },
+    "pilot_progress_after_pair": {
+      "pilot_model_runs": 24,
+      "pilot_required_runs": 24,
+      "pilot_matched_pairs": 12,
+      "pilot_required_pairs": 12,
+      "full_model_runs": 0,
+      "full_required_runs": 72,
+      "full_matched_pairs": 0,
+      "full_required_pairs": 36
+    }
+  },
+  "baseline_calibration": {
+    "host_grade_status": "expected fail because workflow is absent",
+    "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+    "project_suite": "58 passed in 7.45s",
+    "build": true,
+    "offline_install": true
+  },
+  "conditions": {
+    "v1": {
+      "prompt_request_id": "882f92ba-61bc-41b7-8db8-e490bc24fdc1",
+      "session_id": null,
+      "duration": "5m 53s (TUI-reported)",
+      "duration_ms": 353000,
+      "tokens": null,
+      "model": "gpt-6-luna",
+      "reasoning_effort": "max",
+      "codex_cli": "0.163.0",
+      "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+      "candidate_branch": "eval-base",
+      "candidate_commits": 0,
+      "main_prompt_count": 1,
+      "delegated_agent_launches": 4,
+      "model_turns": "not captured",
+      "tui_candidate_suite": "58 passed in 5.31s",
+      "agent_workflow": {
+        "route": "v1 T3 implementation worker with independent code/test/security reviews",
+        "implementation": "pass",
+        "code_review": "pass; no findings",
+        "test_review": "pass; no findings",
+        "security_review": "pass; no findings",
+        "subagent_turns": "not captured"
+      },
+      "product_diff": {
+        "files": [
+          ".github/workflows/ci.yml"
+        ],
+        "insertions": 24,
+        "deletions": 0,
+        "patch_sha256": "1ba263ab733083a9d955b7adb1111b726ed47081ded726262e588e0582045e95",
+        "final_workflow_sha256": "5e7e6fad51ca10b8b8ab72280d422e0375ba9ccfd2520141ded88aa5fced8650",
+        "action_pins": [
+          "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+          "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065"
+        ]
+      },
+      "host_grade": {
+        "status": "pass",
+        "fresh_wheel_build": "pass",
+        "offline_install": "pass",
+        "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+        "full_project_suite": "58 passed in 5.15s",
+        "semantic_checks": {
+          "checkout_credentials": {
+            "detail": "checkout credentials are not persisted",
+            "status": "pass"
+          },
+          "hosted_runner": {
+            "detail": "uses an Ubuntu hosted runner",
+            "status": "pass"
+          },
+          "install_and_test": {
+            "detail": "runs only the required package installation and full pytest commands",
+            "status": "pass"
+          },
+          "job_gate": {
+            "detail": "the single test job runs on every configured event without broader job-level permissions",
+            "status": "pass"
+          },
+          "permissions": {
+            "detail": "contents: read is the only token permission",
+            "status": "pass"
+          },
+          "pinned_actions": {
+            "detail": "only checkout and setup-python, each pinned to a full 40-character commit SHA",
+            "status": "pass"
+          },
+          "python_matrix": {
+            "detail": "tests Python 3.11, 3.12, and 3.13",
+            "status": "pass"
+          },
+          "setup_python_matrix": {
+            "detail": "setup-python consumes the declared matrix version",
+            "status": "pass"
+          },
+          "shell_safety": {
+            "detail": "no event/user expressions in run commands and no secrets or pull_request_target",
+            "status": "pass"
+          },
+          "triggers": {
+            "detail": "unfiltered push and pull_request events only",
+            "status": "pass"
+          },
+          "workflow_yaml": {
+            "detail": "YAML parses as a unique-key mapping",
+            "status": "pass"
+          }
+        },
+        "scope": true
+      },
+      "process_observations": {
+        "harness_risk_check": "unavailable; product snapshot lacks scripts/harness.py and .harness/config.toml",
+        "network_or_live_services": "none observed",
+        "workflow_dispatch": false,
+        "remote_writes": false,
+        "pip_environment_deviation": [
+          "none observed"
+        ]
+      }
+    },
+    "v2": {
+      "prompt_request_id": "8ebe81ef-3314-402b-8de5-6b636d08dca2",
+      "session_id": "01a1647e-47dd-7b51-9ed4-8bf563a02fab",
+      "duration": "3m 00s (TUI-reported)",
+      "duration_ms": 180000,
+      "tokens": null,
+      "model": "gpt-6-luna",
+      "reasoning_effort": "max",
+      "codex_cli": "0.163.0",
+      "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+      "candidate_branch": "eval-base",
+      "candidate_commits": 0,
+      "main_prompt_count": 1,
+      "delegated_agent_launches": 2,
+      "model_turns": "not captured",
+      "tui_candidate_suite": "58 passed in 3.67s",
+      "agent_workflow": {
+        "route": "v2 T3 main-session implementation with independent read-only code and security reviews",
+        "implementation": "pass",
+        "code_review": "pass; no findings",
+        "test_review": "not required by v2 T3 route",
+        "security_review": "pass; no findings",
+        "subagent_turns": "not captured"
+      },
+      "product_diff": {
+        "files": [
+          ".github/workflows/ci.yml"
+        ],
+        "insertions": 24,
+        "deletions": 0,
+        "patch_sha256": "172b0a41a63e5d35c7ffa9093b6ed631cbc003a476bf941a5a22e6dc6e7a820c",
+        "final_workflow_sha256": "b8d95d59375f565a9e700f48c4b6d82ad6a499ca65460d081b1ff772c130d7f2",
+        "action_pins": [
+          "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+          "actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b"
+        ]
+      },
+      "host_grade": {
+        "status": "pass",
+        "fresh_wheel_build": "pass",
+        "offline_install": "pass",
+        "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+        "full_project_suite": "58 passed in 4.95s",
+        "semantic_checks": {
+          "checkout_credentials": {
+            "detail": "checkout credentials are not persisted",
+            "status": "pass"
+          },
+          "hosted_runner": {
+            "detail": "uses an Ubuntu hosted runner",
+            "status": "pass"
+          },
+          "install_and_test": {
+            "detail": "runs only the required package installation and full pytest commands",
+            "status": "pass"
+          },
+          "job_gate": {
+            "detail": "the single test job runs on every configured event without broader job-level permissions",
+            "status": "pass"
+          },
+          "permissions": {
+            "detail": "contents: read is the only token permission",
+            "status": "pass"
+          },
+          "pinned_actions": {
+            "detail": "only checkout and setup-python, each pinned to a full 40-character commit SHA",
+            "status": "pass"
+          },
+          "python_matrix": {
+            "detail": "tests Python 3.11, 3.12, and 3.13",
+            "status": "pass"
+          },
+          "setup_python_matrix": {
+            "detail": "setup-python consumes the declared matrix version",
+            "status": "pass"
+          },
+          "shell_safety": {
+            "detail": "no event/user expressions in run commands and no secrets or pull_request_target",
+            "status": "pass"
+          },
+          "triggers": {
+            "detail": "unfiltered push and pull_request events only",
+            "status": "pass"
+          },
+          "workflow_yaml": {
+            "detail": "YAML parses as a unique-key mapping",
+            "status": "pass"
+          }
+        },
+        "scope": true
+      },
+      "process_observations": {
+        "harness_risk_check": "unavailable; product snapshot lacks scripts/harness.py and .harness/config.toml",
+        "network_or_live_services": "none observed",
+        "workflow_dispatch": false,
+        "remote_writes": false,
+        "pip_environment_deviation": [
+          "pip --version and pip list --format=columns ran without PIP_NO_INDEX=1 and PIP_DISABLE_PIP_VERSION_CHECK=1; candidate reported these were read-only diagnostics and did not access an index. Wheel build/install commands had both variables set."
+        ]
+      }
+    }
+  },
+  "pair_decision": "Final pilot pair 12/12. Both independently rebuilt patches pass the frozen YAML/security criteria, exact one-file scope, offline wheel build/install, and all 58 project tests. Candidate code/test/security reviews passed in the workflows required for each condition. v2 has a recorded process deviation for two read-only pip diagnostics run without the required offline variables; no index access was reported. The actual GitHub workflow was not dispatched.",
+  "metrics_limits": {
+    "token_usage": "unknown; TUI did not provide per-condition input/output usage",
+    "shell_command_counts": "not captured",
+    "post_v2_status": "GPT-6-Luna max, Codex CLI 0.163.0, Profile harness-eval (workspace, never); TUI parent remains a host process"
+  },
+  "protocol_limitations": [
+    "The TUI parent ran on the host; harness-eval applied only to tool children, so this is not a VM-isolated TUI run.",
+    "The pinned external snapshot lacks scripts/harness.py and .harness/config.toml, so repository-level Harness risk/check commands were unavailable.",
+    "The hosted GitHub workflow was not dispatched; action pins and YAML were checked locally by the frozen host grader."
+  ],
+  "evidence_note": "Task, prompt, grader, semantic checker, allowed path, model, order, and 30-minute cap were frozen before either model condition. Retained patches and host-grade JSON are separate from candidate control."
+}
