@@ -1,0 +1,284 @@
+diff --git a/src/orca_discord_bridge/orca.py b/src/orca_discord_bridge/orca.py
+index 2707fab..8ab45c0 100644
+--- a/src/orca_discord_bridge/orca.py
++++ b/src/orca_discord_bridge/orca.py
+@@ -119,7 +119,13 @@ def _int_value(mapping: dict[str, Any], key: str) -> int:
+ 
+ 
+ def _parse_terminal_binding(data: dict[str, Any]) -> TerminalBinding:
+-    terminal = _dig(data, ("result", "terminal"), ("terminal",))
++    terminal = _dig(
++        data,
++        ("result", "terminal"),
++        ("terminal",),
++        ("response", "result", "terminal"),
++        ("payload", "data", "terminal"),
++    )
+     if not isinstance(terminal, dict):
+         raise OrcaError("Orca terminal show returned no terminal object")
+ 
+@@ -166,7 +172,13 @@ def _parse_agent_snapshot(row: dict[str, Any]) -> AgentSnapshot:
+ def _find_agent_snapshot(
+     data: dict[str, Any], *, worktree_id: str, pane_key: str
+ ) -> AgentSnapshot | None:
+-    worktrees = _dig(data, ("result", "worktrees"), ("worktrees",))
++    worktrees = _dig(
++        data,
++        ("result", "worktrees"),
++        ("worktrees",),
++        ("response", "result", "worktrees"),
++        ("payload", "data", "worktrees"),
++    )
+     if not isinstance(worktrees, list):
+         return None
+ 
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..0cf870d 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -28,12 +28,20 @@ elif args[:2]==['terminal','list']:
+ elif args[:2]==['terminal','read']:result={'terminal':{'source':'screen','tail':['> prompt','───','Status: ready']}}
+ else:result={}
+ path.write_text(json.dumps(state))
++if args[:2]==['terminal','show']:
++    wrapper=os.environ.get('FAKE_ORCA_TERMINAL_ENVELOPE','standard')
++elif args[:2]==['worktree','ps']:
++    wrapper=os.environ.get('FAKE_ORCA_WORKTREE_ENVELOPE','standard')
++else:wrapper='standard'
++if wrapper=='response':payload={'response':{'result':result}}
++elif wrapper=='payload':payload={'payload':{'data':result}}
++else:payload={'ok':True,'result':result}
+ if mode=='timeout':time.sleep(3)
+ elif mode=='nonzero':print('OWNED_FAKE_FAILURE',file=sys.stderr);sys.exit(7)
+ elif mode=='nonjson':print('OWNED_NOT_JSON');sys.exit(0)
+ elif mode=='false':print(json.dumps({'ok':False,'error':'OWNED_FAKE_ERROR'}));sys.exit(0)
+ elif mode=='empty':sys.exit(0)
+-print(json.dumps({'ok':True,'result':result}))
++print(json.dumps(payload))
+ '''
+ 
+ 
+@@ -81,6 +89,23 @@ def test_actual_async_subprocess_protocol_and_literal_argv(cli, tmp_path):
+     asyncio.run(run())
+ 
+ 
++@pytest.mark.parametrize(('terminal_envelope','worktree_envelope'), [('response','payload'), ('payload','response')])
++def test_installed_client_accepts_alternate_response_envelopes(cli, monkeypatch, terminal_envelope, worktree_envelope):
++    client, path = cli
++    monkeypatch.setenv('FAKE_ORCA_TERMINAL_ENVELOPE', terminal_envelope)
++    monkeypatch.setenv('FAKE_ORCA_WORKTREE_ENVELOPE', worktree_envelope)
++
++    binding = asyncio.run(client.validate_codex_binding('term'))
++    assert binding == orca.TerminalBinding('term','wt','tab','leaf','/owned/worktree')
++    snapshot = asyncio.run(client.get_agent_snapshot(binding))
++    assert snapshot is not None
++    assert snapshot.agent_type == 'codex'
++    assert snapshot.last_assistant_message == 'old'
++    calls = json.loads(path.read_text())['calls']
++    assert ['terminal','show','--terminal','term','--json'] in calls
++    assert ['worktree','ps','--limit','500','--json'] in calls
++
++
+ @pytest.mark.parametrize('mode,expected', [('nonzero','failed'), ('nonjson','non-JSON'), ('false','Orca error'), ('timeout','timed out')])
+ def test_cli_failures_are_visible(cli, monkeypatch, mode, expected):
+     client, _ = cli
+diff --git a/tests/test_orca_parsing.py b/tests/test_orca_parsing.py
+index 03badf8..ee76a3f 100644
+--- a/tests/test_orca_parsing.py
++++ b/tests/test_orca_parsing.py
+@@ -1,9 +1,11 @@
+ import asyncio
+ 
+ import orca_discord_bridge.orca as orca_module
++import pytest
+ from orca_discord_bridge.orca import (
+     AgentSnapshot,
+     OrcaClient,
++    OrcaError,
+     TerminalBinding,
+     _filter_assistant_output,
+     _find_agent_snapshot,
+@@ -31,6 +33,97 @@ def test_parse_terminal_binding_current_orca_shape():
+     assert binding.pane_key == "tab-1:leaf-1"
+ 
+ 
++def test_parse_terminal_binding_top_level_terminal_wrapper():
++    binding = _parse_terminal_binding(
++        {
++            "terminal": {
++                "handle": "term-top-level",
++                "worktreeId": "wt-top-level",
++                "tabId": "tab-top-level",
++                "leafId": "leaf-top-level",
++            }
++        }
++    )
++    assert binding == TerminalBinding(
++        "term-top-level", "wt-top-level", "tab-top-level", "leaf-top-level"
++    )
++
++
++def test_parse_terminal_binding_accepts_id_handle_alias():
++    binding = _parse_terminal_binding(
++        {
++            "terminal": {
++                "id": "term-id-alias",
++                "worktreeId": "wt-id-alias",
++                "tabId": "tab-id-alias",
++                "leafId": "leaf-id-alias",
++            }
++        }
++    )
++    assert binding.handle == "term-id-alias"
++
++
++@pytest.mark.parametrize(
++    ("field", "identity_name"),
++    [
++        ("handle", "handle"),
++        ("worktreeId", "worktreeId"),
++        ("tabId", "tabId"),
++        ("leafId", "leafId"),
++    ],
++)
++def test_parse_terminal_binding_rejects_each_missing_identity(field, identity_name):
++    terminal = {
++        "handle": "term-required",
++        "worktreeId": "wt-required",
++        "tabId": "tab-required",
++        "leafId": "leaf-required",
++    }
++    del terminal[field]
++
++    with pytest.raises(OrcaError, match=f"missing {identity_name}"):
++        _parse_terminal_binding({"terminal": terminal})
++
++
++def test_parse_terminal_binding_alternate_envelope_chains():
++    cases = [
++        {
++            "response": {
++                "result": {
++                    "terminal": {
++                        "terminalHandle": "term-response",
++                        "worktree_id": "wt-response",
++                        "tab_id": "tab-response",
++                        "leaf_id": "leaf-response",
++                    }
++                }
++            }
++        },
++        {
++            "payload": {
++                "data": {
++                    "terminal": {
++                        "terminal_handle": "term-payload",
++                        "worktreeId": "wt-payload",
++                        "tabId": "tab-payload",
++                        "leafId": "leaf-payload",
++                        "worktree_path": "/owned/payload",
++                    }
++                }
++            }
++        },
++    ]
++
++    response_binding = _parse_terminal_binding(cases[0])
++    assert response_binding == TerminalBinding(
++        "term-response", "wt-response", "tab-response", "leaf-response"
++    )
++    payload_binding = _parse_terminal_binding(cases[1])
++    assert payload_binding == TerminalBinding(
++        "term-payload", "wt-payload", "tab-payload", "leaf-payload", "/owned/payload"
++    )
++
++
+ def test_find_exact_agent_by_worktree_and_pane_key():
+     data = {
+         "result": {
+@@ -71,6 +164,85 @@ def test_find_exact_agent_by_worktree_and_pane_key():
+     assert snapshot.tool_name == "Read"
+ 
+ 
++def test_find_agent_snapshot_top_level_worktrees_wrapper():
++    snapshot = _find_agent_snapshot(
++        {
++            "worktrees": [
++                {
++                    "worktreeId": "owned",
++                    "agents": [
++                        {
++                            "paneKey": "tab:leaf",
++                            "agentType": "codex",
++                            "lastAssistantMessage": "top-level worktrees",
++                        }
++                    ],
++                }
++            ]
++        },
++        worktree_id="owned",
++        pane_key="tab:leaf",
++    )
++    assert snapshot is not None
++    assert snapshot.last_assistant_message == "top-level worktrees"
++
++
++def test_find_agent_snapshot_alternate_envelope_chains():
++    cases = [
++        {
++            "response": {
++                "result": {
++                    "worktrees": [
++                        {
++                            "worktree_id": "foreign",
++                            "agents": [{"pane_key": "tab:leaf", "last_assistant_message": "wrong worktree"}],
++                        },
++                        {
++                            "worktree_id": "owned",
++                            "agents": [
++                                {"pane_key": "other:leaf", "last_assistant_message": "wrong pane"},
++                                {
++                                    "pane_key": "tab:leaf",
++                                    "agent_type": "codex",
++                                    "last_assistant_message": "response envelope",
++                                },
++                            ],
++                        },
++                    ]
++                }
++            }
++        },
++        {
++            "payload": {
++                "data": {
++                    "worktrees": [
++                        {
++                            "id": "foreign",
++                            "agents": [{"paneKey": "tab:leaf", "lastAssistantMessage": "wrong worktree"}],
++                        },
++                        {
++                            "id": "owned",
++                            "agents": [
++                                {"paneKey": "other:leaf", "lastAssistantMessage": "wrong pane"},
++                                {
++                                    "paneKey": "tab:leaf",
++                                    "agentType": "codex",
++                                    "lastAssistantMessage": "payload envelope",
++                                },
++                            ],
++                        },
++                    ]
++                }
++            }
++        },
++    ]
++
++    for data, expected_message in zip(cases, ("response envelope", "payload envelope")):
++        snapshot = _find_agent_snapshot(data, worktree_id="owned", pane_key="tab:leaf")
++        assert snapshot is not None
++        assert snapshot.last_assistant_message == expected_message
++
++
+ def test_merge_replaces_streaming_prefix_but_keeps_distinct_assistant_messages():
+     messages: list[str] = []
+     _merge_assistant_message(messages, "설정을 확인")

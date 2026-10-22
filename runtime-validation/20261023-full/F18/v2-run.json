@@ -1,0 +1,86 @@
+{
+  "condition": "v2",
+  "candidate_branch": "eval-base",
+  "candidate_commits": 0,
+  "candidate_git": "Initial local commit attempt was denied at .git/index.lock (Operation not permitted); no bypass; final patch remained uncommitted.",
+  "codex_cli": "0.163.0",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "started_at": "2026-10-23T07:46:23+09:00",
+  "finished_at": "2026-10-23T07:53:43+09:00",
+  "duration_ms": 440636,
+  "main_prompt_count": 1,
+  "followup_prompt_count": 1,
+  "prompt_request_ids": [
+    "034b9855-36e6-41cc-8fa4-8e8ac56f696d",
+    "0c1161e8-d84c-4e0c-bf9e-61ed61d24f66"
+  ],
+  "setup_record": "v2-setup.json",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "tui_candidate_suite": "92 passed; focused parser/client modules: 92 passed; local installed-wheel semantic selection: 38 passed; temporary-directory cleanup warnings were reported.",
+  "host_grade": {
+    "status": "pass",
+    "fresh_wheel_build": "pass",
+    "offline_install": "pass",
+    "full_project_suite": "92 passed in 5.44s",
+    "focused_modules": "92 passed in 3.70s",
+    "semantic": "all standard and alternate envelopes, aliases, required identity, exact selection, literal argv, and non-Codex checks pass",
+    "scope": true,
+    "wheel_sha256": "5a6c51a42d2ea6d3f4ee92ad593d7f6dfbf21826560e07c0276cae8e86a8c7bd"
+  },
+  "reviews": {
+    "self_review": "passed on final diff under the configured T1 route",
+    "separate_code_review": "not launched under T1 workflow",
+    "separate_test_review": "not launched under T1 workflow",
+    "separate_security_review": "not launched under T1 workflow"
+  },
+  "product_diff": {
+    "files": [
+      "src/orca_discord_bridge/orca.py",
+      "tests/test_harness_compatibility.py",
+      "tests/test_orca_parsing.py"
+    ],
+    "insertions": 202,
+    "deletions": 29,
+    "patch_sha256": "5b7ace67fcbd874b7d7f30ed1ee438f832678441bbcdd0338dec39890c98d21d"
+  },
+  "host_grade_attempts": [
+    {
+      "patch": "v2-initial.patch",
+      "patch_sha256": "8a66e7315d7ed0f74cf8545102ef556acafd48ed12bc9b4e604f54ebb52fc968",
+      "raw_status": "fail",
+      "failure": "F08 data/result.data standard wrappers and snake_case timestamp aliases were not preserved; frozen semantic grader failed."
+    },
+    {
+      "patch": "v2-attempt2.patch",
+      "patch_sha256": "5b7ace67fcbd874b7d7f30ed1ee438f832678441bbcdd0338dec39890c98d21d",
+      "raw_status": "pass",
+      "failure": null
+    }
+  ],
+  "followup": "Restored all F08 standard wrappers and timestamp aliases; added direct parser tests. Frozen grader unchanged.",
+  "process_observations": {
+    "hosted_ci": "not run",
+    "network_or_live_services": "none observed",
+    "pip_policy": "PIP_NO_INDEX=1 and PIP_DISABLE_PIP_VERSION_CHECK=1 used on all pip commands",
+    "remote_writes": false,
+    "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+    "hook_observation": "Protected hook emitted exit 125 once at v2 conversation start; TUI continued; configuration and delivery hashes remained unchanged."
+  },
+  "protected_hook_delivery_sha256": {
+    ".codex/config.toml": "07f9bf088b6792cbee5f137d04212e5899fd1109bd3827362372848293a76107",
+    ".codex/hooks/capture_event.py": "07a8aad717ca04a59d7f4b76f21148f7ff6d0bb59e8b4299b7492f297bdc837a",
+    ".harness/delivery.json": "2f0527b3812cee1e39a2114965a5bbeab2497a8fec34d5ba49198d36252f9431"
+  },
+  "protected_hashes_unchanged_from_pre_stage": true,
+  "metrics_limits": {
+    "model_turn_counts": "not captured",
+    "shell_command_counts": "not captured",
+    "token_usage": "unknown"
+  },
+  "limitations": [
+    "Candidate lacks scripts/harness.py and .harness/config.toml; Harness risk/quick checks were unavailable.",
+    "No hosted CI, network, publication, push, or merge occurred."
+  ]
+}

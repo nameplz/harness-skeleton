@@ -1,0 +1,32 @@
+{
+  "changed_files": [
+    "src/orca_discord_bridge/orca.py",
+    "tests/test_harness_compatibility.py",
+    "tests/test_orca_parsing.py"
+  ],
+  "pinned_snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+  "scope": true,
+  "wheel": {
+    "exit_code": 0,
+    "output": "Processing ./source\n  Preparing metadata (pyproject.toml): started\n  Preparing metadata (pyproject.toml): finished with status 'done'\nBuilding wheels for collected packages: orca-discord-bridge\n  Building wheel for orca-discord-bridge (pyproject.toml): started\n  Building wheel for orca-discord-bridge (pyproject.toml): finished with status 'done'\n  Created wheel for orca-discord-bridge: filename=orca_discord_bridge-0.2.0-py3-none-any.whl size=19217 sha256=dc571830904a51cd542a1b3445b2fb9d887a6067c051051101414ed9da8857d7\n  Stored in directory: /private/tmp/hook-delivery-confirm-n61qez_h/F18-host-grade-v1/tmp/pip-ephem-wheel-cache-j2oh5qmn/wheels/8e/a7/03/73257d62940776864c82589a3522890f4b95b1f69ae7bdc6bc\nSuccessfully built orca-discord-bridge\n"
+  },
+  "wheel_sha256": "dc571830904a51cd542a1b3445b2fb9d887a6067c051051101414ed9da8857d7",
+  "install": {
+    "exit_code": 0,
+    "output": "Looking in links: /private/tmp/hook-delivery-confirm-n61qez_h/F18-host-grade-v1/wheelhouse\nProcessing ./wheelhouse/orca_discord_bridge-0.2.0-py3-none-any.whl\nInstalling collected packages: orca-discord-bridge\nSuccessfully installed orca-discord-bridge-0.2.0\n"
+  },
+  "suite": {
+    "exit_code": 0,
+    "output": ".....................................................................    [100%]\n69 passed in 5.96s\n"
+  },
+  "focused": {
+    "exit_code": 0,
+    "output": ".....................................................................    [100%]\n69 passed in 4.05s\n"
+  },
+  "semantic": {
+    "exit_code": 1,
+    "output": "Traceback (most recent call last):\n  File \"<string>\", line 29, in <module>\n    binding = _parse_terminal_binding(envelope)\n  File \"/private/tmp/hook-delivery-confirm-n61qez_h/F18-host-grade-v1/.venv/lib/python3.13/site-packages/orca_discord_bridge/orca.py\", line 130, in _parse_terminal_binding\n    raise OrcaError(\"Orca terminal show returned no terminal object\")\norca_discord_bridge.orca.OrcaError: Orca terminal show returned no terminal object\n"
+  },
+  "status": "fail"
+}

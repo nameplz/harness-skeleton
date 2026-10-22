@@ -1,0 +1,47 @@
+{
+  "pair_id": "F18",
+  "task_id": "T15",
+  "task_instance": "alternate_json_wrappers",
+  "batch": "full",
+  "condition_order": "v1_then_v2",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "task_sha256": "f1507e5e90dab996b9ea64f9ba36c58507131b08b9033ca409a5b990cc1021bf",
+  "prompt_sha256": "ebce2ce0cdcde9108baf6e7d370fe914321417993becca377e86b21420940691",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "conditions": {
+    "v1": {
+      "run_record": "v1-run.json",
+      "patch": "v1.patch",
+      "patch_sha256": "c290fcec17e4d19564ba0ebc9a1fcfa3fbc0e46915ff4f01951801470aa222da",
+      "host_grade": "host-grade-v1.json",
+      "raw_status": "pass",
+      "suite": "75 passed",
+      "reviews": "independent code, test, security all passed",
+      "intermediate_raw_grades": [
+        "host-grade-v1-initial.json: fail",
+        "host-grade-v1-attempt2.json: fail"
+      ]
+    },
+    "v2": {
+      "run_record": "v2-run.json",
+      "patch": "v2.patch",
+      "patch_sha256": "5b7ace67fcbd874b7d7f30ed1ee438f832678441bbcdd0338dec39890c98d21d",
+      "host_grade": "host-grade-v2.json",
+      "raw_status": "pass",
+      "suite": "92 passed",
+      "reviews": "T1 self-review passed; separate reviewers not launched",
+      "intermediate_raw_grades": [
+        "host-grade-v2-initial.json: fail"
+      ]
+    }
+  },
+  "pair_decision": "pass: both final patches pass the frozen host grader. Earlier failed candidate patches and raw grades are retained; no grader or frozen task inputs changed.",
+  "limitations": [
+    "The snapshot lacks scripts/harness.py and .harness/config.toml; Harness risk/quick checks were unavailable.",
+    "The TUI parent was a host process; harness-eval applied only to tool children.",
+    "Candidate local commits were sandbox-blocked; no candidate commits, network, hosted CI, live services, push, publication, or merge occurred.",
+    "A protected hook emitted exit 125 during v1 follow-up and at v2 start; both TUI tasks continued and protected hashes remained unchanged.",
+    "Token and internal model-turn counts are unknown."
+  ]
+}

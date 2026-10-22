@@ -1,0 +1,75 @@
+{
+  "condition": "v1",
+  "submitted_at": "2026-10-23T07:28:05+09:00",
+  "request_id": "21d5fcd7-242c-4257-a208-1e01c12aa873",
+  "receipt": {
+    "id": "efdb0ba7-c5a0-4a2e-a9e5-3b494d76eff1",
+    "ok": true,
+    "result": {
+      "send": {
+        "handle": "term_58394a53-3a00-4e40-8642-0ed92c596323",
+        "accepted": true,
+        "bytesWritten": 689,
+        "prompt": {
+          "requestId": "21d5fcd7-242c-4257-a208-1e01c12aa873",
+          "stages": [
+            "input_accepted"
+          ],
+          "provider": "codex",
+          "observation": "supported",
+          "processIncarnation": "80441517-c79f-4ce8-9e67-2a9c17441a07",
+          "generation": 7,
+          "baselineWorkingSequence": 70,
+          "baselineExplicitWorkingStartedAt": null,
+          "baselinePermissionSequence": 0
+        }
+      },
+      "mutation": {
+        "requestId": "21d5fcd7-242c-4257-a208-1e01c12aa873",
+        "replayed": false
+      },
+      "warnings": [
+        "input was accepted but no turn start was observed, so the Enter may have been swallowed. Confirm delivery by reissuing the exact command with --retry-request 21d5fcd7-242c-4257-a208-1e01c12aa873 --wait-submit <seconds>; the same request ID replays the receipt instead of sending the prompt again."
+      ]
+    },
+    "_meta": {
+      "runtimeId": "6c2eb0ab-35b6-4bfc-9955-6339bc373e86"
+    }
+  },
+  "receipt_retry_observation": {
+    "id": "06b8da97-e987-415a-97f4-4eb6a50d10cf",
+    "ok": true,
+    "result": {
+      "send": {
+        "handle": "term_58394a53-3a00-4e40-8642-0ed92c596323",
+        "accepted": true,
+        "bytesWritten": 689,
+        "prompt": {
+          "requestId": "21d5fcd7-242c-4257-a208-1e01c12aa873",
+          "stages": [
+            "input_accepted"
+          ],
+          "provider": "codex",
+          "observation": "supported",
+          "processIncarnation": "80441517-c79f-4ce8-9e67-2a9c17441a07",
+          "generation": 7,
+          "baselineWorkingSequence": 70,
+          "baselineExplicitWorkingStartedAt": null,
+          "baselinePermissionSequence": 0
+        }
+      },
+      "mutation": {
+        "requestId": "21d5fcd7-242c-4257-a208-1e01c12aa873",
+        "replayed": true
+      },
+      "warnings": [
+        "input was accepted but no turn start was observed, so the Enter may have been swallowed. Confirm delivery by reissuing the exact command with --retry-request 21d5fcd7-242c-4257-a208-1e01c12aa873 --wait-submit <seconds>; the same request ID replays the receipt instead of sending the prompt again."
+      ]
+    },
+    "_meta": {
+      "runtimeId": "6c2eb0ab-35b6-4bfc-9955-6339bc373e86"
+    }
+  },
+  "turn_started_observed_at": "2026-10-23T07:29:03+09:00",
+  "turn_started_evidence": "Orca terminal transcript showed Started /root/implement and active Exploring/Working for the F18 task."
+}
