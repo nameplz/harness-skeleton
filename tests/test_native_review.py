@@ -152,4 +152,3 @@ class NativeReviewTests(unittest.TestCase):
                 evidence = self.load(context[0], (receipt,), {'correctness': command}, context[3])
                 self.assertIs(expected, review_matches(context[0], evidence, config_sha256='1' * 64,
                     suite_sha256='2' * 64, source_sha256=context[3].source_sha256))
-

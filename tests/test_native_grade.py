@@ -158,4 +158,3 @@ class NativeGradeTests(unittest.TestCase):
                 with patch('evals.native_collect.build_session_command', return_value=command), \
                         patch('evals.native_session.trusted_binary_identity', return_value=(1,)):
                     self.assertTrue(native_scope_failures(receipt.invocation.fixture, receipt))
-
