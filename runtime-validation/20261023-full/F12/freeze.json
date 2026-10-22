@@ -1,0 +1,25 @@
+{
+  "pair_id": "F12",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "frozen_inputs": {
+    "task.md": "359c949f25ad27c135cfe736dcf4be35ec4073ed97722dc8b222443f54c58719",
+    "task-prompt.txt": "1758d25ba3dea72857f2ceb1fda1df541c928f9e0dc858e00ac925f9d717b49b",
+    "acceptance.json": "4e7ff2b29831a53bdd7674af608f702d00ec1933402038fa10d4311d974a3303",
+    "host-grader.py": "109c6707ebbb641724a9b8bce84215203308642441ab1f411d27b2807bcdada6",
+    "semantic.py": "d16940d4baf9a9e2318506b0046e60e1bceb3e0c0a699c28e79509e4c77c0cca",
+    "baseline_test_harness_compatibility.py": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+    "baseline-grade.json": "0d7d7ef8b52e4cae99b2ccface3091b689aaea1449af092adae8cd45e8d8bcda"
+  },
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+  "baseline_calibration": "Pinned baseline wheel builds/installs offline; all 58 project tests and direct stale-binding semantics pass; expected host grade fails only because the required focused regression test is absent.",
+  "order": "v1_then_v2",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "budget_seconds_per_condition": 1800,
+  "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+  "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+  "network": "offline pip and local fake Orca/Discord objects only",
+  "positive_control": "not run; baseline calibration and the frozen semantic check establish expected behavior"
+}

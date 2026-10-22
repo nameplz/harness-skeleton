@@ -1,0 +1,7 @@
+{
+  "pair_id": "F12",
+  "status": "frozen; awaiting v1",
+  "condition_order": "v1_then_v2",
+  "model_runs_completed": 0,
+  "baseline_host_grade": "expected fail: required focused test missing; semantic behavior passes"
+}

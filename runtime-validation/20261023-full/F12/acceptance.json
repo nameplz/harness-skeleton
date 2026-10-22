@@ -1,0 +1,70 @@
+{
+  "task_id": "T03",
+  "task_instance": "stale_layout",
+  "batch": "full",
+  "pair_id": "F12",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "budget_seconds_per_condition": 1800,
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "condition_order": "v1_then_v2",
+  "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+  "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+  "allowed_files": [
+    "src/orca_discord_bridge/bot.py",
+    "tests/test_harness_compatibility.py"
+  ],
+  "focused_test": "test_forward_recovers_stale_binding_after_layout_change",
+  "criteria": [
+    {
+      "id": "detect_stale_binding",
+      "check": "Resolve the saved terminal handle and detect a changed worktree ID or pane key."
+    },
+    {
+      "id": "revalidate_and_persist",
+      "check": "When either field changes, validate the saved handle once, persist the binding returned by validation, and exchange through that validated binding."
+    },
+    {
+      "id": "fail_closed",
+      "check": "If stale-binding validation raises OrcaError, perform no exchange or send and leave saved state unchanged."
+    },
+    {
+      "id": "unchanged_binding",
+      "check": "When live worktree and pane still match, do not call revalidation; exchange through the live binding."
+    },
+    {
+      "id": "regression_test",
+      "check": "Add the named focused compatibility test covering pane drift, worktree drift, validated binding use/persistence, unchanged binding, and failed revalidation."
+    },
+    {
+      "id": "build_and_suite",
+      "check": "Fresh wheel builds and installs offline; full project test suite passes."
+    },
+    {
+      "id": "scope",
+      "check": "Only bot.py and tests/test_harness_compatibility.py change; compatibility regression is included."
+    },
+    {
+      "id": "external_effects",
+      "check": "No live Orca/Discord calls, successful network access, publication, push, or merge."
+    }
+  ],
+  "network": "Offline pip and local fake Orca/Discord objects only",
+  "baseline_calibration": {
+    "expected_existing_suite": "58 tests pass on pinned snapshot",
+    "expected_behavior": "The pinned implementation already re-resolves, revalidates, persists, and fails closed; regression coverage is absent.",
+    "expected_host_grade": "fail only because the required focused test is missing; semantic behavior should pass.",
+    "note": "This repeated task instance measures regression-test coverage for the stale-layout behavior. Runtime code changes are necessary only if the candidate identifies a concrete gap."
+  },
+  "frozen_hashes": {
+    "task.md": "359c949f25ad27c135cfe736dcf4be35ec4073ed97722dc8b222443f54c58719",
+    "task-prompt.txt": "1758d25ba3dea72857f2ceb1fda1df541c928f9e0dc858e00ac925f9d717b49b",
+    "host-grader.py": "109c6707ebbb641724a9b8bce84215203308642441ab1f411d27b2807bcdada6",
+    "semantic.py": "d16940d4baf9a9e2318506b0046e60e1bceb3e0c0a699c28e79509e4c77c0cca",
+    "baseline_test_harness_compatibility.py": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae"
+  }
+}

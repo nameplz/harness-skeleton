@@ -1,0 +1,1 @@
+Read TASK.md and follow the repository workflow in AGENTS.md. Keep changes focused, run the specified checks, and report actual outcomes. For every pip command set PIP_NO_INDEX=1 and PIP_DISABLE_PIP_VERSION_CHECK=1. Do not contact Discord or Orca, access the network, publish, push, or merge. Stop at the hard 30-minute condition cap and report incomplete work.

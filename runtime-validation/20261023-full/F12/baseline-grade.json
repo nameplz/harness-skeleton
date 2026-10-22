@@ -1,0 +1,29 @@
+{
+  "changed_files": [],
+  "pinned_snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+  "wheel": {
+    "exit_code": 0,
+    "output": "Processing ./source\n  Preparing metadata (pyproject.toml): started\n  Preparing metadata (pyproject.toml): finished with status 'done'\nBuilding wheels for collected packages: orca-discord-bridge\n  Building wheel for orca-discord-bridge (pyproject.toml): started\n  Building wheel for orca-discord-bridge (pyproject.toml): finished with status 'done'\n  Created wheel for orca-discord-bridge: filename=orca_discord_bridge-0.2.0-py3-none-any.whl size=19169 sha256=c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144\n  Stored in directory: /private/tmp/hook-delivery-confirm-n61qez_h/F12-host-grade-baseline/tmp/pip-ephem-wheel-cache-0f0i4iny/wheels/35/ad/ec/1ef1d1746da3169f57c724264f0be998a9ae0bc010e925d838\nSuccessfully built orca-discord-bridge\n"
+  },
+  "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+  "install": {
+    "exit_code": 0,
+    "output": "Looking in links: /private/tmp/hook-delivery-confirm-n61qez_h/F12-host-grade-baseline/wheelhouse\nProcessing ./wheelhouse/orca_discord_bridge-0.2.0-py3-none-any.whl\nInstalling collected packages: orca-discord-bridge\nSuccessfully installed orca-discord-bridge-0.2.0\n"
+  },
+  "suite": {
+    "exit_code": 0,
+    "output": "..........................................................               [100%]\n58 passed in 5.23s\n"
+  },
+  "focused_nodes": [],
+  "focused": {
+    "exit_code": 4,
+    "output": "test_forward_recovers_stale_binding_after_layout_change is missing"
+  },
+  "semantic": {
+    "exit_code": 0,
+    "output": "host semantic checks passed: pane/worktree drift revalidation, validated binding persistence/use, unchanged path, and fail-closed behavior\n"
+  },
+  "scope": null,
+  "status": "fail"
+}
