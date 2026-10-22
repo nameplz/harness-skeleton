@@ -1,0 +1,42 @@
+{
+  "task_id": "T01",
+  "task_name": "Treat valid non-object JSON state as disconnected state",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "grader_mode": "Host reads final candidate diff and independently rebuilds/installs the package; rubric is kept outside the candidate.",
+  "budget_seconds": 1800,
+  "criteria": [
+    {
+      "id": "non_object_roots",
+      "check": "For valid JSON roots null, array, string, number, and both boolean values, StateStore._load() returns an empty BridgeState without raising."
+    },
+    {
+      "id": "missing_and_malformed",
+      "check": "Missing state files and malformed JSON continue to load as an empty BridgeState."
+    },
+    {
+      "id": "valid_object",
+      "check": "Valid object state continues to deserialize the supported state fields."
+    },
+    {
+      "id": "connect_disconnect",
+      "check": "connect() and disconnect() persist state and round-trip correctly."
+    },
+    {
+      "id": "regression_tests",
+      "check": "The candidate adds tests covering the non-object roots and retains coverage for all preserved behaviors."
+    },
+    {
+      "id": "build_and_suite",
+      "check": "A wheel built from the final candidate installs offline and the complete project test suite passes."
+    },
+    {
+      "id": "scope",
+      "check": "Product changes are limited to src/orca_discord_bridge/state.py and tests/test_harness_compatibility.py."
+    },
+    {
+      "id": "external_effects",
+      "check": "No live Discord or Orca calls, network access, publication, push, or merge."
+    }
+  ]
+}

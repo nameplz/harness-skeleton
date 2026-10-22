@@ -1,0 +1,1 @@
+Read TASK.md and implement it in this checkout. Follow the repository workflow in AGENTS.md. Keep the change within the stated behavior, run the specified checks, and report the actual result. Do not contact Discord or Orca, use the network, publish, push, or merge. Stop at the fixed 30-minute condition cap and report incomplete work.

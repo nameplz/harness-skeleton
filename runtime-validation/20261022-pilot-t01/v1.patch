@@ -1,0 +1,24 @@
+diff --git a/src/orca_discord_bridge/state.py b/src/orca_discord_bridge/state.py
+index 214d38d..18bdbc8 100644
+--- a/src/orca_discord_bridge/state.py
++++ b/src/orca_discord_bridge/state.py
+@@ -27,0 +28,3 @@ class StateStore:
++        if not isinstance(raw, dict):
++            return BridgeState()
++
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..5eaf003 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -14 +14 @@ from orca_discord_bridge import bot as bot_module, config, formatting, orca
+-from orca_discord_bridge.state import StateStore
++from orca_discord_bridge.state import BridgeState, StateStore
+@@ -223,0 +224,8 @@ def test_state_roundtrip_and_malformed_json(tmp_path):
++@pytest.mark.parametrize('root', [None, [], 'state', 0, True])
++def test_state_non_object_json_roots_load_empty_state(tmp_path, root):
++    path=tmp_path/'state.json'
++    path.write_text(json.dumps(root), encoding='utf-8')
++
++    assert StateStore(path).state == BridgeState()
++
++
