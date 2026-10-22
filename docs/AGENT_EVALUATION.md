@@ -119,7 +119,7 @@ The handoff recommends 20–30 real-use task types across ordinary edits, bugs, 
 
 ## Formal pilot progress
 
-As of 2026-10-22, two pilot pairs are complete: 4 of 24 pilot model runs (2 of 12 pairs). T19 (operational documentation) and T01 (non-object state JSON) passed the host-owned acceptance checks in both conditions. The separate full evaluation remains at 0 of 72 runs. See the [T19 record](../runtime-validation/20261022-pilot-t19/summary.md) and [T01 record](../runtime-validation/20261022-pilot-t01/summary.md) for frozen prompts, patches, metrics, and validation.
+As of 2026-10-22, three pilot pairs are complete: 6 of 24 pilot model runs (3 of 12 pairs). T19 (operational documentation) and T01 (non-object state JSON) passed the host-owned acceptance checks in both conditions. For T05 (output filtering), v2 passed all recorded gates; v1 passed the independent functional acceptance but failed final code and security review, so its phase remains an error. The separate full evaluation remains at 0 of 72 runs. See the [T19 record](../runtime-validation/20261022-pilot-t19/summary.md), [T01 record](../runtime-validation/20261022-pilot-t01/summary.md), and [T05 record](../runtime-validation/20261022-pilot-t05/summary.md) for frozen prompts, patches, metrics, and validation.
 
 ## Metrics and interpretation
 
