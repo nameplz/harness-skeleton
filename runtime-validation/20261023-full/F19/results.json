@@ -1,0 +1,42 @@
+{
+  "pair_id": "F19",
+  "task_id": "T01",
+  "task_instance": "alternate_invalid_json",
+  "batch": "full",
+  "condition_order": "v1_then_v2",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "task_sha256": "1c85d34c54c30aa1b51f84e3ee43cd6b9eeab043f0b112a6858212fce9a04d31",
+  "prompt_sha256": "cb8dcce630db09f112bc005da96c599e164f3f69986b7e7e5c097b3a1a99791b",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "conditions": {
+    "v1": {
+      "run_record": "v1-run.json",
+      "patch": "v1-final.patch",
+      "patch_sha256": "6d60df15731d9b262d60a4b5fa5dab2286c8a5dd5212e363359dc39c4f1ac6e8",
+      "host_grade": "v1-grade.json",
+      "raw_status": "pass",
+      "suite": "68 passed",
+      "reviews": "independent code, test, security all passed",
+      "intermediate_raw_grades": []
+    },
+    "v2": {
+      "run_record": "v2-run.json",
+      "patch": "v2-final.patch",
+      "patch_sha256": "b4d84cb444a3621261b4f53ae0d6dd82aeece95110c7d3593c47cda8b0b27389",
+      "host_grade": "v2-grade.json",
+      "raw_status": "pass",
+      "suite": "72 passed",
+      "reviews": "T1 self-review passed; separate reviewers not launched",
+      "intermediate_raw_grades": []
+    }
+  },
+  "pair_decision": "pass: both final patches pass the unchanged frozen host grader; frozen task/grader inputs remained unchanged.",
+  "limitations": [
+    "The pinned snapshot lacks scripts/harness.py and .harness/config.toml; Harness risk/quick checks were unavailable.",
+    "The TUI parent was a host process; harness-eval applied only to tool children.",
+    "Candidate local commits were sandbox-blocked; no network, hosted CI, live services, push, publication, or merge occurred.",
+    "Pytest emitted two temporary-directory cleanup warnings in candidate TUI runs; all assertions passed and host runs were clean.",
+    "Token and internal model-turn counts are unknown."
+  ]
+}

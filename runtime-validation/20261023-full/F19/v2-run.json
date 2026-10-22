@@ -1,0 +1,73 @@
+{
+  "condition": "v2",
+  "candidate_branch": "eval-base",
+  "candidate_commits": 0,
+  "candidate_git": "No candidate commit; filesystem denied .git/index.lock and no bypass was attempted.",
+  "codex_cli": "0.163.0",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "tui_elapsed": "3m11s",
+  "main_prompt_count": 1,
+  "followup_prompt_count": 0,
+  "prompt_request_ids": [
+    "4f90409b-8c40-4251-9c11-668f44fa2c32"
+  ],
+  "setup_record": "v2-setup.json",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "tui_candidate_suite": "72 passed; focused compatibility 61 passed; two pytest temporary-directory cleanup warnings persisted on sequential reruns",
+  "host_grade": {
+    "status": "pass",
+    "fresh_wheel_build": "pass",
+    "offline_install": "pass",
+    "full_project_suite": "72 passed in 4.98s",
+    "focused_modules": "61 passed in 3.46s",
+    "semantic": "six non-object roots, five malformed byte forms, unchanged input, missing/object state, connect/disconnect pass",
+    "scope": true,
+    "wheel_sha256": "61e710154392404ed48ba2a3cc2e5559e354a1e2dae0c75b29c019a8705128a4"
+  },
+  "reviews": {
+    "workflow": "T1 self-review passed; separate reviewers not launched by configuration"
+  },
+  "product_diff": {
+    "files": [
+      "src/orca_discord_bridge/state.py",
+      "tests/test_harness_compatibility.py"
+    ],
+    "insertions": 61,
+    "deletions": 10,
+    "patch_sha256": "b4d84cb444a3621261b4f53ae0d6dd82aeece95110c7d3593c47cda8b0b27389"
+  },
+  "host_grade_attempts": [
+    {
+      "patch": "v2-final.patch",
+      "patch_sha256": "b4d84cb444a3621261b4f53ae0d6dd82aeece95110c7d3593c47cda8b0b27389",
+      "raw_status": "pass",
+      "failure": null
+    }
+  ],
+  "followups": [],
+  "process_observations": {
+    "hosted_ci": "not run",
+    "network_or_live_services": "none observed",
+    "pip_policy": "PIP_NO_INDEX=1 and PIP_DISABLE_PIP_VERSION_CHECK=1 used on every pip command",
+    "remote_writes": false,
+    "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+    "hook_observation": "No hook failure observed; protected hook and delivery hashes remained unchanged."
+  },
+  "protected_hook_delivery_sha256": {
+    ".codex/config.toml": "07f9bf088b6792cbee5f137d04212e5899fd1109bd3827362372848293a76107",
+    ".codex/hooks/capture_event.py": "07a8aad717ca04a59d7f4b76f21148f7ff6d0bb59e8b4299b7492f297bdc837a",
+    ".harness/delivery.json": "2f0527b3812cee1e39a2114965a5bbeab2497a8fec34d5ba49198d36252f9431"
+  },
+  "protected_hashes_unchanged_from_pre_stage": true,
+  "metrics_limits": {
+    "model_turn_counts": "not captured",
+    "shell_command_counts": "not captured",
+    "token_usage": "unknown"
+  },
+  "limitations": [
+    "Candidate lacks scripts/harness.py and .harness/config.toml, so Harness risk/quick checks were unavailable.",
+    "No hosted CI, network, publication, push, or merge occurred."
+  ]
+}

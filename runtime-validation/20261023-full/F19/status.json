@@ -1,9 +1,11 @@
 {
   "pair_id": "F19",
-  "status": "frozen; condition runs not started",
+  "status": "complete; final v1 and v2 frozen host grades pass",
   "condition_order": "v1_then_v2",
-  "model_runs_completed": 0,
-  "pair_decision": "pending",
-  "v1_host_grade": "pending",
-  "v2_host_grade": "pending"
+  "model_runs_completed": 2,
+  "pair_decision": "pass",
+  "v1_host_grade": "pass",
+  "v2_host_grade": "pass",
+  "v1_patch_sha256": "6d60df15731d9b262d60a4b5fa5dab2286c8a5dd5212e363359dc39c4f1ac6e8",
+  "v2_patch_sha256": "b4d84cb444a3621261b4f53ae0d6dd82aeece95110c7d3593c47cda8b0b27389"
 }

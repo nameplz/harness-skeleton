@@ -1,0 +1,100 @@
+diff --git a/src/orca_discord_bridge/state.py b/src/orca_discord_bridge/state.py
+index 214d38d..1d2d0da 100644
+--- a/src/orca_discord_bridge/state.py
++++ b/src/orca_discord_bridge/state.py
+@@ -22,7 +22,10 @@ class StateStore:
+             raw = json.loads(self.path.read_text(encoding="utf-8"))
+         except FileNotFoundError:
+             return BridgeState()
+-        except (OSError, json.JSONDecodeError):
++        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
++            return BridgeState()
++
++        if not isinstance(raw, dict):
+             return BridgeState()
+ 
+         return BridgeState(
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..fdab007 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
+ import pytest
+ import orca_discord_bridge
+ from orca_discord_bridge import bot as bot_module, config, formatting, orca
+-from orca_discord_bridge.state import StateStore
++from orca_discord_bridge.state import BridgeState, StateStore
+ 
+ FAKE = '''import json,os,sys,time
+ from pathlib import Path
+@@ -211,14 +211,62 @@ def test_forward_output_routing_and_chunks(tmp_path, output, interrupted):
+     asyncio.run(run())
+ 
+ 
+-def test_state_roundtrip_and_malformed_json(tmp_path):
+-    path=tmp_path/'owned/state.json';store=StateStore(path)
+-    assert store.state.terminal_handle is None
+-    store.connect('term','wt','tab:leaf')
+-    assert StateStore(path).state.pane_key=='tab:leaf'
+-    store.disconnect();assert StateStore(path).state.terminal_handle is None
+-    path.write_text('{invalid')
+-    assert StateStore(path).state.terminal_handle is None
++def test_state_missing_file_valid_object_and_roundtrip(tmp_path):
++    path = tmp_path / 'owned/state.json'
++    store = StateStore(path)
++    assert store.state == BridgeState()
++    assert not path.exists()
++
++    valid_state = BridgeState('saved-term', 'saved-worktree', 'saved-tab:saved-leaf')
++    path.parent.mkdir(parents=True)
++    path.write_text(json.dumps({
++        'terminal_handle': valid_state.terminal_handle,
++        'worktree_id': valid_state.worktree_id,
++        'pane_key': valid_state.pane_key,
++    }), encoding='utf-8')
++    assert StateStore(path).state == valid_state
++
++    store.connect('term', 'wt', 'tab:leaf')
++    assert StateStore(path).state == BridgeState('term', 'wt', 'tab:leaf')
++    store.disconnect()
++    assert StateStore(path).state == BridgeState()
++
++
++@pytest.mark.parametrize('invalid_bytes', [
++    pytest.param(b'', id='empty-file'),
++    pytest.param(b' \t\r\n', id='whitespace-only'),
++    pytest.param(b'{"terminal_handle":', id='truncated-json'),
++    pytest.param(b'{"terminal_handle":null}garbage', id='trailing-garbage'),
++    pytest.param(b'\xff', id='invalid-utf8'),
++])
++def test_state_malformed_bytes_load_empty_without_rewriting(tmp_path, invalid_bytes):
++    path = tmp_path / 'owned/state.json'
++    path.parent.mkdir(parents=True)
++    path.write_bytes(invalid_bytes)
++
++    assert StateStore(path).state == BridgeState()
++    assert path.read_bytes() == invalid_bytes
++
++
++@pytest.mark.parametrize('json_root', [
++    pytest.param(None, id='null'),
++    pytest.param([], id='empty-array'),
++    pytest.param([1, 'value'], id='array'),
++    pytest.param('', id='empty-string'),
++    pytest.param('value', id='string'),
++    pytest.param(0, id='integer'),
++    pytest.param(1.5, id='number'),
++    pytest.param(True, id='true'),
++    pytest.param(False, id='false'),
++])
++def test_state_non_object_json_roots_load_empty_without_rewriting(tmp_path, json_root):
++    path = tmp_path / 'owned/state.json'
++    path.parent.mkdir(parents=True)
++    original_bytes = json.dumps(json_root).encode('utf-8')
++    path.write_bytes(original_bytes)
++
++    assert StateStore(path).state == BridgeState()
++    assert path.read_bytes() == original_bytes
+ 
+ 
+ def test_synthetic_config_validation_and_prompt_data(monkeypatch, tmp_path):
