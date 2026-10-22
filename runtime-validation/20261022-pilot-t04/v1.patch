@@ -1,0 +1,66 @@
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..7c4e8f9 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -22,2 +22,2 @@ if args[:2]==['worktree','ps']:
+-    result={'worktrees':[{'worktreeId':'foreign','agents':[dict(row,paneKey='tab:leaf',lastAssistantMessage='FOREIGN_SECRET')]},
+-                          {'worktreeId':'wt','agents':[dict(row,paneKey='foreign:leaf',lastAssistantMessage='OTHER_PANE'),row]}]}
++    result={'worktrees':[{'worktreeId':'foreign','agents':[dict(row,paneKey='tab:leaf',lastAssistantMessage='FOREIGN_WORKTREE_ASSISTANT_MARKER')]},
++                          {'worktreeId':'wt','agents':[dict(row,paneKey='foreign:leaf',lastAssistantMessage='WRONG_PANE_ASSISTANT_MARKER'),row]}]}
+@@ -43 +43 @@ def row(state='done', message='old', updated=1, agent='codex', interrupted=False
+-            'toolName': 'OWNED_TOOL_DETAIL', 'toolInput': 'OWNED_TOOL_INPUT',
++            'toolName': 'INTERNAL_TOOL_NAME_MARKER', 'toolInput': 'INTERNAL_TOOL_INPUT_MARKER',
+@@ -103 +103,3 @@ def test_real_subprocess_structured_completion(cli, monkeypatch, fast, interrupt
+-    snapshots = [row(), row('done','owned final',4,interrupted=interrupted), row('done','owned final',4,interrupted=interrupted)]
++    progress_message = 'SELECTED_WORKTREE_PANE_PROGRESS_MARKER'
++    final_message = 'SELECTED_WORKTREE_PANE_FINAL_MARKER'
++    snapshots = [row(), row('done',final_message,4,interrupted=interrupted), row('done',final_message,4,interrupted=interrupted)]
+@@ -105 +107 @@ def test_real_subprocess_structured_completion(cli, monkeypatch, fast, interrupt
+-        snapshots[1:1] = [row('working','',2), row('working','owned progress',3)]
++        snapshots[1:1] = [row('working','',2), row('working',progress_message,3)]
+@@ -112 +114,3 @@ def test_real_subprocess_structured_completion(cli, monkeypatch, fast, interrupt
+-    assert result.state == 'done' and result.text.endswith('owned final')
++    expected_messages = [final_message] if fast else [progress_message, final_message]
++    assert result.state == 'done'
++    assert result.text == '\n\n'.join(expected_messages)
+@@ -114,2 +118,6 @@ def test_real_subprocess_structured_completion(cli, monkeypatch, fast, interrupt
+-    assert ('owned progress' in result.text) is (not fast)
+-    assert not any(s in result.text for s in ('FOREIGN_SECRET','OTHER_PANE','OWNED_TOOL','old'))
++    assert not any(marker in result.text for marker in (
++        'FOREIGN_WORKTREE_ASSISTANT_MARKER',
++        'WRONG_PANE_ASSISTANT_MARKER',
++        'INTERNAL_TOOL_NAME_MARKER',
++        'INTERNAL_TOOL_INPUT_MARKER',
++    ))
+diff --git a/tests/test_orca_parsing.py b/tests/test_orca_parsing.py
+index 03badf8..8e400b8 100644
+--- a/tests/test_orca_parsing.py
++++ b/tests/test_orca_parsing.py
+@@ -37,0 +38,11 @@ def test_find_exact_agent_by_worktree_and_pane_key():
++                {
++                    "worktreeId": "repo::/tmp/foreign-wt",
++                    "agents": [
++                        {
++                            "paneKey": "tab-1:leaf-1",
++                            "state": "done",
++                            "agentType": "codex",
++                            "lastAssistantMessage": "FOREIGN_WORKTREE_ASSISTANT_MARKER",
++                        }
++                    ],
++                },
+@@ -40,0 +52,6 @@ def test_find_exact_agent_by_worktree_and_pane_key():
++                        {
++                            "paneKey": "tab-2:leaf-2",
++                            "state": "done",
++                            "agentType": "codex",
++                            "lastAssistantMessage": "WRONG_PANE_ASSISTANT_MARKER",
++                        },
+@@ -52,8 +68,0 @@ def test_find_exact_agent_by_worktree_and_pane_key():
+-                        {
+-                            "paneKey": "tab-2:leaf-2",
+-                            "state": "done",
+-                            "agentType": "codex",
+-                            "lastAssistantMessage": "다른 Codex",
+-                            "stateStartedAt": 90,
+-                            "updatedAt": 120,
+-                        },

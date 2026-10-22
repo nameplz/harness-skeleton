@@ -1,0 +1,164 @@
+{
+  "task_id": "T04",
+  "task_name": "Prevent assistant output leaking across worktrees or panes",
+  "common_setup": {
+    "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+    "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+    "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+    "model": "gpt-6-luna",
+    "reasoning_effort": "max",
+    "codex_cli": "0.163.0",
+    "v1_workflow_commit": "134c98a2f8be326e3e3688f411a6b348bd463f7f",
+    "v2_workflow_commit": "b5e8da26d721ff8b1c9be93a766d526fcf59fc06",
+    "task_sha256": "13b83f758f13fde0de08600ecb66cffc3927581b7d4b941fec0e2a947f3cd39f",
+    "prompt_sha256": "f0a46ae9133b138afdefe78188e8cf5fe9e6b130fc84691a62b6010d52747803",
+    "acceptance_sha256": "afd807eabb29e680d6f40f4e9d912f61e9a26e0caa1615ab81efc8241189dec7",
+    "host_grader_sha256": "48bcbe9bb4d9aab1c6f4eba94011fcb16436df673c89f197b767678b57eccbb5",
+    "candidate_config_sha256": "07f9bf088b6792cbee5f137d04212e5899fd1109bd3827362372848293a76107",
+    "candidate_hook_sha256": "07a8aad717ca04a59d7f4b76f21148f7ff6d0bb59e8b4299b7492f297bdc837a",
+    "protected_delivery_sha256": "2f0527b3812cee1e39a2114965a5bbeab2497a8fec34d5ba49198d36252f9431",
+    "protocol_budget_seconds": 1800,
+    "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+    "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+    "condition_order": "v2 then v1 (actual)",
+    "pilot_progress_after_pair": {
+      "pilot_model_runs": 12,
+      "pilot_required_runs": 24,
+      "pilot_matched_pairs": 6,
+      "pilot_required_pairs": 12,
+      "full_model_runs": 0,
+      "full_required_runs": 72,
+      "full_matched_pairs": 0,
+      "full_required_pairs": 36
+    }
+  },
+  "conditions": {
+    "v1": {
+      "thread_id": null,
+      "turn_id": null,
+      "terminal_handle": "term_58394a53-3a00-4e40-8642-0ed92c596323",
+      "terminal_process_incarnation": "80441517-c79f-4ce8-9e67-2a9c17441a07",
+      "prompt_request_id": "18c1e0f6-7bcd-44f9-8f24-fd2caf899e4f",
+      "duration": "7m 9s (TUI-reported)",
+      "duration_ms": null,
+      "tokens": null,
+      "status": "pass; phase blocked at branch creation",
+      "model": "gpt-6-luna",
+      "reasoning_effort": "max",
+      "cli_version": "0.163.0",
+      "candidate_branch": "eval-base",
+      "candidate_commits": 0,
+      "agent_workflow": {
+        "route": "v1 implementation worker, parallel code/test review, security review",
+        "implementation": "pass",
+        "code_review": "pass",
+        "test_review": "pass",
+        "security_review": "pass",
+        "subagent_turns": "not captured"
+      },
+      "tool_activity": {
+        "shell_command_executions": null,
+        "failed_shell_commands": null,
+        "candidate_project_suite": "58 passed",
+        "host_project_suite": "58 passed in 5.11s",
+        "candidate_hooks_run": false,
+        "network_or_service_calls": "No successful network or live Discord/Orca calls observed; pip commands were offline.",
+        "ci": "not run",
+        "candidate_commits": 0,
+        "workflow_blocker": "Sandbox denied creating refs/heads/feat-worktree-isolation.lock; no bypass or commit attempted."
+      },
+      "workflow_metadata": [
+        "phases/index.json",
+        "phases/worktree-isolation/index.json",
+        "phases/worktree-isolation/step0.md",
+        "phases/worktree-isolation/step0-output.json",
+        ".harness/runtime/worktree-isolation/step0-attempt-1.json"
+      ],
+      "product_diff": {
+        "tracked_files": [
+          "tests/test_harness_compatibility.py",
+          "tests/test_orca_parsing.py"
+        ],
+        "insertions": 33,
+        "deletions": 16,
+        "patch_sha256": "b23386d3a76efe3e99199d5c24d35419a1e6b307d9cfd43aa2368c8c8334f23e",
+        "final_file_sha256": {
+          "tests/test_orca_parsing.py": "12339ef99382df083a93599ac1147292c2f95ebb68c6014bf4dabb5c110170ba",
+          "tests/test_harness_compatibility.py": "7cf310655a70a70cbbe704bc234ccb4e7d7f77e3bfb9583a5af146eebea8dc4b"
+        }
+      },
+      "host_grade": {
+        "status": "pass",
+        "build": "pass (independent pinned-snapshot rebuild)",
+        "offline_install": "pass",
+        "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+        "full_project_suite": "pass: 58 passed in 5.11s",
+        "semantic_checks": "host semantic checks passed: exact worktree+pane selection; output contains only owned assistant messages, no prompt/tool details, no screen read",
+        "scope": "pass: two test files only",
+        "external_effects": "pass: no successful external effect observed"
+      },
+      "baseline_check": "58 passed in 5.25s"
+    },
+    "v2": {
+      "thread_id": null,
+      "turn_id": null,
+      "terminal_handle": "term_58394a53-3a00-4e40-8642-0ed92c596323",
+      "terminal_process_incarnation": "80441517-c79f-4ce8-9e67-2a9c17441a07",
+      "prompt_request_id": "bb4f3eb8-dd4d-437d-b15e-4f6918e1812e",
+      "duration": "4m 30s (TUI-reported)",
+      "duration_ms": null,
+      "tokens": null,
+      "status": "pass",
+      "model": "gpt-6-luna",
+      "reasoning_effort": "max",
+      "cli_version": "0.163.0",
+      "candidate_branch": "eval-base",
+      "candidate_commits": 0,
+      "agent_workflow": {
+        "route": "v2 T3 main-session implementation; independent code and security reviewers",
+        "self_review": "pass",
+        "code_review": "pass",
+        "security_review": "pass",
+        "subagent_turns": "not captured"
+      },
+      "tool_activity": {
+        "shell_command_executions": null,
+        "failed_shell_commands": null,
+        "candidate_project_suite": "58 passed",
+        "host_project_suite": "58 passed in 5.10s",
+        "candidate_hooks_run": false,
+        "network_or_service_calls": "No successful network or live Discord/Orca calls observed; pip commands were offline.",
+        "ci": "not run",
+        "candidate_commits": 0,
+        "workflow_blocker": "Sandbox denied staging .git/index.lock; no bypass or commit completed."
+      },
+      "workflow_metadata": [],
+      "product_diff": {
+        "tracked_files": [
+          "tests/test_harness_compatibility.py",
+          "tests/test_orca_parsing.py"
+        ],
+        "insertions": 36,
+        "deletions": 11,
+        "patch_sha256": "0d17eae5d09348eb63b68f78e5d5df15ac49e2d6b09d71adc11af4e49e14fd88",
+        "final_file_sha256": {
+          "tests/test_orca_parsing.py": "4f3d8b0aa95d77a53dfe96bf24e8d75bd02fe0cbaa270ca736ff1b6d3175abf9",
+          "tests/test_harness_compatibility.py": "b6cfa609ba01cb91ebf24854303df14c58b00f6a6ea44fa7851e0d3f7bcb7cd1"
+        }
+      },
+      "host_grade": {
+        "status": "pass",
+        "build": "pass (independent pinned-snapshot rebuild)",
+        "offline_install": "pass",
+        "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+        "full_project_suite": "pass: 58 passed in 5.10s",
+        "semantic_checks": "host semantic checks passed: exact worktree+pane selection; output contains only owned assistant messages, no prompt/tool details, no screen read",
+        "scope": "pass: two test files only",
+        "external_effects": "pass: no successful external effect observed"
+      },
+      "baseline_check": "58 passed in 5.05s"
+    }
+  },
+  "pair_decision": "Both conditions passed frozen functional semantics, independent host build/install, full suite, and required reviews. The v1 phase is recorded as blocked only because sandbox policy denied local branch-ref creation; v2 local staging was also denied.",
+  "evidence_note": "The pinned implementation already met the functional isolation contract; this pair measured the strength of the requested regression coverage. The v2-before-v1 order repeated the preceding T09 order instead of alternating; retain that order as an explicit protocol deviation and balance subsequent task orders. Exact Codex thread/turn IDs and token counts were not exposed by the terminal adapter and remain unknown. Candidate tool children used harness-eval; the TUI parent ran on the host. No remote CI, successful network, service call, push, publication, or merge occurred."
+}

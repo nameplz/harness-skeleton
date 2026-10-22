@@ -1,0 +1,66 @@
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..9ecefda 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -22,2 +22,2 @@ if args[:2]==['worktree','ps']:
+-    result={'worktrees':[{'worktreeId':'foreign','agents':[dict(row,paneKey='tab:leaf',lastAssistantMessage='FOREIGN_SECRET')]},
+-                          {'worktreeId':'wt','agents':[dict(row,paneKey='foreign:leaf',lastAssistantMessage='OTHER_PANE'),row]}]}
++    result={'worktrees':[{'worktreeId':'foreign','agents':[dict(row,paneKey='tab:leaf',lastAssistantMessage='FOREIGN_WORKTREE_MESSAGE_MARKER')]},
++                          {'worktreeId':'wt','agents':[dict(row,paneKey='foreign:leaf',lastAssistantMessage='WRONG_PANE_MESSAGE_MARKER'),row]}]}
+@@ -28 +28 @@ elif args[:2]==['terminal','list']:
+-elif args[:2]==['terminal','read']:result={'terminal':{'source':'screen','tail':['> prompt','───','Status: ready']}}
++elif args[:2]==['terminal','read']:result={'terminal':{'source':'screen','tail':['> prompt','───','Status: ready','SCREEN_ONLY_MARKER']}}
+@@ -43 +43 @@ def row(state='done', message='old', updated=1, agent='codex', interrupted=False
+-            'toolName': 'OWNED_TOOL_DETAIL', 'toolInput': 'OWNED_TOOL_INPUT',
++            'toolName': 'PRIVATE_TOOL_NAME_MARKER', 'toolInput': 'PRIVATE_TOOL_INPUT_MARKER',
+@@ -103 +103 @@ def test_real_subprocess_structured_completion(cli, monkeypatch, fast, interrupt
+-    snapshots = [row(), row('done','owned final',4,interrupted=interrupted), row('done','owned final',4,interrupted=interrupted)]
++    snapshots = [row(), row('done','SELECTED_PANE_FINAL_MESSAGE',4,interrupted=interrupted), row('done','SELECTED_PANE_FINAL_MESSAGE',4,interrupted=interrupted)]
+@@ -105 +105 @@ def test_real_subprocess_structured_completion(cli, monkeypatch, fast, interrupt
+-        snapshots[1:1] = [row('working','',2), row('working','owned progress',3)]
++        snapshots[1:1] = [row('working','',2), row('working','SELECTED_PANE_PROGRESS_MESSAGE',3)]
+@@ -112 +112,4 @@ def test_real_subprocess_structured_completion(cli, monkeypatch, fast, interrupt
+-    assert result.state == 'done' and result.text.endswith('owned final')
++    expected_messages = (['SELECTED_PANE_FINAL_MESSAGE'] if fast else
++                         ['SELECTED_PANE_PROGRESS_MESSAGE', 'SELECTED_PANE_FINAL_MESSAGE'])
++    assert result.state == 'done'
++    assert result.text == '\n\n'.join(expected_messages)
+@@ -114,2 +117,5 @@ def test_real_subprocess_structured_completion(cli, monkeypatch, fast, interrupt
+-    assert ('owned progress' in result.text) is (not fast)
+-    assert not any(s in result.text for s in ('FOREIGN_SECRET','OTHER_PANE','OWNED_TOOL','old'))
++    assert not any(s in result.text for s in (
++        'FOREIGN_WORKTREE_MESSAGE_MARKER', 'WRONG_PANE_MESSAGE_MARKER',
++        'PRIVATE_TOOL_NAME_MARKER', 'PRIVATE_TOOL_INPUT_MARKER', 'old',
++        'SCREEN_ONLY_MARKER',
++    ))
+diff --git a/tests/test_orca_parsing.py b/tests/test_orca_parsing.py
+index 03badf8..ce05b2d 100644
+--- a/tests/test_orca_parsing.py
++++ b/tests/test_orca_parsing.py
+@@ -37,0 +38,12 @@ def test_find_exact_agent_by_worktree_and_pane_key():
++                {
++                    "worktreeId": "repo::/tmp/foreign-wt",
++                    "agents": [
++                        {
++                            "paneKey": "tab-1:leaf-1",
++                            "state": "done",
++                            "agentType": "codex",
++                            "lastAssistantMessage": "FOREIGN_WORKTREE_MESSAGE_MARKER",
++                            "toolName": "FOREIGN_WORKTREE_TOOL_MARKER",
++                        },
++                    ],
++                },
+@@ -40,0 +53,7 @@ def test_find_exact_agent_by_worktree_and_pane_key():
++                        {
++                            "paneKey": "tab-foreign:leaf-1",
++                            "state": "done",
++                            "agentType": "codex",
++                            "lastAssistantMessage": "WRONG_PANE_MESSAGE_MARKER",
++                            "toolName": "WRONG_PANE_TOOL_MARKER",
++                        },
+@@ -46 +65 @@ def test_find_exact_agent_by_worktree_and_pane_key():
+-                            "lastAssistantMessage": "확인하겠습니다.",
++                            "lastAssistantMessage": "SELECTED_PANE_MESSAGE_MARKER",
+@@ -70 +89 @@ def test_find_exact_agent_by_worktree_and_pane_key():
+-    assert snapshot.last_assistant_message == "확인하겠습니다."
++    assert snapshot.last_assistant_message == "SELECTED_PANE_MESSAGE_MARKER"
