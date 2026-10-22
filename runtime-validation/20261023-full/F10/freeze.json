@@ -1,0 +1,26 @@
+{
+  "pair_id": "F10",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "frozen_inputs": {
+    "task.md": "08694acfad4da403e6dab45610e9718297a7b1124114eaa0fe501c021c1e77ed",
+    "task-prompt.txt": "36c95bd869f1d370c6d3868017b435237166048ffb81ff2dcbe841a72734b4e6",
+    "acceptance.json": "a33eb599f4e9578ab580bd80a655a8227e159017592657cf8dcacfba8f21f3ea",
+    "host-grader.py": "f67cc5a13ccd1502558a281e216f61e4aa2565e4cb25595d2267da84260d8566",
+    "semantic.py": "23fdf2425d01a9317c0ac18bf84ca60c2c7445f4736f17b13d7f736c031abe84",
+    "baseline-grade.json": "d106767f20c99bdb46509763bca45cd36678c0e9bb318481ffb2bfd99ac689ff",
+    "positive-control-grade.json": "68e859a8f535cee99d290e154507c93598eb1b1d39ab47cb9d95b123e3d6dddc"
+  },
+  "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "positive_control_patch_sha256": "010ba63c73c0299b2aa3982c2172ad8b35b7f3b8f0a75c145a59a56d31fd6cf9",
+  "baseline_calibration": "Pinned baseline builds and installs offline; 58 tests pass, while the named doctor test and host behavior checks fail because /orca doctor is absent.",
+  "positive_control_calibration": "A local synthetic two-file patch passes exact scope, fresh offline wheel/install, 59-test suite, focused doctor test, and host-owned authorization/stale/privacy semantics.",
+  "order": "v1_then_v2",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "budget_seconds_per_condition": 1800,
+  "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+  "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+  "network": "offline pip and local fake interactions only"
+}

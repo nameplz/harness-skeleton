@@ -1,0 +1,28 @@
+{
+  "changed_files": [],
+  "pinned_snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+  "scope": null,
+  "wheel": {
+    "exit_code": 0,
+    "output": "Processing ./source\n  Preparing metadata (pyproject.toml): started\n  Preparing metadata (pyproject.toml): finished with status 'done'\nBuilding wheels for collected packages: orca-discord-bridge\n  Building wheel for orca-discord-bridge (pyproject.toml): started\n  Building wheel for orca-discord-bridge (pyproject.toml): finished with status 'done'\n  Created wheel for orca-discord-bridge: filename=orca_discord_bridge-0.2.0-py3-none-any.whl size=19169 sha256=c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144\n  Stored in directory: /private/tmp/hook-delivery-confirm-n61qez_h/F10-baseline/tmp/pip-ephem-wheel-cache-f8kaq765/wheels/8c/88/7c/cfd03c7c7af220aaf0c25f6a5eb7b43dbbe4046dcebcb072b3\nSuccessfully built orca-discord-bridge\n"
+  },
+  "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+  "install": {
+    "exit_code": 0,
+    "output": "Looking in links: /private/tmp/hook-delivery-confirm-n61qez_h/F10-baseline/wheelhouse\nProcessing ./wheelhouse/orca_discord_bridge-0.2.0-py3-none-any.whl\nInstalling collected packages: orca-discord-bridge\nSuccessfully installed orca-discord-bridge-0.2.0\n"
+  },
+  "suite": {
+    "exit_code": 0,
+    "output": "..........................................................               [100%]\n58 passed in 5.20s\n"
+  },
+  "focused": {
+    "exit_code": 4,
+    "output": "ERROR: not found: /private/tmp/hook-delivery-confirm-n61qez_h/F10-baseline/source/tests/test_harness_compatibility.py::test_orca_doctor_reports_identity_and_stale_guidance\n(no match in any of [<Module test_harness_compatibility.py>])\n\n\nno tests ran in 0.10s\n"
+  },
+  "semantic": {
+    "exit_code": 1,
+    "output": "Traceback (most recent call last):\n  File \"<string>\", line 133, in <module>\n    assert all(results.values()), results\n           ~~~^^^^^^^^^^^^^^^^^^\nAssertionError: {'registered_command': False}\nregistered_command: fail\n"
+  },
+  "status": "fail"
+}

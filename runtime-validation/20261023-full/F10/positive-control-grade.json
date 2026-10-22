@@ -1,0 +1,31 @@
+{
+  "changed_files": [
+    "src/orca_discord_bridge/bot.py",
+    "tests/test_harness_compatibility.py"
+  ],
+  "pinned_snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+  "scope": true,
+  "wheel": {
+    "exit_code": 0,
+    "output": "Processing ./source\n  Preparing metadata (pyproject.toml): started\n  Preparing metadata (pyproject.toml): finished with status 'done'\nBuilding wheels for collected packages: orca-discord-bridge\n  Building wheel for orca-discord-bridge (pyproject.toml): started\n  Building wheel for orca-discord-bridge (pyproject.toml): finished with status 'done'\n  Created wheel for orca-discord-bridge: filename=orca_discord_bridge-0.2.0-py3-none-any.whl size=19381 sha256=35081ee6b84ee81370c518e4912e039c046502062247b3d6b9718441f2b70abd\n  Stored in directory: /private/tmp/hook-delivery-confirm-n61qez_h/F10-positive-grade/tmp/pip-ephem-wheel-cache-bqblunjn/wheels/9d/a1/54/163a91c9f7bf296152c1f08a855e834b00b00f6bbfd6386f33\nSuccessfully built orca-discord-bridge\n"
+  },
+  "wheel_sha256": "35081ee6b84ee81370c518e4912e039c046502062247b3d6b9718441f2b70abd",
+  "install": {
+    "exit_code": 0,
+    "output": "Looking in links: /private/tmp/hook-delivery-confirm-n61qez_h/F10-positive-grade/wheelhouse\nProcessing ./wheelhouse/orca_discord_bridge-0.2.0-py3-none-any.whl\nInstalling collected packages: orca-discord-bridge\nSuccessfully installed orca-discord-bridge-0.2.0\n"
+  },
+  "suite": {
+    "exit_code": 0,
+    "output": "...........................................................              [100%]\n59 passed in 5.64s\n"
+  },
+  "focused": {
+    "exit_code": 0,
+    "output": ".                                                                        [100%]\n1 passed in 0.10s\n"
+  },
+  "semantic": {
+    "exit_code": 0,
+    "output": "registered_command: pass\nhealthy_identity_and_state: pass\nno_sensitive_data: pass\nsnapshot_requested_for_exact_binding: pass\nprivate_response: pass\nstale_binding_guidance: pass\nmissing_binding_guidance: pass\ntransport_error_guidance: pass\ndenial_precedes_orca_0: pass\ndenial_precedes_orca_1: pass\n"
+  },
+  "status": "pass"
+}

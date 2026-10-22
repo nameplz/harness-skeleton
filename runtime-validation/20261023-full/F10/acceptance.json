@@ -1,0 +1,85 @@
+{
+  "task_id": "T10",
+  "task_instance": "stale_doctor_state",
+  "batch": "full",
+  "pair_id": "F10",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "condition_order": "v1_then_v2",
+  "budget_seconds": 1800,
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+  "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+  "grader_mode": "Host applies the candidate patch to the pinned project snapshot, checks exact scope and named regression test, builds and installs a wheel offline, runs the full suite and named test, then exercises the registered command with host-owned fake interactions and clients.",
+  "allowed_files": [
+    "src/orca_discord_bridge/bot.py",
+    "tests/test_harness_compatibility.py"
+  ],
+  "required_test_nodes": [
+    "tests/test_harness_compatibility.py::test_orca_doctor_reports_identity_and_stale_guidance"
+  ],
+  "criteria": [
+    {
+      "id": "command",
+      "check": "A /orca doctor application command is registered."
+    },
+    {
+      "id": "authorization",
+      "check": "Wrong guild and user are rejected before any Orca request."
+    },
+    {
+      "id": "missing_binding",
+      "check": "Missing saved binding fields produce /orca connect guidance without Orca calls."
+    },
+    {
+      "id": "stale_binding",
+      "check": "A live worktree or pane mismatch is reported as stale and does not request an agent snapshot."
+    },
+    {
+      "id": "structured_status",
+      "check": "A healthy binding reports terminal, worktree, pane, and structured agent state without screen reads."
+    },
+    {
+      "id": "sensitive_data",
+      "check": "The configured token, tool input, prompt, and assistant message are absent from the response."
+    },
+    {
+      "id": "transport_error",
+      "check": "Orca validation errors produce actionable reconnect guidance."
+    },
+    {
+      "id": "test",
+      "check": "The named regression test and full project test suite pass."
+    },
+    {
+      "id": "build",
+      "check": "A fresh wheel builds and installs with offline pip."
+    },
+    {
+      "id": "scope",
+      "check": "Only the two listed files change."
+    },
+    {
+      "id": "external_effects",
+      "check": "No live service, network, publication, push, or merge."
+    }
+  ],
+  "network": "Offline pip and local fake Discord interactions / Orca clients only",
+  "baseline_calibration": {
+    "baseline_suite": "58 passed in 5.20s",
+    "expected_failures": "doctor command and named regression test are absent; focused test lookup and host semantic command check fail",
+    "baseline_grade_sha256": "d106767f20c99bdb46509763bca45cd36678c0e9bb318481ffb2bfd99ac689ff",
+    "baseline_wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+    "positive_control": {
+      "patch_sha256": "010ba63c73c0299b2aa3982c2172ad8b35b7f3b8f0a75c145a59a56d31fd6cf9",
+      "host_grade": "pass",
+      "suite": "59 passed in 5.64s",
+      "focused": "1 passed in 0.10s",
+      "positive_control_grade_sha256": "68e859a8f535cee99d290e154507c93598eb1b1d39ab47cb9d95b123e3d6dddc"
+    },
+    "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+    "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae"
+  }
+}
