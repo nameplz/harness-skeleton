@@ -1,0 +1,119 @@
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..1e1f05b 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -19,8 +19,8 @@ args=sys.argv[1:];path=Path(os.environ['FAKE_ORCA_STATE']);mode=os.environ.get('
+ state=json.loads(path.read_text());state['calls'].append(args)
+ if args[:2]==['worktree','ps']:
+     i=min(state['index'],len(state['snapshots'])-1);row=state['snapshots'][i];state['index']+=1
+-    result={'worktrees':[{'worktreeId':'foreign','agents':[dict(row,paneKey='tab:leaf',lastAssistantMessage='FOREIGN_SECRET')]},
+-                          {'worktreeId':'wt','agents':[dict(row,paneKey='foreign:leaf',lastAssistantMessage='OTHER_PANE'),row]}]}
++    result={'worktrees':[{'worktreeId':'foreign','agents':[dict(row,paneKey='tab:leaf',lastAssistantMessage='FOREIGN_WORKTREE_MESSAGE')]},
++                          {'worktreeId':'wt','agents':[dict(row,paneKey='foreign:leaf',lastAssistantMessage='FOREIGN_PANE_MESSAGE'),row]}]}
+ elif args[:2]==['terminal','show']:
+     result={'terminal':{'handle':'term','worktreeId':'wt','tabId':'tab','leafId':'leaf','worktreePath':'/owned/worktree'}}
+ elif args[:2]==['terminal','list']:
+@@ -40,7 +40,7 @@ print(json.dumps({'ok':True,'result':result}))
+ def row(state='done', message='old', updated=1, agent='codex', interrupted=False):
+     return {'paneKey': 'tab:leaf', 'state': state, 'agentType': agent,
+             'lastAssistantMessage': message, 'prompt': 'owned prompt',
+-            'toolName': 'OWNED_TOOL_DETAIL', 'toolInput': 'OWNED_TOOL_INPUT',
++            'toolName': 'INTERNAL_TOOL_NAME_MARKER', 'toolInput': 'INTERNAL_TOOL_INPUT_MARKER',
+             'stateStartedAt': updated, 'updatedAt': updated, 'interrupted': interrupted}
+ 
+ 
+@@ -109,10 +109,14 @@ def test_real_subprocess_structured_completion(cli, monkeypatch, fast, interrupt
+         await original_sleep(.001)
+     monkeypatch.setattr(orca.asyncio, 'sleep', short_sleep)
+     result = asyncio.run(client.exchange(orca.TerminalBinding('term','wt','tab','leaf'), 'owned prompt'))
+-    assert result.state == 'done' and result.text.endswith('owned final')
++    assert result.state == 'done'
++    assert result.text == ('owned progress\n\nowned final' if not fast else 'owned final')
+     assert result.interrupted is interrupted
+     assert ('owned progress' in result.text) is (not fast)
+-    assert not any(s in result.text for s in ('FOREIGN_SECRET','OTHER_PANE','OWNED_TOOL','old'))
++    assert not any(s in result.text for s in (
++        'FOREIGN_WORKTREE_MESSAGE', 'FOREIGN_PANE_MESSAGE',
++        'INTERNAL_TOOL_NAME_MARKER', 'INTERNAL_TOOL_INPUT_MARKER', 'old',
++    ))
+     assert not any(c[:2] == ['terminal','read'] for c in json.loads(path.read_text())['calls'])
+ 
+ 
+diff --git a/tests/test_orca_parsing.py b/tests/test_orca_parsing.py
+index 03badf8..b0e85bf 100644
+--- a/tests/test_orca_parsing.py
++++ b/tests/test_orca_parsing.py
+@@ -35,9 +35,36 @@ def test_find_exact_agent_by_worktree_and_pane_key():
+     data = {
+         "result": {
+             "worktrees": [
++                {
++                    "worktreeId": "repo::/tmp/foreign-wt",
++                    "agents": [
++                        {
++                            "paneKey": "tab-1:leaf-1",
++                            "state": "done",
++                            "agentType": "codex",
++                            "prompt": "foreign prompt",
++                            "lastAssistantMessage": "foreign worktree message",
++                            "toolName": "ForeignTool",
++                            "toolInput": "foreign input",
++                            "stateStartedAt": 80,
++                            "updatedAt": 90,
++                        }
++                    ],
++                },
+                 {
+                     "worktreeId": "repo::/tmp/wt",
+                     "agents": [
++                        {
++                            "paneKey": "tab-2:leaf-2",
++                            "state": "done",
++                            "agentType": "codex",
++                            "prompt": "wrong pane prompt",
++                            "lastAssistantMessage": "wrong pane message",
++                            "toolName": "OtherTool",
++                            "toolInput": "other input",
++                            "stateStartedAt": 70,
++                            "updatedAt": 80,
++                        },
+                         {
+                             "paneKey": "tab-1:leaf-1",
+                             "state": "working",
+@@ -49,14 +76,6 @@ def test_find_exact_agent_by_worktree_and_pane_key():
+                             "stateStartedAt": 100,
+                             "updatedAt": 110,
+                         },
+-                        {
+-                            "paneKey": "tab-2:leaf-2",
+-                            "state": "done",
+-                            "agentType": "codex",
+-                            "lastAssistantMessage": "다른 Codex",
+-                            "stateStartedAt": 90,
+-                            "updatedAt": 120,
+-                        },
+                     ],
+                 }
+             ]
+@@ -66,9 +85,18 @@ def test_find_exact_agent_by_worktree_and_pane_key():
+         data, worktree_id="repo::/tmp/wt", pane_key="tab-1:leaf-1"
+     )
+     assert snapshot is not None
+-    assert snapshot.state == "working"
+-    assert snapshot.last_assistant_message == "확인하겠습니다."
+-    assert snapshot.tool_name == "Read"
++    assert snapshot == AgentSnapshot(
++        pane_key="tab-1:leaf-1",
++        state="working",
++        agent_type="codex",
++        prompt="hello",
++        last_assistant_message="확인하겠습니다.",
++        tool_name="Read",
++        tool_input="README.md",
++        interrupted=False,
++        state_started_at=100,
++        updated_at=110,
++    )
+ 
+ 
+ def test_merge_replaces_streaming_prefix_but_keeps_distinct_assistant_messages():

@@ -1,0 +1,66 @@
+{
+  "condition": "v1",
+  "prompt_request_id": "9eb0332f-9fa8-4cdf-8908-b3b78ac12a81",
+  "duration": "6m 46s (TUI-reported)",
+  "duration_ms": 406000,
+  "tokens": null,
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "candidate_branch": "eval-base",
+  "candidate_commits": 0,
+  "main_prompt_count": 1,
+  "delegated_agent_launches": 4,
+  "model_turns": "not captured",
+  "tui_candidate_suite": "58 passed in 3.48s",
+  "reviews": {
+    "implementation_worker": "pass",
+    "final_code_review": "pass; no findings",
+    "final_test_review": "pass; phase-step scope request intentionally not added",
+    "final_security_review": "pass; no findings"
+  },
+  "candidate_workflow_decision": "blocked; stale v1 state-load phase requires non-object JSON-root work outside the frozen T04 two-test-file scope, and sandbox denied creation of feat-state-load branch",
+  "workflow_artifacts": [
+    "candidate-workflow-v1/.harness/runtime/state-load/step0-attempt-1.json",
+    "candidate-workflow-v1/phases/index.json",
+    "candidate-workflow-v1/phases/state-load/index.json",
+    "candidate-workflow-v1/phases/state-load/step0-output.json",
+    "candidate-workflow-v1/phases/state-load/step0.md"
+  ],
+  "product_diff": {
+    "files": [
+      "tests/test_harness_compatibility.py",
+      "tests/test_orca_parsing.py"
+    ],
+    "insertions": 56,
+    "deletions": 20,
+    "patch_sha256": "47a6eba42e475684b3cf0b99a61943c0502451433f1aeb1771874c107661cebe"
+  },
+  "host_grade": {
+    "status": "fail",
+    "fresh_wheel_build": "pass",
+    "offline_install": "pass",
+    "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+    "full_project_suite": "58 passed in 6.40s",
+    "semantic_check": "fail; frozen checker demanded `expected_messages` identifier absent from the candidate’s equivalent inline exact-output assertion",
+    "focused_semantic_recheck": "pass",
+    "scope": true
+  },
+  "process_observations": {
+    "harness_risk_check": "unavailable; snapshot lacks scripts/harness.py and .harness/config.toml",
+    "network_or_live_services": "none observed; synthetic fake subprocesses only",
+    "remote_writes": false,
+    "pip_environment_deviation": [
+      "none observed"
+    ],
+    "candidate_commit": "not made; Git denied the configured feat-state-load branch lock; no workaround attempted",
+    "candidate_hook": "TUI reported no hooks used",
+    "protocol_deviation": "v1 stage_candidate helper retained a T01 state-load phase step that conflicts with F04 T04; candidate noticed and left task scope unchanged."
+  },
+  "metrics_limits": {
+    "token_usage": "unknown; TUI did not provide per-condition usage",
+    "shell_command_counts": "not captured",
+    "subagent_turns": "not captured; four agents launched"
+  }
+}

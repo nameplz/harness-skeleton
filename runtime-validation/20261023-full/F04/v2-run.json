@@ -1,0 +1,60 @@
+{
+  "condition": "v2",
+  "prompt_request_id": null,
+  "prompt_submission": "accepted; prompt request ID was not retained by the terminal adapter",
+  "duration": "2m 10s (TUI-reported)",
+  "duration_ms": 130000,
+  "tokens": null,
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "candidate_branch": "eval-base",
+  "candidate_commits": 0,
+  "main_prompt_count": 1,
+  "model_turns": "not captured",
+  "tui_candidate_suite": "58 passed in 3.68s",
+  "reviews": {
+    "workflow_route": "v2 T1 main-session implementation; independent review agents not launched by default",
+    "candidate_self_review": "pass; final diff and acceptance reviewed",
+    "independent_review_agents": "not launched under T1 route"
+  },
+  "product_diff": {
+    "files": [
+      "tests/test_harness_compatibility.py",
+      "tests/test_orca_parsing.py"
+    ],
+    "insertions": 48,
+    "deletions": 16,
+    "patch_sha256": "1b8d46d4ee21bdaabd7113478c95fabe8299f9c9e9f16a0ef8a9765d790ea582"
+  },
+  "host_grade": {
+    "status": "fail",
+    "fresh_wheel_build": "pass",
+    "offline_install": "pass",
+    "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+    "full_project_suite": "58 passed in 6.49s",
+    "semantic_checks": "fail; frozen coverage checker required a named expected_messages variable, while the candidate asserts the exact expected result inline. Full suite passed, but the focused semantic command was stopped at this static check.",
+    "scope": true,
+    "focused_semantic_recheck": "pass",
+    "focused_semantic_recheck_output": "4 passed in 1.43s",
+    "raw_failure_reason": "frozen semantic checker expected a variable named expected_messages; the candidate asserted exact expected output inline"
+  },
+  "adjudication_note": "The frozen host grader is unchanged. The retained diff directly asserts exact selected-pane output, rejects foreign-pane/worktree and tool markers, checks the parser returns the complete exact AgentSnapshot, and checks no terminal screen read. The host grade remains fail because its predeclared static semantic check rejected the inline expected-output form.",
+  "process_observations": {
+    "harness_risk_check": "unavailable; product snapshot lacks scripts/harness.py and .harness/config.toml",
+    "network_or_live_services": "none observed; tests use local fake subprocesses",
+    "remote_writes": false,
+    "pip_environment_deviation": [
+      "none observed"
+    ],
+    "candidate_commit": "not made; sandbox denied Git staging at .git/index.lock; no workaround attempted",
+    "git_diagnostics": "Initial diff command emitted system gitattributes access warnings; final sanitized diff/check passed.",
+    "direct_hook": "No manual/direct execution reported; automatic hook delivery was not independently audited."
+  },
+  "metrics_limits": {
+    "token_usage": "unknown; TUI did not provide per-condition usage",
+    "shell_command_counts": "not captured",
+    "subagent_turns": "not captured"
+  }
+}
