@@ -1,0 +1,36 @@
+{
+  "condition": "v1",
+  "prompt_request_ids": [
+    "c0e0481a-715f-4f6b-a2d3-4cfdee1aab82"
+  ],
+  "duration": "24s (TUI-reported; refusal before candidate files were read)",
+  "duration_ms": 24000,
+  "tokens": null,
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "candidate_branch": "eval-base",
+  "candidate_commits": 0,
+  "main_prompt_count": 1,
+  "product_diff": {
+    "files": [],
+    "insertions": 0,
+    "deletions": 0,
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "outcome": "blocked before edits: TUI refused the candidate TASK.md under /private/tmp and explicitly declined requesting an exception",
+  "acceptance_or_reviews": "not run; no candidate files changed",
+  "tui_completion": "failed before task execution; preserve as an attempted model run and do not rerun",
+  "process_observations": {
+    "runtime_profile": "tool-child sandbox only; TUI parent is a host process, not a VM",
+    "network_or_live_services": "none observed",
+    "remote_writes": false,
+    "candidate_git": "branch remained eval-base; no candidate commit",
+    "hosted_ci": "not run"
+  },
+  "metrics_limits": {
+    "token_usage": "unknown",
+    "model_turns": "not captured"
+  }
+}

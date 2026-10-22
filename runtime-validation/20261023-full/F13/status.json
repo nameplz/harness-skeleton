@@ -1,8 +1,9 @@
 {
   "pair_id": "F13",
-  "status": "frozen; awaiting v1",
+  "status": "both model runs attempted; v1 blocked before edit; v2 host grade passed; pair not accepted as a valid matched pair",
   "condition_order": "v1_then_v2",
-  "model_runs_completed": 0,
-  "baseline_host_grade": "expected fail on delimiter-forgery semantic",
-  "positive_control": "pass"
+  "model_runs_completed": 2,
+  "v1_host_grade": "not run: no patch after path refusal",
+  "v2_host_grade": "pass",
+  "pair_decision": "not comparable; preserve v1 failure"
 }
