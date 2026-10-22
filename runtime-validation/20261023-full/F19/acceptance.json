@@ -1,0 +1,83 @@
+{
+  "task_id": "T01",
+  "task_instance": "alternate_invalid_json",
+  "batch": "full",
+  "pair_id": "F19",
+  "condition_order": "v1_then_v2",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "budget_seconds": 1800,
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+  "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+  "allowed_files": [
+    "src/orca_discord_bridge/state.py",
+    "tests/test_harness_compatibility.py"
+  ],
+  "criteria": [
+    {
+      "id": "non_object_roots",
+      "check": "Valid JSON roots null, arrays, strings, numbers, true, and false load as empty disconnected BridgeState."
+    },
+    {
+      "id": "alternate_invalid_bytes",
+      "check": "Empty, whitespace-only, truncated, trailing-garbage, and invalid-UTF-8 byte content load as empty BridgeState without raising."
+    },
+    {
+      "id": "read_only_on_invalid",
+      "check": "Loading invalid state leaves original file bytes unchanged."
+    },
+    {
+      "id": "preserved_state_behavior",
+      "check": "Missing files, valid object state, and connect/disconnect persistence continue to work."
+    },
+    {
+      "id": "regression_tests",
+      "check": "Focused compatibility tests cover non-object roots and every malformed byte form."
+    },
+    {
+      "id": "build_and_suite",
+      "check": "Fresh wheel build/install is offline; full and focused suites pass."
+    },
+    {
+      "id": "scope",
+      "check": "Only the two listed files change."
+    },
+    {
+      "id": "external_effects",
+      "check": "No network, live services, publication, push, or merge."
+    }
+  ],
+  "grader_mode": "Host applies a candidate patch to a pinned snapshot; checks exact two-file scope; builds/installs a wheel offline; runs the full suite and compatibility test module; executes host-owned state semantics on local temporary files.",
+  "network": "Offline pip and local temporary files only",
+  "baseline_calibration": {
+    "inherited_snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+    "inherited_baseline_wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+    "f19_semantic": "must fail on non-object roots and invalid UTF-8 before either condition",
+    "status": "expected_fail",
+    "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+    "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+    "suite": "58 passed",
+    "focused": "47 passed",
+    "semantic_failures": [
+      "valid non-object JSON roots (six values)",
+      "invalid UTF-8 bytes"
+    ]
+  },
+  "positive_control_calibration": {
+    "scope": "exact two allowed files",
+    "required": "offline wheel/install, full/focused tests, and all F19 state semantics pass",
+    "status": "pass",
+    "patch_sha256": "b6b9f2fc52e95deba9c3ed84d0ce929456f83a2eca51aecbd5575c78db398dc4",
+    "wheel_sha256": "61e710154392404ed48ba2a3cc2e5559e354a1e2dae0c75b29c019a8705128a4",
+    "suite": "69 passed",
+    "focused": "58 passed",
+    "semantic": "all frozen checks pass",
+    "changed_files": [
+      "src/orca_discord_bridge/state.py",
+      "tests/test_harness_compatibility.py"
+    ]
+  }
+}
