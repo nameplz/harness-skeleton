@@ -10,6 +10,28 @@ from evals.runtime_invocation import bind_session, claim_launch, consume_invocat
 
 
 class InvocationTests(unittest.TestCase):
+    def test_source_hashes_ignore_nested_task_notes_but_keep_harness_files(self):
+        from evals.runtime_invocation import source_file_hashes
+        with TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            for relative in ('.harness/config.toml', '.harness/task-template.md',
+                             '.harness/tasks/issue-1-evaluation.md'):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(relative)
+            with patch('evals.runtime_invocation.PROJECT_ROOT', root):
+                hashes = source_file_hashes()
+            self.assertEqual({'.harness/config.toml', '.harness/task-template.md'}, set(hashes))
+
+    def test_source_hashes_reject_a_directory_at_a_matched_source_path(self):
+        from evals.runtime_invocation import source_file_hashes
+        for relative in ('evals/broken.py', '.harness/config.toml'):
+            with self.subTest(relative=relative), TemporaryDirectory() as temp:
+                root = Path(temp).resolve()
+                (root / relative).mkdir(parents=True)
+                with patch('evals.runtime_invocation.PROJECT_ROOT', root), self.assertRaises(ValueError):
+                    source_file_hashes()
+
     def test_bpf_c_source_changes_are_part_of_frozen_identity(self):
         from evals.runtime_invocation import source_file_hashes
         with TemporaryDirectory() as temp:

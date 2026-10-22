@@ -27,7 +27,15 @@ def _digest(value: object) -> str:
 def source_file_hashes() -> dict[str, str]:
     patterns = ('evals/*.py', 'evals/*.json', 'evals/bpf/*.c', 'scripts/*.py', 'tests/*.py', 'docs/**/*.md',
                 '.codex/**/*.toml', '.codex/hooks/*.py', '.agents/skills/**/*.md', '.harness/*', 'AGENTS.md')
-    paths = sorted({path for pattern in patterns for path in PROJECT_ROOT.glob(pattern)})
+    paths = set()
+    for pattern in patterns:
+        for path in PROJECT_ROOT.glob(pattern):
+            if stat.S_ISDIR(path.lstat().st_mode):
+                if pattern == '.harness/*' and path == PROJECT_ROOT / '.harness/tasks':
+                    continue
+                raise ValueError('frozen source path must be a regular file')
+            paths.add(path)
+    paths = sorted(paths)
     result = {}
     for path in paths:
         with os.fdopen(open_no_symlink(path), 'rb') as stream:
