@@ -1,0 +1,28 @@
+{
+  "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+  "changed_files": [
+    "tests/test_harness_compatibility.py"
+  ],
+  "compatibility_test_changed": true,
+  "focused_cases": 6,
+  "install": {
+    "exit_code": 0,
+    "output": "Looking in links: /private/tmp/hook-delivery-confirm-n61qez_h/F14-host-grade-positive-control/wheelhouse\nProcessing ./wheelhouse/orca_discord_bridge-0.2.0-py3-none-any.whl\nInstalling collected packages: orca-discord-bridge\nSuccessfully installed orca-discord-bridge-0.2.0\n"
+  },
+  "pinned_snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "scope": true,
+  "semantic": {
+    "exit_code": 0,
+    "output": "......                                                                   [100%]\n6 passed in 1.22s\n"
+  },
+  "status": "pass",
+  "suite": {
+    "exit_code": 0,
+    "output": "...........................................................              [100%]\n59 passed in 5.38s\n"
+  },
+  "wheel": {
+    "exit_code": 0,
+    "output": "Processing ./source\n  Preparing metadata (pyproject.toml): started\n  Preparing metadata (pyproject.toml): finished with status 'done'\nBuilding wheels for collected packages: orca-discord-bridge\n  Building wheel for orca-discord-bridge (pyproject.toml): started\n  Building wheel for orca-discord-bridge (pyproject.toml): finished with status 'done'\n  Created wheel for orca-discord-bridge: filename=orca_discord_bridge-0.2.0-py3-none-any.whl size=19169 sha256=c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144\n  Stored in directory: /private/tmp/hook-delivery-confirm-n61qez_h/F14-host-grade-positive-control/tmp/pip-ephem-wheel-cache-08fsyf1f/wheels/29/dc/59/28678d47c60577e54e379f370bfad71f6b1457a5aeb5f73933\nSuccessfully built orca-discord-bridge\n"
+  },
+  "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144"
+}
