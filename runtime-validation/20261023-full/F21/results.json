@@ -1,0 +1,40 @@
+{
+  "pair_id": "F21",
+  "task_id": "T13",
+  "task_instance": "legacy_sqlite_migration",
+  "batch": "full",
+  "condition_order": "v2_then_v1",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "task_sha256": "230ad26237c0dce4476c2c484092f167c0ac1ec0fca60005b984d6239f76bc9a",
+  "prompt_sha256": "7f145aeff1c2f7effade29c31aca8124f17dc17edfe44d24a77cf435aaa32788",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "conditions": {
+    "v2": {
+      "run_record": "v2-run.json",
+      "patch": "v2-final.patch",
+      "patch_sha256": "93eabe38761f6eab9a161fca819302d7a0544b864fe61c85b775816e476faaad",
+      "host_grade": "v2-grade.json",
+      "raw_status": "pass",
+      "suite": "64 passed; all three frozen semantic checks passed",
+      "reviews": "T1 self-review passed; separate reviewers not launched"
+    },
+    "v1": {
+      "run_record": "v1-run.json",
+      "patch": "v1-final.patch",
+      "patch_sha256": "65818eb7b215e05f2655e3826f8c251a07bd3a8eff560051e6dd689f0d542b3e",
+      "host_grade": "v1-grade.json",
+      "raw_status": "functional host grade pass; blocking security review",
+      "suite": "73 host tests and all three semantic checks passed; candidate pytest ran no tests",
+      "reviews": "code/test reviews confirmed unresolved path-retarget race and static-only symlink coverage; independent security review blocked"
+    }
+  },
+  "pair_decision": "blocked: v1 passes functional host grading but is not accepted because SQLite's pathname open cannot be bound to the checked directory with the available standard-library API; v2 passes.",
+  "limitations": [
+    "Candidate Python 3.13 could not collect pytest because _sqlite3_enable_load_extension was missing from the linked host libsqlite3; independent host pytest passed.",
+    "The static parent-symlink regression does not exercise retargeting between validation and sqlite3.connect(path).",
+    "SessionStart hook exited 125 in the v1 terminal; no bypass was used. Protected hook/delivery hashes remained unchanged.",
+    "Candidate branch/commits were sandbox-blocked; no workaround, network, live services, hosted CI, push, publication, or merge.",
+    "TUI parent was a host process; harness-eval applied to tool children only. Token and internal turn counts are unknown."
+  ]
+}
