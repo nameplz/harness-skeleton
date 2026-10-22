@@ -1,0 +1,68 @@
+diff --git a/src/orca_discord_bridge/formatting.py b/src/orca_discord_bridge/formatting.py
+index 33d5210..fd3a683 100644
+--- a/src/orca_discord_bridge/formatting.py
++++ b/src/orca_discord_bridge/formatting.py
+@@ -77,7 +77,8 @@ def clean_terminal_output(text: str) -> str:
+ 
+ 
+ def split_for_discord(text: str, limit: int = 1_900) -> list[str]:
+-    text = text.strip()
++    if limit <= 0:
++        raise ValueError("limit must be positive")
+     if not text:
+         return []
+ 
+@@ -88,8 +89,11 @@ def split_for_discord(text: str, limit: int = 1_900) -> list[str]:
+             cut = text.rfind(" ", 0, limit)
+         if cut < limit // 2:
+             cut = limit
+-        chunks.append(text[:cut].rstrip())
+-        text = text[cut:].lstrip()
++        else:
++            # Keep the chosen separator with this chunk so joining chunks is lossless.
++            cut += 1
++        chunks.append(text[:cut])
++        text = text[cut:]
+     if text:
+         chunks.append(text)
+     return chunks
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..d672256 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -189,7 +189,12 @@ def test_authorized_message_and_disconnected_reply(tmp_path):
+     asyncio.run(run())
+ 
+ 
+-@pytest.mark.parametrize('output,interrupted', [('',False),('owned final',True),('x'*4000,False)])
++@pytest.mark.parametrize('output,interrupted', [
++    ('',False),
++    (('owned line with  two spaces before newline  \n' * 90) + ('final  tail ' * 220),False),
++    ('x'*4000,False),
++    (('interrupted line  with preserved spaces \n' * 65),True),
++])
+ def test_forward_output_routing_and_chunks(tmp_path, output, interrupted):
+     class Channel(bot_module.discord.TextChannel):
+         def __init__(self): self.sent=[]
+@@ -203,9 +208,18 @@ def test_forward_output_routing_and_chunks(tmp_path, output, interrupted):
+         channel=Channel();bot.get_channel=lambda _:channel
+         await bot.forward_to_codex('owned prompt',origin='owned')
+         assert channel.sent and all(len(chunk)<=1900 for chunk in channel.sent)
+-        if not output: assert '출력은 없습니다' in channel.sent[0]
+-        elif interrupted: assert '중단' in channel.sent[-1]
+-        else: assert ''.join(channel.sent)==output
++        cleaned = formatting.clean_terminal_output(output)
++        if cleaned and interrupted:
++            marker = '_(Codex turn이 중단된 상태로 종료되었습니다.)_'
++            cleaned += f'\n\n{marker}'
++            assert channel.sent[-1].endswith(marker)
++        if cleaned:
++            assert ''.join(channel.sent)==cleaned
++        else:
++            assert channel.sent==[
++                'Codex 작업은 완료됐지만 Discord에 표시할 대화형 출력은 없습니다. '
++                '(tool call·코드/diff 상세는 생략됩니다.)'
++            ]
+         bot.orca.exchange.assert_awaited_once_with(binding,'owned prompt')
+         await bot.close()
+     asyncio.run(run())
