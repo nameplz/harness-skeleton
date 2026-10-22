@@ -1,0 +1,27 @@
+{
+  "pair_id": "F13",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "frozen_inputs": {
+    "task.md": "81ca0cdbc848ab2ce41f80de79cfddbe040507360ac2085919233cc063295e84",
+    "task-prompt.txt": "d1e8feba0ba39d9797e21e45006b268869e0c5470410f6bb175ba83dca791754",
+    "acceptance.json": "a899241a08339950fccb6c8aaec1e21389109e9fb8266a8c811edb3d36ccb6e8",
+    "host-grader.py": "b4e0281d44008789291df738d1770788897167de254989a950b725935e47a212",
+    "semantic.py": "86952bfd40a71233d0ec31e332c0615627bed0d443c5ab00bd53331bf2bedc51",
+    "baseline_test_harness_compatibility.py": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+    "baseline-grade.json": "46977038f00603c86d43d7635388bef2075d4192428a1c0c2f5715b8793661e4",
+    "positive-control-grade.json": "4f0903a86c356fcaedff7a1df238f56ebe8c385e0a8005602c9713e4e4278aac",
+    "positive-control.patch": "8f8cd2a99648146e52e23dc647f7102e7e9071fb0727f9ed51d9f3c54f902115"
+  },
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+  "baseline_calibration": "Pinned baseline wheel builds/installs offline and 58 tests pass; message authorization, context-menu data handling, and mention checks pass; delimiter-forgery semantic fails as expected.",
+  "positive_control_calibration": "Prior T08 pilot v1 patch passes the fresh full-batch grader: offline wheel/install, 60 tests, exact allowed scope, compatibility test changed, and all semantics pass.",
+  "order": "v1_then_v2",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "budget_seconds_per_condition": 1800,
+  "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+  "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+  "network": "offline pip and local fake Discord/Orca only"
+}
