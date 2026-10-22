@@ -1,0 +1,8 @@
+{
+  "pair_id": "F15",
+  "status": "frozen; awaiting v2",
+  "condition_order": "v2_then_v1",
+  "model_runs_completed": 0,
+  "baseline_host_grade": "expected fail on additional channels and invalid list rejection",
+  "positive_control": "pass"
+}

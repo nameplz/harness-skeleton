@@ -1,0 +1,71 @@
+{
+  "task_id": "T11",
+  "task_name": "Support multiple Codex input channels",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "budget_seconds": 1800,
+  "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+  "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+  "condition_order": "v2_then_v1",
+  "v1_workflow_commit": "134c98a2f8be326e3e3688f411a6b348bd463f7f",
+  "v2_workflow_commit": "b5e8da26d721ff8b1c9be93a766d526fcf59fc06",
+  "hashes": {
+    "task_sha256": "da11df9450c8ed29389fea850e88082e3fe739aa4b0a0664f44ac8bd4015687f",
+    "prompt_sha256": "2fea24b15d432e3bf10c71e3c25db6f1869220238164306a215864c3b251703d",
+    "host_grader_sha256": "e3afa59e437d65b66cfe716001f21e37a1092b36515e557d03c44d6a57993c41",
+    "semantic_sha256": "6ede28d175a91339305d3c102587f5cc7972f9e709e62b5cd7ba7fcb91a1014c",
+    "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae"
+  },
+  "criteria": [
+    {
+      "id": "multiple_input_channels",
+      "check": "The primary CODEX_CHANNEL_ID and each comma-separated CODEX_CHANNEL_IDS entry forward exactly once; unlisted channels are ignored."
+    },
+    {
+      "id": "list_parsing",
+      "check": "Whitespace is trimmed, duplicates are harmless, an unset or empty plural variable preserves legacy behavior, and a malformed nonempty entry raises ConfigError."
+    },
+    {
+      "id": "primary_response_destination",
+      "check": "Codex replies continue to go to CODEX_CHANNEL_ID."
+    },
+    {
+      "id": "regression_tests",
+      "check": "Extend test_discord_message_boundary with call-spy checks for the legacy, multiple listed, and unlisted channels; cover list parsing and invalid IDs."
+    },
+    {
+      "id": "build_and_suite",
+      "check": "A fresh wheel builds and installs offline and the full project suite passes."
+    },
+    {
+      "id": "scope",
+      "check": "Product diff is limited to config.py, bot.py, and test_harness_compatibility.py."
+    },
+    {
+      "id": "external_effects",
+      "check": "No successful network, Discord/Orca service call, publication, push, or merge."
+    }
+  ],
+  "baseline_calibration": {
+    "baseline_project_suite": "58 passed in 7.66s",
+    "baseline_wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+    "semantic_checks": {
+      "multiple_input_channels": "fail",
+      "invalid_list_rejected": "fail",
+      "legacy_single_channel": "pass",
+      "empty_list_legacy_behavior": "pass",
+      "primary_response_destination": "pass"
+    },
+    "note": "The frozen baseline semantic run passes legacy single-channel, empty-list fallback, and primary response destination. It fails only the additional input-channel behavior and invalid-list configuration rejection checks. Task, prompt and grader are frozen before either condition."
+  },
+  "network": "offline pip and local fake Discord/Orca only",
+  "batch": "full",
+  "pair_id": "F15",
+  "task_instance": "legacy_channel_fallback",
+  "full_plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "grader_mode": "Host applies only the candidate patch to the pinned snapshot, checks exact scope, rebuilds and installs offline, runs the full project suite, then executes local fake Discord/Orca semantics for legacy and multiple channel forwarding, unlisted-channel rejection, parsing/error behavior, and primary reply destination."
+}
