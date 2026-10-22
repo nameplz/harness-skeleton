@@ -1,0 +1,7 @@
+{
+  "condition": "v2",
+  "focused_test": "tests/test_harness_compatibility.py::test_start_command_missing_python_bootstrap",
+  "status": "pass",
+  "result": "1 passed in 0.60s",
+  "interpretation": "Confirms candidate regression test behavior; does not replace or alter the frozen raw host grade. The only frozen semantic failure is the repeated-install expectation."
+}

@@ -1,7 +1,13 @@
 {
   "pair_id": "F06",
-  "status": "frozen; candidate runs not started",
+  "status": "complete; both candidates finished, raw frozen host grades fail on the same repeated-install semantic mismatch",
   "condition_order": "v2_then_v1",
   "baseline_host_grade": "expected fail only because launcher is missing; build/install and 58 tests pass",
-  "model_runs_completed": 0
+  "model_runs_completed": 2,
+  "v2_candidate_suite": "59 passed",
+  "v2_host_grade": "raw fail; build/install/full suite pass, frozen semantic reuse-install assertion conflicts with README and candidate behavior",
+  "v2_supplemental_test": "focused launcher regression passed",
+  "v1_candidate_suite": "59 passed",
+  "v1_host_grade": "raw fail; build/install/full suite pass, frozen semantic reuse-install assertion conflicts with README and candidate behavior",
+  "v1_supplemental_test": "focused launcher regression passed"
 }

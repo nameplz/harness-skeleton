@@ -1,0 +1,143 @@
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..01dfab3 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
+ from importlib import metadata
+ import json
+ from pathlib import Path
++import stat
++import subprocess
+ import sys
+ from types import SimpleNamespace as NS
+ from unittest.mock import AsyncMock
+@@ -342,3 +344,98 @@ def test_embed_reply_data_and_control_cleanup():
+     assert formatting.message_to_text(NS(content='',embeds=[]))=='(message has no readable text/embed content)'
+     assert formatting.clean_terminal_output('\0owned\r\ntext')=='owned\ntext'
+     assert formatting.split_for_discord('')==[]
++
++
++def test_start_command_missing_python_bootstrap(tmp_path):
++    source = Path(__file__).resolve().parents[1] / 'start.command'
++    assert stat.S_IMODE(source.stat().st_mode) == 0o755
++    launcher_text = source.read_text(encoding='utf-8')
++    python_message = 'Python 3.11 or newer is required. Install Python 3.11+ and try again.'
++    token = 'OWNED_LAUNCHER_TOKEN'
++    other_secret = 'OWNED_LAUNCHER_SECRET'
++
++    def project(name):
++        root = tmp_path / name
++        root.mkdir()
++        launcher = root / 'start.command'
++        launcher.write_text(launcher_text, encoding='utf-8')
++        launcher.chmod(0o755)
++        return root
++
++    def run_launcher(root, path, calls):
++        env = {
++            'PATH': str(path),
++            'FAKE_CALLS': str(calls),
++            'DISCORD_TOKEN': token,
++            'ORCA_BINARY': other_secret,
++        }
++        return subprocess.run(
++            [str(root / 'start.command')], cwd=tmp_path, env=env,
++            capture_output=True, text=True, check=False,
++        )
++
++    missing_root = project('missing-python')
++    missing_bin = tmp_path / 'missing-bin'
++    missing_bin.mkdir()
++    missing_calls = tmp_path / 'missing-calls.txt'
++    fake_osascript = missing_bin / 'osascript'
++    fake_osascript.write_text(
++        '#!/bin/bash\nprintf \'%s\\n\' "$*" >> "$FAKE_CALLS"\n',
++        encoding='utf-8',
++    )
++    fake_osascript.chmod(0o755)
++    missing = run_launcher(missing_root, missing_bin, missing_calls)
++    assert missing.returncode == 1
++    assert missing.stderr.strip() == python_message
++    assert python_message in missing_calls.read_text(encoding='utf-8')
++    assert missing_calls.read_text(encoding='utf-8').count('\n') == 1
++    assert not (missing_root / '.venv').exists()
++
++    bootstrap_root = project('bootstrap')
++    fake_bin = tmp_path / 'bootstrap-bin'
++    fake_bin.mkdir()
++    calls = tmp_path / 'bootstrap-calls.txt'
++    fake_python3 = fake_bin / 'python3'
++    fake_python3.write_text(
++        '''#!/bin/bash
++printf 'python3 %s\\n' "$*" >> "$FAKE_CALLS"
++if [[ "$1" == "-m" && "$2" == "venv" && "$3" == ".venv" ]]; then
++    /bin/mkdir -p .venv/bin
++    /bin/cat > .venv/bin/python <<'FAKE_VENV_PYTHON'
++#!/bin/bash
++printf 'venv-python %s\\n' "$*" >> "$FAKE_CALLS"
++FAKE_VENV_PYTHON
++    /bin/chmod +x .venv/bin/python
++else
++    exit 99
++fi
++''',
++        encoding='utf-8',
++    )
++    fake_python3.chmod(0o755)
++    first = run_launcher(bootstrap_root, fake_bin, calls)
++    assert first.returncode == 0, first.stderr
++    assert (bootstrap_root / '.venv/bin/python').is_file()
++    assert calls.read_text(encoding='utf-8').splitlines() == [
++        'python3 -m venv .venv',
++        'venv-python -m pip install .',
++        'venv-python -m orca_discord_bridge',
++    ]
++
++    fake_python3.unlink()
++    second = run_launcher(bootstrap_root, fake_bin, calls)
++    assert second.returncode == 0, second.stderr
++    assert calls.read_text(encoding='utf-8').splitlines() == [
++        'python3 -m venv .venv',
++        'venv-python -m pip install .',
++        'venv-python -m orca_discord_bridge',
++        'venv-python -m orca_discord_bridge',
++    ]
++
++    for result in (missing, first, second):
++        assert token not in result.stdout + result.stderr
++        assert other_secret not in result.stdout + result.stderr
++    for path in (missing_calls, calls):
++        logged = path.read_text(encoding='utf-8')
++        assert token not in logged
++        assert other_secret not in logged
+diff --git a/start.command b/start.command
+new file mode 100755
+index 0000000..1472289
+--- /dev/null
++++ b/start.command
+@@ -0,0 +1,25 @@
++#!/bin/bash
++set -euo pipefail
++
++PROJECT_DIR="${BASH_SOURCE[0]%/*}"
++if [[ "$PROJECT_DIR" == "${BASH_SOURCE[0]}" ]]; then
++    PROJECT_DIR="."
++fi
++PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
++cd "$PROJECT_DIR"
++
++VENV_PYTHON="$PROJECT_DIR/.venv/bin/python"
++if [[ ! -x "$VENV_PYTHON" ]]; then
++    if ! command -v python3 >/dev/null 2>&1; then
++        message='Python 3.11 or newer is required. Install Python 3.11+ and try again.'
++        printf '%s\n' "$message" >&2
++        if command -v osascript >/dev/null 2>&1; then
++            osascript -e "display dialog \"$message\" with title \"Orca Discord Bridge\" buttons {\"OK\"} default button \"OK\"" >/dev/null 2>&1 || true
++        fi
++        exit 1
++    fi
++    python3 -m venv .venv
++    "$VENV_PYTHON" -m pip install .
++fi
++
++exec "$VENV_PYTHON" -m orca_discord_bridge
