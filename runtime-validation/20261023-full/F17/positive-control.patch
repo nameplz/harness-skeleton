@@ -1,0 +1,32 @@
+diff --git a/src/orca_discord_bridge/state.py b/src/orca_discord_bridge/state.py
+--- a/src/orca_discord_bridge/state.py
++++ b/src/orca_discord_bridge/state.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ import json
++import os
+ from dataclasses import asdict, dataclass
+ from pathlib import Path
+ 
+@@ -34,11 +35,15 @@
+     def save(self) -> None:
+         self.path.parent.mkdir(parents=True, exist_ok=True)
+         tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+-        tmp.write_text(
+-            json.dumps(asdict(self.state), ensure_ascii=False, indent=2),
+-            encoding="utf-8",
+-        )
+-        tmp.replace(self.path)
++        try:
++            tmp.write_text(
++                json.dumps(asdict(self.state), ensure_ascii=False, indent=2),
++                encoding="utf-8",
++            )
++            os.chmod(tmp, 0o600)
++            tmp.replace(self.path)
++        finally:
++            tmp.unlink(missing_ok=True)
+ 
+     def connect(self, handle: str, worktree_id: str, pane_key: str) -> None:
+         self.state.terminal_handle = handle

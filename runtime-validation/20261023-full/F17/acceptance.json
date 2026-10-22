@@ -1,0 +1,24 @@
+{
+  "task_id": "T02",
+  "task_name": "Write state atomically with private permissions",
+  "scope": [
+    "src/orca_discord_bridge/state.py",
+    "tests/test_harness_compatibility.py"
+  ],
+  "host_semantics": [
+    "missing parent directory is created",
+    "file mode remains exactly 0600 under umask 000, 027, and 077",
+    "new and replaced file modes are exactly 0600 under umask 000, 027, and 077",
+    "temp file is complete and in the same directory before atomic replacement",
+    "previous state remains intact until replacement",
+    "temporary files are cleaned after success and replacement failure",
+    "saved state reloads with all fields"
+  ],
+  "acceptance_commands": [
+    "PIP_NO_INDEX=1 PIP_DISABLE_PIP_VERSION_CHECK=1 .eval-venv/bin/python -m pip wheel --no-deps --no-build-isolation --wheel-dir .eval-wheelhouse .",
+    "PIP_NO_INDEX=1 PIP_DISABLE_PIP_VERSION_CHECK=1 .eval-venv/bin/python -m pip install --no-deps --force-reinstall --no-index --find-links .eval-wheelhouse orca-discord-bridge==0.2.0",
+    "PIP_NO_INDEX=1 PIP_DISABLE_PIP_VERSION_CHECK=1 .eval-venv/bin/python -I -B -m pytest -q -p no:cacheprovider tests"
+  ],
+  "network": "offline pip; local filesystem fixtures only",
+  "budget_seconds": 1800
+}
