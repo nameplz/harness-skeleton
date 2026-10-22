@@ -1,0 +1,14 @@
+{
+  "pair_id": "F07",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "frozen_inputs": {
+    "task.md": "7a55705a524bd7bfb5493d1b207b325cb0dc59d5fa748f75cffca5855b5857eb",
+    "task-prompt.txt": "f0a46ae9133b138afdefe78188e8cf5fe9e6b130fc84691a62b6010d52747803",
+    "acceptance.json": "2f715a3beba6c184240fa58669411763db53cb2d0983c8ace549af43631e2223",
+    "host-grader.py": "0d91d6063958e3c81c434e7b3c5efe6a06ba15a4875df3239ead29f314fb2ba4",
+    "semantic.py": "6548bcf5e4aed0d8807fb93febf9d8b36d2e0e3a48f24794c317e3186e9a64b4",
+    "baseline_test_harness_compatibility.py": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+    "baseline-grade.json": "72da12bc2b5534ea65a7bfcebfd038e655caa88bbbcc4d00ba28f813a8a4deb4",
+    "positive-control-grade.json": "634f1da51035543fbf379867b16480950412980349ccb5939bdfd0b97149bbf5"
+  }
+}

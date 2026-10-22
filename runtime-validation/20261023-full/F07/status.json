@@ -1,0 +1,7 @@
+{
+  "pair_id": "F07",
+  "status": "frozen; candidate runs not started",
+  "condition_order": "v1_then_v2",
+  "baseline_host_grade": "expected fail only because launcher is missing; build/install and 58 tests pass",
+  "model_runs_completed": 0
+}
