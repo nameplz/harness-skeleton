@@ -1,0 +1,7 @@
+{
+  "pair_id": "F02",
+  "status": "acceptance_frozen; awaiting v2",
+  "condition_order": "v2_then_v1",
+  "baseline_host_grade": "expected fail on multiple_input_channels and invalid_list_rejected only",
+  "model_runs_completed": 0
+}
