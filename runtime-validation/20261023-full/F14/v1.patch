@@ -1,0 +1,116 @@
+diff --git a/src/orca_discord_bridge/orca.py b/src/orca_discord_bridge/orca.py
+index 2707fab..94ce9e8 100644
+--- a/src/orca_discord_bridge/orca.py
++++ b/src/orca_discord_bridge/orca.py
+@@ -80,6 +80,8 @@ _DIFF_HEADER_RE = re.compile(
+     r"^(?:diff --git\s|index\s+[0-9a-f]+\.\.[0-9a-f]+|---\s+a/|\+\+\+\s+b/|@@\s)",
+     re.IGNORECASE,
+ )
++_STATUS_FRAME_CHARS = " \t│┃╏┆┊┌┐└┘├┤┬┴┼╭╮╰╯╔╗╚╝╠╣╦╩╬─━═╌╍┄┅"
++_STATUS_SEPARATOR_CHARS = "─━═╌╍┄┅-—_ "
+ 
+ 
+ def _dig(data: Any, *paths: tuple[str, ...]) -> Any:
+@@ -104,6 +106,28 @@ def _first_str(mapping: dict[str, Any], *keys: str) -> str:
+     return ""
+ 
+ 
++def _status_report_text(screen: str) -> str:
++    """Keep the /status report while dropping prompt text and TUI frame decoration."""
++    lines: list[str] = []
++    for raw in screen.splitlines():
++        line = raw.strip()
++        if not line:
++            continue
++        if all(ch in _STATUS_SEPARATOR_CHARS for ch in line):
++            continue
++
++        # Orca may return a screen line with box-drawing characters around its content.
++        line = line.strip(_STATUS_FRAME_CHARS).strip()
++        if not line:
++            continue
++        if line.startswith(("›", ">", "❯")):
++            continue
++        if "ask codex to do anything" in line.casefold():
++            continue
++        lines.append(line)
++    return "\n".join(lines).strip()
++
++
+ def _int_value(mapping: dict[str, Any], key: str) -> int:
+     value = mapping.get(key)
+     if isinstance(value, bool):
+@@ -499,17 +523,7 @@ class OrcaClient:
+         if command == "/status":
+             await asyncio.sleep(0.5)
+             screen = await self.read_screen(binding.handle)
+-            lines: list[str] = []
+-            for raw in screen.splitlines():
+-                line = raw.strip()
+-                if not line or line.startswith(("›", ">")):
+-                    continue
+-                if "ask codex to do anything" in line.casefold():
+-                    continue
+-                if all(ch in "─━═╌╍┄┅-—_ " for ch in line):
+-                    continue
+-                lines.append(line)
+-            value = "\n".join(lines).strip()
++            value = _status_report_text(screen)
+             return ExchangeResult(value or "`/status` 명령을 전달했습니다.", "command")
+ 
+         return ExchangeResult(
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..1c62e73 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -25,7 +25,7 @@ elif args[:2]==['terminal','show']:
+     result={'terminal':{'handle':'term','worktreeId':'wt','tabId':'tab','leafId':'leaf','worktreePath':'/owned/worktree'}}
+ elif args[:2]==['terminal','list']:
+     result={'terminals':[{'handle':'term','title':'owned','agent':'codex','worktreePath':'/owned/worktree'}]}
+-elif args[:2]==['terminal','read']:result={'terminal':{'source':'screen','tail':['> prompt','───','Status: ready']}}
++elif args[:2]==['terminal','read']:result={'terminal':{'source':'screen','tail':['┌──────────────┐','│ > /status   │','│ Ask Codex to do anything │','│ Status: ready │','└──────────────┘']}}
+ else:result={}
+ path.write_text(json.dumps(state))
+ if mode=='timeout':time.sleep(3)
+@@ -125,16 +125,38 @@ def test_busy_rejected_before_send(cli, busy):
+     assert not any(c[:2] == ['terminal','send'] for c in json.loads(path.read_text())['calls'])
+ 
+ 
+-@pytest.mark.parametrize('command,screen', [('/status',True),('/clear',False),('/compact',False),('/new',False),('/help',False)])
++@pytest.mark.parametrize('command,screen', [('/status',True),('/clear',False),('/compact',False),('/new',False),('/help',False),('ordinary prompt',False)])
+ def test_slash_screen_exception_is_narrow(cli, monkeypatch, command, screen):
+     client, path = cli
++    if command == 'ordinary prompt':
++        snapshots = [row(), row('working','',2), row('done','owned final',3), row('done','owned final',3)]
++        path.write_text(json.dumps({'calls': [], 'index': 0, 'snapshots': snapshots}))
++
+     async def short_sleep(_):
+         return None
+     monkeypatch.setattr(orca.asyncio, 'sleep', short_sleep)
+     result = asyncio.run(client.exchange(orca.TerminalBinding('term','wt','tab','leaf'),command))
+     calls = json.loads(path.read_text())['calls']
+-    assert any(c[:2] == ['terminal','read'] for c in calls) is screen
+-    assert result.state == 'command'
++    sends = [c for c in calls if c[:2] == ['terminal','send']]
++    reads = [c for c in calls if c[:2] == ['terminal','read']]
++    assert len(sends) == 1
++    assert sends[0][sends[0].index('--terminal') + 1] == 'term'
++    assert sends[0][sends[0].index('--text') + 1] == command
++    assert bool(reads) is screen
++
++    if command == '/status':
++        assert result.state == 'command'
++        assert result.text == 'Status: ready'
++        assert 'prompt' not in result.text.casefold()
++        assert 'ask codex' not in result.text.casefold()
++        assert '┌' not in result.text and '└' not in result.text
++    elif command in {'/clear','/compact','/new','/help'}:
++        assert result.state == 'command'
++        assert '전달했습니다' in result.text
++    else:
++        assert result.state == 'done'
++        assert result.text.endswith('owned final')
++        assert any(c[:2] == ['worktree','ps'] for c in calls)
+ 
+ 
+ def test_non_codex_rejected(cli):
