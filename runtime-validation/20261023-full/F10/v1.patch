@@ -1,0 +1,206 @@
+diff --git a/src/orca_discord_bridge/bot.py b/src/orca_discord_bridge/bot.py
+index 18a9e6f..661fb0c 100644
+--- a/src/orca_discord_bridge/bot.py
++++ b/src/orca_discord_bridge/bot.py
+@@ -146,6 +146,71 @@ async def status_command(interaction: discord.Interaction) -> None:
+     )
+ 
+ 
++@orca_group.command(name="doctor", description="저장된 Orca 연결과 agent 상태를 진단합니다.")
++async def doctor_command(interaction: discord.Interaction) -> None:
++    bot = _bridge(interaction)
++    error = _auth_error(bot, guild_id=interaction.guild_id, user_id=interaction.user.id)
++    if error:
++        await interaction.response.send_message(error, ephemeral=True)
++        return
++
++    await interaction.response.defer(ephemeral=True, thinking=True)
++    handle = bot.store.state.terminal_handle
++    worktree_id = bot.store.state.worktree_id
++    pane_key = bot.store.state.pane_key
++    if not handle or not worktree_id or not pane_key:
++        await interaction.followup.send(
++            "상태: 연결되지 않음 — 저장된 Orca binding이 없습니다. `/orca connect`로 연결하세요.",
++            ephemeral=True,
++        )
++        return
++
++    try:
++        # Resolve the saved handle without asking for agent state yet. A moved terminal
++        # must not cause us to inspect the agent attached to its new worktree or pane.
++        binding = await bot.orca.resolve_binding(handle)
++    except OrcaError:
++        await interaction.followup.send(
++            "상태: terminal 확인 실패 — `/orca connect`로 Orca 연결을 다시 설정하세요.",
++            ephemeral=True,
++        )
++        return
++
++    if binding.worktree_id != worktree_id or binding.pane_key != pane_key:
++        await interaction.followup.send(
++            "상태: stale — 저장된 Orca binding이 현재 terminal identity와 다릅니다. "
++            "`/orca connect`로 다시 연결하세요.",
++            ephemeral=True,
++        )
++        return
++
++    try:
++        snapshot = await bot.orca.get_agent_snapshot(binding)
++    except OrcaError:
++        await interaction.followup.send(
++            "상태: agent state 확인 실패 — `/orca connect`로 Orca 연결을 다시 설정하세요.",
++            ephemeral=True,
++        )
++        return
++
++    agent_state = getattr(snapshot, "state", None) if snapshot is not None else None
++    if not isinstance(agent_state, str) or agent_state not in {
++        "working",
++        "waiting",
++        "blocked",
++        "done",
++    }:
++        agent_state = "unknown"
++    await interaction.followup.send(
++        "상태: 연결됨 (structured agent status 사용)\n"
++        f"Terminal: `{handle}`\n"
++        f"Worktree: `{worktree_id}`\n"
++        f"Pane: `{pane_key}`\n"
++        f"Agent state: `{agent_state}`",
++        ephemeral=True,
++    )
++
++
+ @orca_group.command(name="disconnect", description="현재 Orca terminal 연결을 해제합니다.")
+ async def disconnect_command(interaction: discord.Interaction) -> None:
+     bot = _bridge(interaction)
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..969b485 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -277,6 +277,125 @@ def test_application_command_transport_errors_are_reported(tmp_path,name):
+     asyncio.run(run())
+ 
+ 
++def test_orca_doctor_reports_identity_and_stale_guidance(tmp_path):
++    async def run():
++        saved_binding = orca.TerminalBinding('term', 'wt', 'tab', 'leaf')
++        sensitive = (
++            'OWNED_SYNTHETIC_TOKEN',
++            'OWNED_DOCTOR_TOOL_INPUT',
++            'OWNED_DOCTOR_PROMPT',
++            'OWNED_DOCTOR_ASSISTANT_MESSAGE',
++            'OWNED_DOCTOR_VALIDATION_ERROR',
++        )
++        structured = NS(
++            state='working',
++            tool_input='OWNED_DOCTOR_TOOL_INPUT',
++            prompt='OWNED_DOCTOR_PROMPT',
++            last_assistant_message='OWNED_DOCTOR_ASSISTANT_MESSAGE',
++        )
++
++        async def new_bot(path, live_binding=saved_binding, snapshot=structured, resolve_error=None):
++            bot = bot_module.BridgeBot(settings(path))
++            bot.store.connect('term', 'wt', 'tab:leaf')
++            resolve = AsyncMock(return_value=live_binding)
++            if resolve_error is not None:
++                resolve.side_effect = resolve_error
++            bot.orca = NS(
++                resolve_binding=resolve,
++                get_agent_snapshot=AsyncMock(return_value=snapshot),
++                read_screen=AsyncMock(),
++            )
++            return bot
++
++        # A healthy doctor reports only the saved identity and structured state.
++        healthy = await new_bot(tmp_path / 'healthy.json')
++        healthy_request = interaction(healthy)
++        await bot_module.doctor_command.callback(healthy_request)
++        healthy_text = healthy_request.followup.send.call_args.args[0]
++        assert '연결됨' in healthy_text and 'working' in healthy_text
++        assert all(value in healthy_text for value in ('`term`', '`wt`', '`tab:leaf`'))
++        assert all(value not in healthy_text for value in sensitive)
++        healthy.orca.resolve_binding.assert_awaited_once_with('term')
++        healthy.orca.get_agent_snapshot.assert_awaited_once_with(saved_binding)
++        healthy.orca.read_screen.assert_not_awaited()
++        assert healthy_request.followup.send.call_args.kwargs['ephemeral'] is True
++        await healthy.close()
++
++        # Either identity change is stale and must stop before the snapshot request.
++        changed_bindings = (
++            orca.TerminalBinding('term', 'new-wt', 'tab', 'leaf'),
++            orca.TerminalBinding('term', 'wt', 'new-tab', 'leaf'),
++        )
++        for index, changed in enumerate(changed_bindings):
++            stale = await new_bot(tmp_path / f'stale-{index}.json', live_binding=changed)
++            stale_request = interaction(stale)
++            await bot_module.doctor_command.callback(stale_request)
++            stale_text = stale_request.followup.send.call_args.args[0]
++            assert 'stale' in stale_text and '/orca connect' in stale_text
++            stale.orca.resolve_binding.assert_awaited_once_with('term')
++            stale.orca.get_agent_snapshot.assert_not_awaited()
++            await stale.close()
++
++        # Each required saved field is checked before any Orca request.
++        for field in ('terminal_handle', 'worktree_id', 'pane_key'):
++            missing = await new_bot(tmp_path / f'missing-{field}.json')
++            setattr(missing.store.state, field, None)
++            missing_request = interaction(missing)
++            await bot_module.doctor_command.callback(missing_request)
++            missing_text = missing_request.followup.send.call_args.args[0]
++            assert '연결되지 않음' in missing_text and '/orca connect' in missing_text
++            missing.orca.resolve_binding.assert_not_awaited()
++            missing.orca.get_agent_snapshot.assert_not_awaited()
++            await missing.close()
++
++        # Missing structured state is displayed explicitly as unknown.
++        unknown = await new_bot(tmp_path / 'unknown.json', snapshot=None)
++        unknown_request = interaction(unknown)
++        await bot_module.doctor_command.callback(unknown_request)
++        unknown_text = unknown_request.followup.send.call_args.args[0]
++        assert 'Agent state: `unknown`' in unknown_text
++        await unknown.close()
++
++        untrusted_state = 'OWNED_UNTRUSTED_STATUS_STATE'
++        untrusted = await new_bot(
++            tmp_path / 'untrusted-state.json',
++            snapshot=NS(state=untrusted_state),
++        )
++        untrusted_request = interaction(untrusted)
++        await bot_module.doctor_command.callback(untrusted_request)
++        untrusted_text = untrusted_request.followup.send.call_args.args[0]
++        assert 'Agent state: `unknown`' in untrusted_text
++        assert untrusted_state not in untrusted_text
++        await untrusted.close()
++
++        # Both guild and user authorization failures happen before Orca is called.
++        for denied_request in (
++            interaction(healthy, guild=7),
++            interaction(healthy, user=7),
++        ):
++            await bot_module.doctor_command.callback(denied_request)
++            denied_request.response.send_message.assert_awaited_once()
++            assert denied_request.response.send_message.call_args.kwargs['ephemeral'] is True
++            assert denied_request.followup.send.await_count == 0
++        healthy.orca.resolve_binding.assert_awaited_once_with('term')
++        healthy.orca.get_agent_snapshot.assert_awaited_once_with(saved_binding)
++
++        # Orca's raw validation error is not returned to Discord, and recovery is clear.
++        invalid = await new_bot(
++            tmp_path / 'invalid.json',
++            resolve_error=orca.OrcaError('OWNED_DOCTOR_VALIDATION_ERROR'),
++        )
++        invalid_request = interaction(invalid)
++        await bot_module.doctor_command.callback(invalid_request)
++        invalid_text = invalid_request.followup.send.call_args.args[0]
++        assert '/orca connect' in invalid_text
++        assert all(value not in invalid_text for value in sensitive)
++        invalid.orca.get_agent_snapshot.assert_not_awaited()
++        await invalid.close()
++
++    asyncio.run(run())
++
++
+ def test_autocomplete_limits_context_auth_and_setup_without_network(tmp_path):
+     async def run():
+         bot=bot_module.BridgeBot(settings(tmp_path/'state.json'))

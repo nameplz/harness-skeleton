@@ -1,0 +1,49 @@
+{
+  "task_id": "T10",
+  "task_instance": "stale_doctor_state",
+  "batch": "full",
+  "pair_id": "F10",
+  "condition_order": "v1_then_v2",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "task_sha256": "08694acfad4da403e6dab45610e9718297a7b1124114eaa0fe501c021c1e77ed",
+  "prompt_sha256": "36c95bd869f1d370c6d3868017b435237166048ffb81ff2dcbe841a72734b4e6",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "conditions": {
+    "v1": {
+      "run_record": "v1-run.json",
+      "patch": "v1.patch",
+      "patch_sha256": "20b0f57c6f06e025b404c92433aa790b314dc0af84901c695f07b4408d31a2ac",
+      "host_grade": "host-grade-v1.json",
+      "raw_status": "fail",
+      "suite": "59 passed",
+      "focused": "1 passed",
+      "supplemental_semantic": "pass",
+      "workflow_status": "complete; code, test, and security reviews passed after fixing arbitrary agent-state disclosure"
+    },
+    "v2": {
+      "run_record": "v2-run.json",
+      "patch": "v2.patch",
+      "patch_sha256": "51bed95200c2fba6c2c076373a79fc45450071dea8b2695c587207dfdbbc0fa3",
+      "host_grade": "host-grade-v2.json",
+      "raw_status": "fail",
+      "suite": "59 passed",
+      "focused": "1 passed",
+      "supplemental_semantic": "pass",
+      "workflow_status": "complete; source suite passed but candidate-side offline wheel build/install was not run"
+    }
+  },
+  "pair_decision": "Both patches pass offline build/install, the independent 59-test suite, the named doctor regression, exact two-file scope, and a separate semantic diagnostic using the existing OrcaClient.resolve_binding API and ephemeral defer/followup interaction. Both frozen raw host grades remain fail because frozen semantic.py mocks validate_codex_binding and only checks response.send_message, while both valid candidates use resolve_binding and defer/followup. No frozen grader was changed after runs.",
+  "metrics_limits": {
+    "token_usage": "unknown",
+    "model_turns": "not captured",
+    "v1_duration": "7m 25s",
+    "v2_duration": "2m 09s"
+  },
+  "limitations": [
+    "Candidate TUI is a host process; harness-eval applies only to child tools.",
+    "TASK.md did not spell out the wheel build/install command; v2 did not run pip.",
+    "Frozen host semantic fake did not model the existing resolver and private deferred-response API.",
+    "No hosted CI was run."
+  ]
+}

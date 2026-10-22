@@ -4,12 +4,12 @@
   "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
   "required_matched_pairs": 36,
   "required_model_runs": 72,
-  "completed_pairs": 9,
-  "completed_model_runs": 18,
-  "remaining_pairs": 27,
-  "remaining_model_runs": 54,
+  "completed_pairs": 10,
+  "completed_model_runs": 20,
+  "remaining_pairs": 26,
+  "remaining_model_runs": 52,
   "condition_order_counts": {
-    "v1_then_v2": 5,
+    "v1_then_v2": 6,
     "v2_then_v1": 4
   },
   "completed_pair_ids": [
@@ -21,10 +21,11 @@
     "F06",
     "F07",
     "F08",
-    "F09"
+    "F09",
+    "F10"
   ],
-  "next_pair_id": "F10",
-  "next_task": "T10 stale_doctor_state",
+  "next_pair_id": "F11",
+  "next_task": "T07 unresolved_reply_embed",
   "next_condition_order": "v1_then_v2",
   "updated": "2026-10-23"
 }

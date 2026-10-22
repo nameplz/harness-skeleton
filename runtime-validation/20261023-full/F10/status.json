@@ -1,6 +1,8 @@
 {
   "pair_id": "F10",
-  "status": "frozen; no model runs started",
+  "status": "complete; raw frozen host grade fails due to semantic fixture API mismatch; independent supplementary semantics pass for both",
   "condition_order": "v1_then_v2",
-  "model_runs_completed": 0
+  "model_runs_completed": 2,
+  "v1_host_grade": "fail",
+  "v2_host_grade": "fail"
 }
