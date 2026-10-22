@@ -2,6 +2,14 @@
 
 Updated2026-10-22. The handoff asks whether a lightweight Codex-native workflow preserves task quality while reducing orchestration, context and maintenance cost. This document defines that comparison. Unit tests, risk fixtures, fixed provider responses and protocol qualification are implementation evidence, not model-task results. No actual v1/v2 task comparison has been recorded yet.
 
+## 2026-10-22 preflight disposition
+
+No model task was launched. The preserved v1 commit (`134c98a2f8be326e3e3688f411a6b348bd463f7f`) has no executable Codex adapter for `StepPipeline`; its workflow also says not to use an external headless runner. The installed Codex CLI is `0.163.0`, while the experimental native evaluator is pinned to `0.162.1`, and the evaluator does not accept v1/v2 conditions. A direct CLI run would therefore be an invented v1 substitute, not a faithful comparison.
+
+The macOS sandbox started, but a sandboxed read-only probe could open the host `~/.codex/config.toml` (it did not read or print its contents). This does not prove credentials were exposed, but it leaves host-configuration and credential isolation unverified, so the local environment failed the documented launch condition. OpenAI's [sandbox security guidance](https://developers.openai.com/api/docs/guides/agents-api/environments/security) likewise says agent-generated code can access files and credentials available to its environment and recommends isolated compute and credential separation.
+
+The target revision was `05d975a35d67590465a5f0f6adbe79a6bb515f00`. `python scripts/harness.py check --quick` passed all 731 tests in 105.7 seconds; Python emitted three `ResourceWarning`s for subprocesses still running. `python scripts/harness.py risk` reported T0/no changes. These are repository checks only, not v1/v2 task results. Resume the comparison only in an isolated run environment with a reproducible v1 execution path; keep the actual grader and host credentials outside the candidate.
+
 ## Minimal execution
 
 1. Preserve the legacy-v1 revision and the actual v2 revision, instructions and project validation config. Define how each workflow runs in Codex; do not assume a Python Protocol is an executable adapter. The existing fixture conditions `baseline`/`harness` remove/add guidance and config; they are an ablation, not legacy-v1 versus v2. Do not relabel their records as v1/v2.
