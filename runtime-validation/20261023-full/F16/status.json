@@ -1,0 +1,9 @@
+{
+  "pair_id": "F16",
+  "status": "in progress; v1 condition started",
+  "condition_order": "v1_then_v2",
+  "model_runs_completed": 0,
+  "current_condition": "v1",
+  "v1_prompt_request_id": "3d1ac8ce-20fb-4c42-84e5-20a99e6a3c60",
+  "v1_started_at": "2026-10-23T06:47:28+0900"
+}

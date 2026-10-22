@@ -1,0 +1,26 @@
+{
+  "changed_files": [
+    "src/orca_discord_bridge/formatting.py",
+    "tests/test_harness_compatibility.py"
+  ],
+  "pinned_snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+  "wheel": {
+    "exit_code": 0,
+    "output": "Processing ./source\n  Preparing metadata (pyproject.toml): started\n  Preparing metadata (pyproject.toml): finished with status 'done'\nBuilding wheels for collected packages: orca-discord-bridge\n  Building wheel for orca-discord-bridge (pyproject.toml): started\n  Building wheel for orca-discord-bridge (pyproject.toml): finished with status 'done'\n  Created wheel for orca-discord-bridge: filename=orca_discord_bridge-0.2.0-py3-none-any.whl size=19413 sha256=64d9114de343a4fe71864ce6918103a900d67aa2a1dfc9563fabd369d2a65b07\n  Stored in directory: /private/tmp/hook-delivery-confirm-n61qez_h/F16-positive-control/tmp/pip-ephem-wheel-cache-z_6pgx_6/wheels/f2/77/0b/a477822f1797c721ef12feef7f0dba651a6feceed81f7a6881\nSuccessfully built orca-discord-bridge\n"
+  },
+  "wheel_sha256": "64d9114de343a4fe71864ce6918103a900d67aa2a1dfc9563fabd369d2a65b07",
+  "install": {
+    "exit_code": 0,
+    "output": "Looking in links: /private/tmp/hook-delivery-confirm-n61qez_h/F16-positive-control/wheelhouse\nProcessing ./wheelhouse/orca_discord_bridge-0.2.0-py3-none-any.whl\nInstalling collected packages: orca-discord-bridge\nSuccessfully installed orca-discord-bridge-0.2.0\n"
+  },
+  "suite": {
+    "exit_code": 0,
+    "output": "............................................................             [100%]\n60 passed in 7.42s\n"
+  },
+  "semantic": {
+    "exit_code": 0,
+    "output": "{\"context_authorization_and_data_boundary\": {\"detail\": \"unauthorized context action stopped; authorized modal sent once with selected text fenced as data and user instruction last\", \"status\": \"pass\"}, \"delimiter_forgery\": {\"detail\": \"source-embedded closing marker remains inert inside the selected-message data boundary\", \"status\": \"pass\"}, \"explicit_message_gate\": {\"detail\": \"webhook content caused no call; configured human message caused exactly one call with its text\", \"status\": \"pass\"}, \"mentions_disabled\": {\"detail\": \"BridgeBot default allowed_mentions blocks everyone, users, roles, and replied-user pings\", \"status\": \"pass\"}}\n"
+  },
+  "status": "pass"
+}
