@@ -1,0 +1,48 @@
+{
+  "task_id": "T05",
+  "task_instance": "standard",
+  "batch": "full",
+  "pair_id": "F09",
+  "condition_order": "v2_then_v1",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "task_sha256": "856633456f8d56aba0dcf222059e98f4dc2aa5c9471d211be1fb3b73d1be86d2",
+  "prompt_sha256": "ba738e02f4e77ecad5e49cca8c2b6e8a50363a794d88df137e440b8ccfaa3722",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "conditions": {
+    "v2": {
+      "run_record": "v2-run.json",
+      "patch": "v2.patch",
+      "patch_sha256": "3ed0652465f762bf1d95c6437c773252ee1319b31404d3d31d68fd41d05bcba9",
+      "host_grade": "host-grade-v2.json",
+      "raw_status": "pass",
+      "suite": "60 passed",
+      "focused": "2 passed"
+    },
+    "v1": {
+      "run_record": "v1-run.json",
+      "patch": "v1.patch",
+      "patch_sha256": "98e27444bac097af66ee15e7ff5a4d3cb5f60518f047f7ced42b3c01c8643649",
+      "host_grade": "host-grade-v1.json",
+      "raw_status": "pass",
+      "suite": "60 passed",
+      "focused": "2 passed",
+      "workflow_status": "incomplete; final reviews/security and response were not captured"
+    }
+  },
+  "pair_decision": "Both final patches pass frozen host acceptance. v1’s interactive workflow is incomplete: after an initial review fix and a later test-coverage adjustment, the final TUI response hit max_output_tokens and three continuation streams disconnected. The final patch still passed host build/install, suite, focused tests, semantic checks, scope, and git diff --check; the required final security-review outcome was not obtained.",
+  "metrics_limits": {
+    "token_usage": "unknown",
+    "shell_command_counts": "not captured",
+    "model_turns": "not captured",
+    "v2_duration": "2m 28s TUI-reported",
+    "v1_duration": "20m 45s at first incomplete response; total with retries unknown"
+  },
+  "limitations": [
+    "TUI parent ran on host; harness-eval applied only to tool children.",
+    "Candidate local Git writes were sandbox-blocked; no workaround attempted.",
+    "v1 final security-review output unavailable after provider stream disconnects.",
+    "Harness profile checks unavailable in the pinned snapshot.",
+    "Hosted CI not run."
+  ]
+}

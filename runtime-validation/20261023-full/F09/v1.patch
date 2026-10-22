@@ -1,0 +1,220 @@
+diff --git a/src/orca_discord_bridge/orca.py b/src/orca_discord_bridge/orca.py
+index 2707fab..ffb0ba3 100644
+--- a/src/orca_discord_bridge/orca.py
++++ b/src/orca_discord_bridge/orca.py
+@@ -80,6 +80,19 @@ _DIFF_HEADER_RE = re.compile(
+     r"^(?:diff --git\s|index\s+[0-9a-f]+\.\.[0-9a-f]+|---\s+a/|\+\+\+\s+b/|@@\s)",
+     re.IGNORECASE,
+ )
++_DIFF_METADATA_PREFIXES = (
++    "new file mode ",
++    "deleted file mode ",
++    "old mode ",
++    "new mode ",
++    "similarity index ",
++    "dissimilarity index ",
++    "rename from ",
++    "rename to ",
++    "copy from ",
++    "copy to ",
++    "Binary files ",
++)
+ 
+ 
+ def _dig(data: Any, *paths: tuple[str, ...]) -> Any:
+@@ -271,6 +284,7 @@ def _filter_assistant_output(text: str, worktree_path: str = "") -> str:
+     lines = text.replace("\r\n", "\n").replace("\r", "\n").splitlines()
+     kept: list[str] = []
+     in_diff = False
++    in_binary_patch = False
+     in_fence = False
+     fence_marker = ""
+     fence_info = ""
+@@ -303,6 +317,11 @@ def _filter_assistant_output(text: str, worktree_path: str = "") -> str:
+         fence_info = ""
+         fence_marker = ""
+ 
++    def mark_diff_omitted() -> None:
++        marker = "_(diff/patch 상세 생략)_"
++        if not kept or kept[-1] != marker:
++            kept.append(marker)
++
+     for raw in lines:
+         stripped = raw.strip()
+         fence_match = re.match(r"^(```|~~~)(.*)$", stripped)
+@@ -323,26 +342,51 @@ def _filter_assistant_output(text: str, worktree_path: str = "") -> str:
+             fence_lines.append(raw)
+             continue
+ 
++        if in_binary_patch:
++            if not stripped:
++                in_binary_patch = False
++                in_diff = False
++                mark_diff_omitted()
++                continue
++            if stripped.startswith("diff --git "):
++                in_binary_patch = False
++            else:
++                continue
++
+         if _DIFF_HEADER_RE.match(stripped) or stripped.startswith(
+             ("*** Begin Patch", "*** Update File:", "*** Add File:", "*** Delete File:")
+         ):
+             in_diff = True
+             continue
+         if in_diff:
+-            if not stripped or stripped == "*** End Patch":
++            if stripped == "*** End Patch":
++                in_diff = False
++                mark_diff_omitted()
++                continue
++            if stripped == "GIT binary patch":
++                in_binary_patch = True
++                continue
++            if raw.startswith(" "):
++                # Unified diff context keeps its leading space, including blank context lines.
++                continue
++            if not stripped:
+                 in_diff = False
+-                if kept and kept[-1] != "_(diff/patch 상세 생략)_":
+-                    kept.append("_(diff/patch 상세 생략)_")
++                mark_diff_omitted()
++                continue
++            if stripped.startswith(("+", "-", "\\ No newline")):
+                 continue
+-            if stripped.startswith(("+", "-", " ", "\\ No newline")):
++            if stripped.startswith(_DIFF_METADATA_PREFIXES):
+                 continue
+             in_diff = False
++            mark_diff_omitted()
+ 
+         kept.append(raw.rstrip())
+ 
+     if in_fence:
+         # Preserve an unterminated fence rather than silently deleting user-relevant content.
+         flush_fence()
++    if in_diff:
++        mark_diff_omitted()
+ 
+     compacted: list[str] = []
+     for line in kept:
+diff --git a/tests/test_orca_parsing.py b/tests/test_orca_parsing.py
+index 03badf8..b47c846 100644
+--- a/tests/test_orca_parsing.py
++++ b/tests/test_orca_parsing.py
+@@ -147,6 +147,115 @@ def test_local_markdown_links_become_readable_relative_paths():
+     assert result == "phase 6 metadata (`phases/6/index.json:20`) 갱신"
+ 
+ 
++def test_filter_assistant_output_handles_size_boundaries():
++    forty_five_lines = "\n".join(f"kept-line-{index}" for index in range(45))
++    forty_six_lines = "\n".join(f"dropped-line-{index}" for index in range(46))
++    shell_commands = "\n".join(f"echo command-{index}" for index in range(46))
++    rename_diff = "\n".join(
++        [
++            "diff --git a/old.txt b/new.txt",
++            "similarity index 100%",
++            "rename from old.txt",
++            "rename to new.txt",
++            "index 1234567..abcdef0 100644",
++            "--- a/old.txt",
++            "+++ b/new.txt",
++            "@@ -1,3 +1,3 @@",
++            " unchanged context line",
++            " ",
++            "-old line",
++            "+new line",
++        ]
++    )
++    binary_diff = "\n".join(
++        [
++            "diff --git a/image.bin b/image.bin",
++            "index 0000000..1234567",
++            "GIT binary patch",
++            "literal 12",
++            "zcmV?d000001",
++        ]
++    )
++    deleted_diff = "\n".join(
++        [
++            "diff --git a/removed.txt b/removed.txt",
++            "deleted file mode 100644",
++            "index 1234567..0000000",
++            "--- a/removed.txt",
++            "+++ /dev/null",
++            "@@ -1 +0,0 @@",
++            "-removed line",
++        ]
++    )
++    final_diff = "\n".join(
++        [
++            "diff --git a/example.py b/example.py",
++            "new file mode 100644",
++            "index 0000000..abcdef0",
++            "--- /dev/null",
++            "+++ b/example.py",
++            "@@ -0,0 +1 @@",
++            "+new = True",
++        ]
++    )
++    text = (
++        "Prose stays visible.\n\n"
++        "```python\nprint('short example')\n```\n\n"
++        f"```python\n{'a' * 2_400}\n```\n\n"
++        f"```python\n{'b' * 2_401}\n```\n\n"
++        f"```python\n{forty_five_lines}\n```\n\n"
++        f"```python\n{forty_six_lines}\n```\n\n"
++        f"```bash\n{shell_commands}\n```\n\n"
++        f"{rename_diff}\nProse after the diff.\n\n"
++        f"{binary_diff}\n\nProse after the binary patch.\n\n"
++        f"{deleted_diff}\n\nProse before the final diff.\n\n{final_diff}"
++    )
++
++    result = _filter_assistant_output(text)
++
++    assert "Prose stays visible." in result
++    assert "print('short example')" in result
++    assert "a" * 2_400 in result
++    assert "b" * 2_401 not in result
++    for index in range(45):
++        assert f"kept-line-{index}" in result
++    for index in range(46):
++        assert f"dropped-line-{index}" not in result
++        assert f"echo command-{index}" in result
++    assert result.count("_(긴 코드 블록 생략)_") == 2
++    assert "Prose after the diff." in result
++    assert "Prose after the binary patch." in result
++    assert "Prose before the final diff." in result
++    assert "similarity index 100%" not in result
++    assert "rename from old.txt" not in result
++    assert "rename to new.txt" not in result
++    assert "new file mode 100644" not in result
++    assert "deleted file mode 100644" not in result
++    assert "unchanged context line" not in result
++    assert "old line" not in result
++    assert "new line" not in result
++    assert "removed line" not in result
++    assert "GIT binary patch" not in result
++    assert "literal 12" not in result
++    assert "zcmV?d000001" not in result
++    assert result.count("_(diff/patch 상세 생략)_") == 4
++    assert result.endswith("_(diff/patch 상세 생략)_")
++
++
++def test_local_markdown_links_with_spaces_and_external_links():
++    text = (
++        "[Release notes](/Users/me/project/docs/Release Notes.md:27) and "
++        "[guide](https://example.com/docs/guide.html?view=full)"
++    )
++
++    result = _filter_assistant_output(text, "/Users/me/project")
++
++    assert result == (
++        "Release notes (`docs/Release Notes.md:27`) and "
++        "[guide](https://example.com/docs/guide.html?view=full)"
++    )
++
++
+ def snap(
+     state: str,
+     *,
