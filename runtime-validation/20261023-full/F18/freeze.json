@@ -1,0 +1,28 @@
+{
+  "pair_id": "F18",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "frozen_inputs": {
+    "task.md": "f1507e5e90dab996b9ea64f9ba36c58507131b08b9033ca409a5b990cc1021bf",
+    "task-prompt.txt": "ebce2ce0cdcde9108baf6e7d370fe914321417993becca377e86b21420940691",
+    "acceptance.json": "feb323b6a3ef3e6c58812c7f4c8436b4b424d92e0891cc753bdbdaff6513fee9",
+    "host-grader.py": "374990a9443e4e865f115b8f211203d561e0793fda6c1d990742686679a95ea9",
+    "semantic.py": "182523dda36070a78837fd232ca8586e4577e5de1948c5eeb76bf4dcb84916dc",
+    "baseline-grade.json": "8604851d756c8861d987d7ffebf3dc8b4ab3cfdf119e4c7d4780629e79f489ee",
+    "positive-control-grade.json": "20c022d2887fcb9ac7c06f75d0934a41f9577e64c8a2b39b5ba44094699b26f8",
+    "positive-control.patch": "1b8017d45f1443368f072074427e577ad1060be17f352b1a4c224a29e95b5461",
+    "baseline_test_harness_compatibility.py": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae"
+  },
+  "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "positive_control_patch_sha256": "1b8017d45f1443368f072074427e577ad1060be17f352b1a4c224a29e95b5461",
+  "baseline_calibration": "Pinned 58-test suite and wheel/install pass; both new alternate envelope paths fail semantic checks as expected.",
+  "positive_control_calibration": "Exact three-file scope, offline wheel/install, full 91-test suite, focused modules, and all frozen semantic checks pass.",
+  "order": "v1_then_v2",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "budget_seconds_per_condition": 1800,
+  "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+  "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+  "network": "offline pip and local fake fixtures only"
+}
