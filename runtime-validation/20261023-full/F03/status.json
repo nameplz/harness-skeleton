@@ -1,0 +1,7 @@
+{
+  "pair_id": "F03",
+  "status": "acceptance_frozen; awaiting v1",
+  "condition_order": "v1_then_v2",
+  "baseline_host_grade": "expected fail on lossless_concatenation only; 58 baseline tests pass",
+  "model_runs_completed": 0
+}
