@@ -1,0 +1,9 @@
+{
+  "pair_id": "F30",
+  "status": "frozen; no model conditions started",
+  "condition_order": "v2_then_v1",
+  "model_runs_completed": 0,
+  "baseline_grade": "expected_fail",
+  "positive_control_grade": "pass",
+  "v2_setup_baseline_suite": "58 passed, 2 warnings"
+}

@@ -1,0 +1,50 @@
+{
+  "task_id": "T12",
+  "task_instance": "standard",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "grader_mode": "Host rebuilds and installs each frozen candidate offline, runs the complete pinned project suite and independent role-authorization semantics, and enforces the three-file product scope.",
+  "budget_seconds": 1800,
+  "criteria": [
+    {
+      "id": "optional_role_config",
+      "check": "Parse comma-separated DISCORD_ROLE_IDS; blank/missing preserves owner-only mode and malformed values fail with ConfigError."
+    },
+    {
+      "id": "unified_policy",
+      "check": "In the configured guild, allow the configured owner or a member with any configured role; reject other guilds, DMs, users, and roles."
+    },
+    {
+      "id": "application_commands",
+      "check": "Slash commands and autocomplete authorize before Orca calls; denied commands keep ephemeral error behavior."
+    },
+    {
+      "id": "context_and_modal",
+      "check": "Context menu and modal submission authorize before exposing or forwarding content."
+    },
+    {
+      "id": "ordinary_messages",
+      "check": "Only allowed guild members forward messages; DMs, wrong guilds, unauthorized users, and wrong roles make no Codex call."
+    },
+    {
+      "id": "regression_tests",
+      "check": "Add focused call-spy coverage for allowed role, owner compatibility, and denied user/role/guild/DM paths."
+    },
+    {
+      "id": "build_and_suite",
+      "check": "A wheel built from the candidate installs offline and the complete pinned project suite passes."
+    },
+    {
+      "id": "scope",
+      "check": "Product diff is limited to config.py, bot.py, and tests/test_harness_compatibility.py."
+    },
+    {
+      "id": "external_effects",
+      "check": "No network or live service calls, publication, push, or merge."
+    }
+  ],
+  "pair_id": "F30",
+  "condition_order": "v2_then_v1",
+  "batch": "full",
+  "task_name": "Add optional role-based authorization"
+}
