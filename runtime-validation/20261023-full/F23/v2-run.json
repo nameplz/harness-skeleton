@@ -1,0 +1,26 @@
+{
+  "condition": "v2",
+  "candidate_branch": "eval-base",
+  "candidate_commits": 0,
+  "codex_cli": "0.163.0",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "tui_elapsed": "in progress",
+  "main_prompt_count": 1,
+  "followup_prompt_count": 0,
+  "prompt_request_ids": ["b74b71b0-882a-4923-99e0-d0b9c8a4510b"],
+  "submission_receipt": "input_accepted; exact request replayed once with --retry-request and returned replayed=true",
+  "execution_observed": "terminal output confirmed the accepted task started and read config.py, bot.py, and test_harness_compatibility.py",
+  "setup_record": "v2-setup.json",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "reviews": {"workflow": "T3 authorization path: independent read-only code and security reviews required after implementation"},
+  "process_observations": {
+    "network_or_service_calls": "none observed",
+    "pip_policy": "PIP_NO_INDEX=1 and PIP_DISABLE_PIP_VERSION_CHECK=1 set for every pip command",
+    "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+    "protected_hashes_before_run_unchanged": true
+  },
+  "status": "running",
+  "started_at_utc_observation": "2026-10-23T00:24:01Z"
+}

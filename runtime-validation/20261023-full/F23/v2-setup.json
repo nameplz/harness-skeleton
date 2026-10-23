@@ -1,0 +1,27 @@
+{
+  "condition": "v2",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "v1_workflow_commit": "134c98a2f8be326e3e3688f411a6b348bd463f7f",
+  "v2_workflow_commit": "b5e8da26d721ff8b1c9be93a766d526fcf59fc06",
+  "task_sha256": "33e869db86e97e921ad1968c644d430ae737ac1439942dc227d07ed6ff0cba36",
+  "prompt_sha256": "86d3f9b1e8c3f202f728f57c9258b5d56fa923d60a976c8e027381b939e04831",
+  "initial_source_hashes": {
+    "README.md": "4f7887b9b9e09c8a6d408ecf6e9fefdd0d589b4c9b5385960d2ff22e707178de",
+    "pyproject.toml": "816c5939bc4c9fbf43c4de4a31e2869c17cdcbcc48b1527c07002a08122aab77",
+    "src/orca_discord_bridge/__init__.py": "91447944015cec709e8aa7655f7e9d64e1e4508e7023a57fe3746911c0fc6fed",
+    "src/orca_discord_bridge/__main__.py": "b067b3b6cf589476ea658bcf7216d698cb2a810875649e2b6003fcd1253c2fb8",
+    "src/orca_discord_bridge/bot.py": "412b7868b0794eac6ed02db59b6ee831e5cc9ad2249cb4c7b4efe7b3adcdc2fd",
+    "src/orca_discord_bridge/config.py": "58b70198d68b16f44bdeafdf55951591a8bd6dfd43fc55715346c816356dc139",
+    "src/orca_discord_bridge/formatting.py": "9b2226e57b6a7098066e4c1b4c33a62a63953f385f895b51b64c2b545434ff0b",
+    "src/orca_discord_bridge/orca.py": "8b1b1b872895a8740f9a727bb8092ab597fd14a8ee36e18a62d26a5e38faf4be",
+    "src/orca_discord_bridge/state.py": "b185bf61b606aab3b3abc5e95be9faa9997ab22382bd688397a3e9b0b9246424",
+    "tests/test_orca_parsing.py": "71295e7c42ef342ee719cadfd1ffc5f5f88d5442eda5be6e119f504a4de4c64c",
+    "tests/test_harness_compatibility.py": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae"
+  },
+  "baseline_project_suite": "58 passed, 2 warnings in 4.72s"
+}
