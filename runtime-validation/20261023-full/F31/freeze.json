@@ -1,0 +1,36 @@
+{
+  "pair_id": "F31",
+  "task_id": "T19",
+  "task_instance": "standard",
+  "condition_order": "v2_then_v1",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "budget_seconds_per_condition": 1800,
+  "frozen_sha256": {
+    "task.md": "d11ded97637509333900fe774dfe16e392ba78a0a9ab56cb834572d050d7af85",
+    "task-prompt.txt": "d6365ddbe27658a446ce969b43fddb509548f1225602faab0d5f120e57de2440",
+    "acceptance.json": "e3b6b73c30aa37b146843569c83b076e9fb2c580184b45e6e5d8703d6a010a20",
+    "host-grader.py": "0cf37fc19ced6ef84ffa65576d718d8cc982d0d8ef0e3640ab8aaa29a9777696",
+    "semantic.py": "44b845c426c9566b2461de408bdfa4a26da93cac33e1d627a35906ebf6c264a6",
+    "positive-control.patch": "2945d80bb306dbe0225b1268804add227a961afa2533c2688cda48d0c91ee9a5",
+    "baseline-grade.json": "4313000ea3591e02f966dc1a4728cc738850ff27514bbacdbad637975c10c882",
+    "positive-control-grade.json": "0e3bbb94aeb9412dd077acdcb973e25474687db09f62b9abef7191a40e085a2f"
+  },
+  "acceptance_sha256": "e3b6b73c30aa37b146843569c83b076e9fb2c580184b45e6e5d8703d6a010a20",
+  "baseline_grade_sha256": "4313000ea3591e02f966dc1a4728cc738850ff27514bbacdbad637975c10c882",
+  "positive_control_grade_sha256": "0e3bbb94aeb9412dd077acdcb973e25474687db09f62b9abef7191a40e085a2f",
+  "baseline_calibration": "expected fail: pinned README fails setup, environment/defaults, authorization scope, GitHub boundary, and slash semantics; its structured-state explanation passes.",
+  "positive_control_calibration": "pass: previously accepted T19 v2 README; six frozen semantic checks pass and host confirms README-only scope.",
+  "frozen_before_model_conditions": true,
+  "protected_candidate_hashes": {
+    ".codex/config.toml": "07f9bf088b6792cbee5f137d04212e5899fd1109bd3827362372848293a76107",
+    ".codex/hooks/capture_event.py": "07a8aad717ca04a59d7f4b76f21148f7ff6d0bb59e8b4299b7492f297bdc837a",
+    ".harness/delivery.json": "2f0527b3812cee1e39a2114965a5bbeab2497a8fec34d5ba49198d36252f9431"
+  },
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "network": "No network; source-to-README checks use pinned snapshot files only"
+}

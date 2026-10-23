@@ -1,0 +1,42 @@
+{
+  "task_id": "T19",
+  "task_instance": "standard",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "grader_mode": "Host compares the final README to the pinned source and frozen source-to-README checklist; no project tests are required.",
+  "budget_seconds": 1800,
+  "criteria": [
+    {
+      "id": "setup",
+      "check": "README setup/run instructions must be executable and supported by pyproject/source; do not claim start.command exists in this snapshot; accurately state Python >=3.11 and Orca/Codex prerequisites."
+    },
+    {
+      "id": "environment",
+      "check": "Document the four required variables DISCORD_TOKEN, DISCORD_GUILD_ID, DISCORD_USER_ID, CODEX_CHANNEL_ID; ORCA_BINARY default orca; ORCA_WAIT_TIMEOUT_MS default 300000 and minimum 1000; STATE_PATH default .state.json with ~ expansion; .env is loaded."
+    },
+    {
+      "id": "structured_state",
+      "check": "Explain ordinary replies use Orca structured agent state for the exact worktree and pane binding, not TUI screen parsing; only assistant message content is surfaced and tool details are omitted; require Orca to expose the Codex agent row."
+    },
+    {
+      "id": "authorization",
+      "check": "Accurately state the configured guild/user/channel filters for ordinary messages and guild/user checks for slash interactions; no claim of an OS/VM sandbox or broader security property unsupported by source."
+    },
+    {
+      "id": "github_scope",
+      "check": "Clearly state there is no GitHub API integration or webhook receiver; an existing webhook embed may be forwarded as Discord message content only if that behavior is described accurately."
+    },
+    {
+      "id": "slash_commands",
+      "check": "Document Discord // prefix mapping; /clear, /compact, /new are sent and acknowledged without ordinary screen parsing; /status is the narrow screen-read exception; normal prompts do not screen-scrape."
+    },
+    {
+      "id": "scope",
+      "check": "Only README.md changes; no source/tests/dependencies or unrelated docs changed."
+    }
+  ],
+  "pair_id": "F31",
+  "condition_order": "v2_then_v1",
+  "batch": "full",
+  "task_name": "Correct quickstart and operational documentation"
+}
