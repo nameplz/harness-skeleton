@@ -1,6 +1,6 @@
 # 2026-10-23 v1/v2 evaluation summary
 
-The exploratory `20261022-matched-task-01` pair is excluded because its 30-minute budget was not declared before the runs. Formal pilot and full batches are complete: 12 pilot pairs / 24 model runs and 36 full pairs / 72 model runs. Across both batches, the task IDs cover T01–T20. Pilot order was balanced 6/6; `progress.json` records the full batch order as 18/18.
+The exploratory `20261022-matched-task-01` pair is excluded because its 30-minute budget was not declared before the runs. Each formal condition used the same 1,800-second wall-clock cap from task submission through the candidate's final response; host grading was outside that cap. Formal pilot and full batches are complete: 12 pilot pairs / 24 model runs and 36 full pairs / 72 model runs. Across both batches, the task IDs cover T01–T20. Pilot order was balanced 6/6; `progress.json` records the full batch order as 18/18.
 
 ## Frozen host-grade outcomes
 
