@@ -1,0 +1,19 @@
+{
+  "condition": "v2",
+  "candidate_branch": "eval-base",
+  "candidate_commits": 0,
+  "codex_cli": "0.163.0",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "main_prompt_count": 1,
+  "followup_prompt_count": 0,
+  "prompt_request_ids": [
+    "945704d2-81b3-45f6-8481-6c17f00cdf79"
+  ],
+  "submission_receipt": "input_accepted; exact request replayed once with --retry-request and returned replayed=true",
+  "execution_observed": "Prompt started in a fresh TUI conversation; existing embed metadata and unresolved-reference fetch were recognized, and the session began tightening delimiters/cap tests.",
+  "setup_record": "v2-setup.json",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "status": "running"
+}
