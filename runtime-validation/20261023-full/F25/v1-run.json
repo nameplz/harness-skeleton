@@ -1,0 +1,21 @@
+{
+  "condition": "v1",
+  "candidate_branch": "eval-base",
+  "candidate_commits": 0,
+  "codex_cli": "0.163.0",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "started_at_utc_observation": "2026-10-23T01:15:16Z",
+  "main_prompt_count": 1,
+  "followup_prompt_count": 0,
+  "prompt_request_ids": [
+    "3b5cd55b-b451-4a54-b744-9683a9ac0e06"
+  ],
+  "submission_receipt": "input_accepted; exact request replayed once with --retry-request and returned replayed=true",
+  "execution_observed": "Fresh TUI conversation in the isolated worktree; pending one-step reply-context phase matched task. No repository docs or .harness/validation.json were present; using frozen TASK.md/phase specification.",
+  "setup_record": "v1-setup.json",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "workflow_progress": "running; one implementation worker, parallel code/test reviews, then security review; strict 3-attempt cap",
+  "status": "running"
+}
