@@ -1,12 +1,14 @@
 {
   "pair_id": "F26",
-  "status": "v2 in progress",
+  "status": "complete",
   "condition_order": "v1_then_v2",
-  "model_runs_completed": 1,
-  "pair_decision": "pending",
+  "model_runs_completed": 2,
+  "pair_decision": "accepted_under_frozen_grader",
   "v1_host_grade": "pass",
   "v1_reviews": "code, test, security passed",
   "v1_patch_sha256": "95fe0397270a35fd558079fd6cc889d2e2e28a94d9ceec5f2ddd75fb6cf3549d",
-  "next_condition": "v2",
-  "v2_baseline_suite": "58 passed"
+  "v2_host_grade": "pass",
+  "v2_reviews": "code and security passed",
+  "v2_patch_sha256": "54a76f8c2f143c7fde960c41e7c03674cb3ccbae413e8f3f397c92e53595cc75",
+  "product_scope": "both patches change only .github/workflows/ci.yml"
 }

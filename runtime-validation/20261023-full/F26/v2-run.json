@@ -1,0 +1,44 @@
+{
+  "pair_id": "F26",
+  "condition": "v2",
+  "condition_order": "v1_then_v2",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "execution_path": "interactive native Codex TUI via Orca-managed terminal",
+  "prompt_request_id": "a8a8c6b5-8bbf-4317-937b-ccc57c5ffb37",
+  "reported_duration": "2m 31s",
+  "fresh_conversation": true,
+  "same_candidate_baseline": true,
+  "implementation_attempts": 1,
+  "reviews": {
+    "code": "pass, no findings",
+    "security": "pass, no findings"
+  },
+  "candidate_checks": {
+    "offline_wheel": "pass",
+    "offline_install": "pass",
+    "full_suite": "58 passed; two temporary-directory cleanup warnings",
+    "pip_environment": "offline variables set for every pip command",
+    "diff_check": "pass"
+  },
+  "host_grade": {
+    "status": "pass",
+    "grade": "v2-grade.json",
+    "suite": "58 passed",
+    "semantic": "all frozen checks passed"
+  },
+  "patch": "v2-final.patch",
+  "patch_sha256": "54a76f8c2f143c7fde960c41e7c03674cb3ccbae413e8f3f397c92e53595cc75",
+  "changed_product_files": [
+    ".github/workflows/ci.yml"
+  ],
+  "branch": "eval-base",
+  "candidate_commit": null,
+  "staging_and_commit": "blocked: Git could not create .git/index.lock; candidate was left uncommitted without permission changes or escalation",
+  "harness_cli": "unavailable: scripts/harness.py and .harness/config.toml are absent from the pinned snapshot",
+  "protected_hashes_verified": true,
+  "tui_notes": [
+    "No network or live services were accessed; GitHub Actions was not dispatched."
+  ]
+}
