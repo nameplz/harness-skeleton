@@ -1,0 +1,238 @@
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..92c7511 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -19,10 +19,10 @@ args=sys.argv[1:];path=Path(os.environ['FAKE_ORCA_STATE']);mode=os.environ.get('
+ state=json.loads(path.read_text());state['calls'].append(args)
+ if args[:2]==['worktree','ps']:
+     i=min(state['index'],len(state['snapshots'])-1);row=state['snapshots'][i];state['index']+=1
+-    result={'worktrees':[{'worktreeId':'foreign','agents':[dict(row,paneKey='tab:leaf',lastAssistantMessage='FOREIGN_SECRET')]},
+-                          {'worktreeId':'wt','agents':[dict(row,paneKey='foreign:leaf',lastAssistantMessage='OTHER_PANE'),row]}]}
++    result={'worktrees':[{'worktreeId':'foreign','agents':[dict(row,paneKey='tab-2:leaf-2',lastAssistantMessage='FOREIGN_WORKTREE_MESSAGE')]},
++                          {'worktreeId':'wt','agents':[dict(row,paneKey='tab-1:leaf-1',lastAssistantMessage='WRONG_PANE_MESSAGE'),row]}]}
+ elif args[:2]==['terminal','show']:
+-    result={'terminal':{'handle':'term','worktreeId':'wt','tabId':'tab','leafId':'leaf','worktreePath':'/owned/worktree'}}
++    result={'terminal':{'handle':'term','worktreeId':'wt','tabId':'tab-2','leafId':'leaf-2','worktreePath':'/owned/worktree'}}
+ elif args[:2]==['terminal','list']:
+     result={'terminals':[{'handle':'term','title':'owned','agent':'codex','worktreePath':'/owned/worktree'}]}
+ elif args[:2]==['terminal','read']:result={'terminal':{'source':'screen','tail':['> prompt','───','Status: ready']}}
+@@ -38,9 +38,9 @@ print(json.dumps({'ok':True,'result':result}))
+ 
+ 
+ def row(state='done', message='old', updated=1, agent='codex', interrupted=False):
+-    return {'paneKey': 'tab:leaf', 'state': state, 'agentType': agent,
++    return {'paneKey': 'tab-2:leaf-2', 'state': state, 'agentType': agent,
+             'lastAssistantMessage': message, 'prompt': 'owned prompt',
+-            'toolName': 'OWNED_TOOL_DETAIL', 'toolInput': 'OWNED_TOOL_INPUT',
++            'toolName': 'PRIVATE_TOOL_NAME', 'toolInput': 'PRIVATE_TOOL_INPUT',
+             'stateStartedAt': updated, 'updatedAt': updated, 'interrupted': interrupted}
+ 
+ 
+@@ -70,7 +70,7 @@ def test_actual_async_subprocess_protocol_and_literal_argv(cli, tmp_path):
+         assert (await client.runtime_status())['ok']
+         assert (await client.list_terminals())[0].handle == 'term'
+         binding = await client.validate_codex_binding('term')
+-        assert binding.pane_key == 'tab:leaf'
++        assert binding.pane_key == 'tab-2:leaf-2'
+         literal = f"$(touch {tmp_path / 'must-not-exist'}); owned quoted text"
+         await client.send_terminal('term', literal)
+         assert 'Status: ready' in await client.read_screen('term')
+@@ -100,19 +100,32 @@ def test_cli_empty_and_missing(cli, monkeypatch, tmp_path):
+ @pytest.mark.parametrize('fast,interrupted', [(False,False),(True,False),(False,True)])
+ def test_real_subprocess_structured_completion(cli, monkeypatch, fast, interrupted):
+     client, path = cli
+-    snapshots = [row(), row('done','owned final',4,interrupted=interrupted), row('done','owned final',4,interrupted=interrupted)]
++    snapshots = [
++        row('done', 'BASELINE_OLD_MESSAGE', 1),
++        row('done', 'SELECTED_PANE_FINAL', 4, interrupted=interrupted),
++        row('done', 'SELECTED_PANE_FINAL', 4, interrupted=interrupted),
++    ]
+     if not fast:
+-        snapshots[1:1] = [row('working','',2), row('working','owned progress',3)]
++        snapshots[1:1] = [
++            row('working', '', 2),
++            row('working', 'SELECTED_PANE_PROGRESS', 3),
++        ]
+     path.write_text(json.dumps({'calls': [], 'index': 0, 'snapshots': snapshots}))
+     original_sleep = asyncio.sleep
+     async def short_sleep(_):
+         await original_sleep(.001)
+     monkeypatch.setattr(orca.asyncio, 'sleep', short_sleep)
+-    result = asyncio.run(client.exchange(orca.TerminalBinding('term','wt','tab','leaf'), 'owned prompt'))
+-    assert result.state == 'done' and result.text.endswith('owned final')
++    result = asyncio.run(client.exchange(orca.TerminalBinding('term','wt','tab-2','leaf-2'), 'owned prompt'))
++    assert result.state == 'done' and result.text.endswith('SELECTED_PANE_FINAL')
+     assert result.interrupted is interrupted
+-    assert ('owned progress' in result.text) is (not fast)
+-    assert not any(s in result.text for s in ('FOREIGN_SECRET','OTHER_PANE','OWNED_TOOL','old'))
++    expected = 'SELECTED_PANE_FINAL'
++    if not fast:
++        expected = 'SELECTED_PANE_PROGRESS\n\n' + expected
++    assert result.text == expected
++    assert not any(s in result.text for s in (
++        'FOREIGN_WORKTREE_MESSAGE', 'WRONG_PANE_MESSAGE',
++        'PRIVATE_TOOL_NAME', 'PRIVATE_TOOL_INPUT', 'BASELINE_OLD_MESSAGE',
++    ))
+     assert not any(c[:2] == ['terminal','read'] for c in json.loads(path.read_text())['calls'])
+ 
+ 
+@@ -121,7 +134,7 @@ def test_busy_rejected_before_send(cli, busy):
+     client, path = cli
+     path.write_text(json.dumps({'calls': [], 'index': 0, 'snapshots': [row(busy)]}))
+     with pytest.raises(orca.OrcaError, match='이미'):
+-        asyncio.run(client.exchange(orca.TerminalBinding('term','wt','tab','leaf'), 'owned prompt'))
++        asyncio.run(client.exchange(orca.TerminalBinding('term','wt','tab-2','leaf-2'), 'owned prompt'))
+     assert not any(c[:2] == ['terminal','send'] for c in json.loads(path.read_text())['calls'])
+ 
+ 
+@@ -131,7 +144,7 @@ def test_slash_screen_exception_is_narrow(cli, monkeypatch, command, screen):
+     async def short_sleep(_):
+         return None
+     monkeypatch.setattr(orca.asyncio, 'sleep', short_sleep)
+-    result = asyncio.run(client.exchange(orca.TerminalBinding('term','wt','tab','leaf'),command))
++    result = asyncio.run(client.exchange(orca.TerminalBinding('term','wt','tab-2','leaf-2'),command))
+     calls = json.loads(path.read_text())['calls']
+     assert any(c[:2] == ['terminal','read'] for c in calls) is screen
+     assert result.state == 'command'
+@@ -181,7 +194,7 @@ def test_authorized_message_and_disconnected_reply(tmp_path):
+                      channel=NS(id=3,typing=typing),content='//clear',reference=None,id=4,reply=AsyncMock())
+         await bot.on_message(message)
+         message.reply.assert_awaited_once()
+-        bot.store.connect('term','wt','tab:leaf')
++        bot.store.connect('term','wt','tab-2:leaf-2')
+         await bot.on_message(message)
+         bot.forward_to_codex.assert_awaited_once_with('/clear',origin='Discord message 4')
+         assert not bot.allowed_mentions.everyone and not bot.allowed_mentions.users and not bot.allowed_mentions.roles
+@@ -196,8 +209,8 @@ def test_forward_output_routing_and_chunks(tmp_path, output, interrupted):
+         async def send(self, value): self.sent.append(value)
+     async def run():
+         bot = bot_module.BridgeBot(settings(tmp_path / 'state.json'))
+-        bot.store.connect('term','wt','tab:leaf')
+-        binding = orca.TerminalBinding('term','wt','tab','leaf')
++        bot.store.connect('term','wt','tab-2:leaf-2')
++        binding = orca.TerminalBinding('term','wt','tab-2','leaf-2')
+         bot.orca = NS(resolve_binding=AsyncMock(return_value=binding),
+                       exchange=AsyncMock(return_value=orca.ExchangeResult(output,'done',interrupted)))
+         channel=Channel();bot.get_channel=lambda _:channel
+@@ -214,8 +227,8 @@ def test_forward_output_routing_and_chunks(tmp_path, output, interrupted):
+ def test_state_roundtrip_and_malformed_json(tmp_path):
+     path=tmp_path/'owned/state.json';store=StateStore(path)
+     assert store.state.terminal_handle is None
+-    store.connect('term','wt','tab:leaf')
+-    assert StateStore(path).state.pane_key=='tab:leaf'
++    store.connect('term','wt','tab-2:leaf-2')
++    assert StateStore(path).state.pane_key=='tab-2:leaf-2'
+     store.disconnect();assert StateStore(path).state.terminal_handle is None
+     path.write_text('{invalid')
+     assert StateStore(path).state.terminal_handle is None
+@@ -246,11 +259,11 @@ def interaction(bot, *, guild=1, user=2):
+ def test_application_commands_auth_and_connected_paths(tmp_path,name,allowed):
+     async def run():
+         bot=bot_module.BridgeBot(settings(tmp_path/'state.json'))
+-        binding=orca.TerminalBinding('term','wt','tab','leaf')
++        binding=orca.TerminalBinding('term','wt','tab-2','leaf-2')
+         bot.orca=NS(list_terminals=AsyncMock(return_value=[orca.TerminalInfo('term','owned','wt','codex')]),
+                     validate_codex_binding=AsyncMock(return_value=binding),
+                     get_agent_snapshot=AsyncMock(return_value=orca._parse_agent_snapshot(row())))
+-        if name=='status_command':bot.store.connect('term','wt','tab:leaf')
++        if name=='status_command':bot.store.connect('term','wt','tab-2:leaf-2')
+         request=interaction(bot,user=2 if allowed else 7)
+         args=(request,'term') if name=='connect_command' else (request,)
+         await getattr(bot_module,name).callback(*args)
+@@ -269,7 +282,7 @@ def test_application_command_transport_errors_are_reported(tmp_path,name):
+         bot=bot_module.BridgeBot(settings(tmp_path/'state.json'))
+         bot.orca=NS(list_terminals=AsyncMock(side_effect=orca.OrcaError('owned')),
+                     validate_codex_binding=AsyncMock(side_effect=orca.OrcaError('owned')))
+-        if name=='status_command':bot.store.connect('term','wt','tab:leaf')
++        if name=='status_command':bot.store.connect('term','wt','tab-2:leaf-2')
+         request=interaction(bot)
+         await getattr(bot_module,name).callback(request,*(['term'] if name=='connect_command' else []))
+         assert request.response.send_message.await_count+request.followup.send.await_count==1
+@@ -294,7 +307,7 @@ def test_autocomplete_limits_context_auth_and_setup_without_network(tmp_path):
+         bot.forward_to_codex=AsyncMock()
+         await modal.on_submit(interaction(bot))
+         bot.forward_to_codex.assert_not_awaited()
+-        bot.store.connect('term','wt','tab:leaf')
++        bot.store.connect('term','wt','tab-2:leaf-2')
+         modal.instruction._value='owned instruction'
+         await modal.on_submit(interaction(bot))
+         bot.forward_to_codex.assert_awaited_once()
+diff --git a/tests/test_orca_parsing.py b/tests/test_orca_parsing.py
+index 03badf8..9d2a512 100644
+--- a/tests/test_orca_parsing.py
++++ b/tests/test_orca_parsing.py
+@@ -35,11 +35,34 @@ def test_find_exact_agent_by_worktree_and_pane_key():
+     data = {
+         "result": {
+             "worktrees": [
++                {
++                    "worktreeId": "repo::/tmp/foreign-wt",
++                    "agents": [
++                        {
++                            "paneKey": "tab-2:leaf-2",
++                            "state": "done",
++                            "agentType": "codex",
++                            "prompt": "foreign prompt",
++                            "lastAssistantMessage": "FOREIGN_WORKTREE_MESSAGE",
++                            "stateStartedAt": 80,
++                            "updatedAt": 90,
++                        },
++                    ],
++                },
+                 {
+                     "worktreeId": "repo::/tmp/wt",
+                     "agents": [
+                         {
+                             "paneKey": "tab-1:leaf-1",
++                            "state": "done",
++                            "agentType": "codex",
++                            "prompt": "wrong pane prompt",
++                            "lastAssistantMessage": "WRONG_PANE_MESSAGE",
++                            "stateStartedAt": 90,
++                            "updatedAt": 120,
++                        },
++                        {
++                            "paneKey": "tab-2:leaf-2",
+                             "state": "working",
+                             "agentType": "codex",
+                             "prompt": "hello",
+@@ -49,26 +72,26 @@ def test_find_exact_agent_by_worktree_and_pane_key():
+                             "stateStartedAt": 100,
+                             "updatedAt": 110,
+                         },
+-                        {
+-                            "paneKey": "tab-2:leaf-2",
+-                            "state": "done",
+-                            "agentType": "codex",
+-                            "lastAssistantMessage": "다른 Codex",
+-                            "stateStartedAt": 90,
+-                            "updatedAt": 120,
+-                        },
+                     ],
+                 }
+             ]
+         }
+     }
+     snapshot = _find_agent_snapshot(
+-        data, worktree_id="repo::/tmp/wt", pane_key="tab-1:leaf-1"
++        data, worktree_id="repo::/tmp/wt", pane_key="tab-2:leaf-2"
++    )
++    assert snapshot == AgentSnapshot(
++        pane_key="tab-2:leaf-2",
++        state="working",
++        agent_type="codex",
++        prompt="hello",
++        last_assistant_message="확인하겠습니다.",
++        tool_name="Read",
++        tool_input="README.md",
++        interrupted=False,
++        state_started_at=100,
++        updated_at=110,
+     )
+-    assert snapshot is not None
+-    assert snapshot.state == "working"
+-    assert snapshot.last_assistant_message == "확인하겠습니다."
+-    assert snapshot.tool_name == "Read"
+ 
+ 
+ def test_merge_replaces_streaming_prefix_but_keeps_distinct_assistant_messages():
