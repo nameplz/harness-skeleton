@@ -1,0 +1,73 @@
+{
+  "condition": "v2",
+  "candidate_branch": "eval-base",
+  "candidate_commits": 0,
+  "codex_cli": "0.163.0",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "tui_elapsed": "3m 11s",
+  "main_prompt_count": 1,
+  "followup_prompt_count": 0,
+  "prompt_request_ids": [
+    "8e6b6166-80ff-4331-8a1a-145f28554645"
+  ],
+  "submission_receipt": "input_accepted; exact request replayed once with --retry-request and returned replayed=true",
+  "execution_observed": "Fresh TUI conversation in current isolated candidate worktree; prompt execution, offline wheel/install, 59-test suite, independent code review, and independent security review observed.",
+  "setup_record": "v2-setup.json",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "reviews": {
+    "workflow": "T3 authenticated-command workflow completed",
+    "code_review": "passed; no findings; read-only",
+    "security_review": "passed; no findings; read-only"
+  },
+  "process_observations": {
+    "hosted_ci": "not run",
+    "network_or_service_calls": "none",
+    "remote_writes": false,
+    "pip_policy": "PIP_NO_INDEX=1 and PIP_DISABLE_PIP_VERSION_CHECK=1 used on every pip command",
+    "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+    "hook_observation": "no failure observed; protected hashes unchanged",
+    "harness_risk_and_full_check": "unavailable: pinned checkout lacks scripts/harness.py and .harness/config.toml"
+  },
+  "status": "pass",
+  "tui_candidate_suite": "Offline wheel build and reinstall passed; full candidate suite: 59 passed with two pytest temporary-directory cleanup warnings; git diff --check passed; exact scope held.",
+  "host_grade": {
+    "status": "pass",
+    "fresh_wheel_build": "pass",
+    "offline_install": "pass",
+    "full_project_suite": "59 passed",
+    "focused_test": "1 passed",
+    "semantic": "all 9 frozen checks passed",
+    "scope": true,
+    "wheel_sha256": "e6b6cb5e280d942907a43880a3cd05b3e50f1a8160f963eea58682b85cb394c1"
+  },
+  "product_diff": {
+    "files": [
+      "src/orca_discord_bridge/bot.py",
+      "tests/test_harness_compatibility.py"
+    ],
+    "insertions": 134,
+    "deletions": 0,
+    "patch_sha256": "329b28aace9c437aeffbb4015273c9fb1a14a414ce54b856d308468472a14c4f"
+  },
+  "host_grade_attempts": [
+    {
+      "patch": "v2-final.patch",
+      "patch_sha256": "329b28aace9c437aeffbb4015273c9fb1a14a414ce54b856d308468472a14c4f",
+      "raw_status": "pass",
+      "failure": null
+    }
+  ],
+  "protected_hashes_unchanged_from_pre_stage": true,
+  "metrics_limits": {
+    "model_turn_counts": "not captured",
+    "shell_command_counts": "not captured",
+    "token_usage": "unknown"
+  },
+  "limitations": [
+    "The project Harness risk/full workflow check could not run because scripts/harness.py and .harness/config.toml are absent from the pinned checkout.",
+    "The candidate suite emitted two pytest temporary-directory cleanup warnings; the frozen host suite passed cleanly.",
+    "Hosted CI was not run; no network, live services, push, publication, or merge occurred."
+  ]
+}
