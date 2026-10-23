@@ -11,7 +11,7 @@
   "frozen_sha256": {
     "task.md": "198d6da500ebc88e9b2f10fe6d398db75c1176ccd800f12708e8ae18aa317319",
     "task-prompt.txt": "5c42f3c0bbd084052505372124c7cbec0eb3afb6bfcb2567bac107e08a37e7ce",
-    "acceptance.json": "1854defe338611924c991c5b66db9348e1da28effd652af8f2c416d6dab27c53",
+    "acceptance.json": "a78f1349e0bf122575bfb7899d6bf359419b5be3eee0d487282126a1f19d769c",
     "host-grader.py": "14699389efbd57805992f125f022edb256058691357ae8da239705ba83a695a0",
     "semantic.py": "d16940d4baf9a9e2318506b0046e60e1bceb3e0c0a699c28e79509e4c77c0cca",
     "positive-control.patch": "7d57a7016c10a087d2f1456b8b8635d9ff3f86f326a99a47574960a7f31813ab",
