@@ -36,6 +36,8 @@
     "Both candidate suites emitted two pytest temporary-directory cleanup warnings; the independent host suites passed cleanly.",
     "The candidate feature branch was blocked by filesystem permissions; no candidate commit or remote CI was used.",
     "The TUI parent was a host process; harness-eval applied to tool children only. Token and model-turn counts were not captured.",
-    "No network, live Orca/Discord services, push, publication, or merge occurred."
-  ]
+    "No network, live Orca/Discord services, push, publication, or merge occurred.",
+    "The TUI conversation was reused across conditions; although the v1 implementation worker was separate, its main workflow session had seen the prior v2 solution. Later pairs will start a fresh Codex conversation per condition."
+  ],
+  "context_carryover_risk": "Both conditions ran in the reused TUI conversation from earlier pairs. The v1 main session explicitly referenced the preceding F23 v2 implementation/review before starting a separate implementation worker. Candidate files were reset, but the main workflow context was not; treat the pair as potentially non-independent."
 }

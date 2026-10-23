@@ -93,5 +93,6 @@
     "The Harness validation profile/scripts and remote CI were unavailable in the pinned checkout.",
     "The candidate full suite emitted two pytest temporary-directory cleanup warnings; the frozen host suite passed cleanly.",
     "Hosted CI was not run; no network, live services, push, publication, or merge occurred."
-  ]
+  ],
+  "context_carryover_risk": "Reused main TUI context included the preceding v2 implementation/review; the implementation worker was separately launched, but the main workflow may have been informed by v2."
 }
