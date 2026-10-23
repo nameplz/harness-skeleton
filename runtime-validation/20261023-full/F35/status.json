@@ -1,0 +1,11 @@
+{
+  "pair_id": "F35",
+  "status": "frozen; awaiting v1",
+  "task_id": "T20",
+  "task_instance": "dm_unauthorized_policy",
+  "condition_order": "v1_then_v2",
+  "baseline_grade": "expected_fail",
+  "positive_control_grade": "pass",
+  "model_runs_completed": 0,
+  "next_condition": "v1"
+}
