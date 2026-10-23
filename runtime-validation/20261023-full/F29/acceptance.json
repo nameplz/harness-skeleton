@@ -1,0 +1,88 @@
+{
+  "task_id": "T01",
+  "task_name": "Treat valid non-object JSON state as disconnected state",
+  "task_instance": "standard",
+  "batch": "full",
+  "pair_id": "F29",
+  "condition_order": "v2_then_v1",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40c4f78d788a90da92",
+  "budget_seconds_per_condition": 1800,
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+  "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+  "allowed_files": [
+    "src/orca_discord_bridge/state.py",
+    "tests/test_harness_compatibility.py"
+  ],
+  "focused_suite": "tests/test_harness_compatibility.py",
+  "criteria": [
+    {
+      "id": "non_object_roots",
+      "check": "Valid JSON roots null, array, string, integer, float, true, and false load as an empty disconnected BridgeState."
+    },
+    {
+      "id": "missing_file",
+      "check": "Missing state files continue to load as an empty BridgeState."
+    },
+    {
+      "id": "valid_object",
+      "check": "Valid object state continues to deserialize terminal_handle, worktree_id, and pane_key."
+    },
+    {
+      "id": "connect_disconnect",
+      "check": "connect() and disconnect() persist state and round-trip correctly."
+    },
+    {
+      "id": "regression_tests",
+      "check": "Compatibility tests cover all seven non-object values and preserved state behavior."
+    },
+    {
+      "id": "build_and_suite",
+      "check": "A fresh wheel builds and installs offline; both full and focused suites pass."
+    },
+    {
+      "id": "scope",
+      "check": "Only state.py and tests/test_harness_compatibility.py change."
+    },
+    {
+      "id": "external_effects",
+      "check": "No network, live service calls, publication, push, or merge."
+    }
+  ],
+  "baseline_calibration": {
+    "status": "expected_fail",
+    "reason": "Only the seven non-object roots fail; missing/object persistence and connect/disconnect pass.",
+    "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+    "suite": "58 passed",
+    "focused": "47 passed",
+    "semantic_failures": "all seven valid non-object JSON roots",
+    "grade_sha256": "37e4be572c239aa4ac86a87a199e5d6c389e8406097304b4234284c0032f39f8"
+  },
+  "positive_control_calibration": {
+    "source": "Previously passing F19 T01 positive-control patch, which also handles the predeclared alternate invalid-byte variant.",
+    "expected": "Exact scope, offline wheel/install, full/focused suites, and all F29 standard semantic checks pass.",
+    "patch_sha256": "b6b9f2fc52e95deba9c3ed84d0ce929456f83a2eca51aecbd5575c78db398dc4",
+    "grade_sha256": "0f8b29606e2192724c583a66ba62dc1caf881c563cacb11a96a8133fc501d6ec",
+    "grade_status": "pass",
+    "wheel_sha256": "61e710154392404ed48ba2a3cc2e5559e354a1e2dae0c75b29c019a8705128a4",
+    "suite": "69 passed",
+    "focused": "58 passed",
+    "semantic": "all F29 standard checks pass"
+  },
+  "calibration_note": "An initial pilot-patch positive-control attempt had stale test-file context and was discarded before freeze; the previously passing F19 control was then run and passed.",
+  "frozen_hashes": {
+    "task.md": "8844901ba904c0a68e40dcc7eea02dae4089c92dca83def1247593f5aadff358",
+    "task-prompt.txt": "64305ecadad8bd575d15a3ea98aa2b495a6efb857a2a9859db106be5e18d8000",
+    "host-grader.py": "f15036fe371eaf2a07054e74d27103ffdc6e7d4ed956c47c6fc3637195841155",
+    "semantic.py": "be344c0838c93527204a565695b611cc84b7ba8d957d093f6bbd44470ea850c1",
+    "positive-control.patch": "b6b9f2fc52e95deba9c3ed84d0ce929456f83a2eca51aecbd5575c78db398dc4",
+    "baseline_test_harness_compatibility.py": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae"
+  },
+  "network": "Offline pip and local temporary files only",
+  "external_effects": "No network, live services, publication, push, or merge."
+}
