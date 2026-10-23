@@ -13,7 +13,13 @@
   "condition_order": "v2_then_v1",
   "v1_workflow_commit": "134c98a2f8be326e3e3688f411a6b348bd463f7f",
   "v2_workflow_commit": "b5e8da26d721ff8b1c9be93a766d526fcf59fc06",
-  "hashes": {},
+  "hashes": {
+    "task_sha256": "4272bbcd457ddd6bbc9bbd6296066c3e0c82b44c2ca053a52291ad6d5b22bae4",
+    "prompt_sha256": "16a785cf9609ee6ce9fcd63d10756401651fcaae81a227a0742fc86e41b11268",
+    "host_grader_sha256": "24a48a35618a18a84422527abc8a39ffb0a7a785cdbeb175f092201d8d861e2e",
+    "semantic_sha256": "a056d489ff655be111a933471a59e70ab81c97a12d991af1e01755fa1a8491d3",
+    "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae"
+  },
   "criteria": [
     {
       "id": "visible_failures",
@@ -54,27 +60,28 @@
     "host_grade_status": "expected failure on cancellation_cleanup only",
     "semantic_checks": {
       "cancellation_cleanup": {
-        "detail": "cancellation propagates after direct child exits and is reaped",
-        "status": "fail"
+        "status": "fail",
+        "detail": "cancellation propagates after direct child exits and is reaped"
       },
       "literal_argv": {
-        "detail": "shell-like text remains one literal argv value and creates no marker",
-        "status": "pass"
+        "status": "pass",
+        "detail": "shell-like text remains one literal argv value and creates no marker"
       },
       "non_json_error": {
-        "detail": "invalid JSON is surfaced as OrcaError",
-        "status": "pass"
+        "status": "pass",
+        "detail": "invalid JSON is surfaced as OrcaError"
       },
       "nonzero_error": {
-        "detail": "nonzero exit is surfaced as OrcaError",
-        "status": "pass"
+        "status": "pass",
+        "detail": "nonzero exit is surfaced as OrcaError"
       },
       "timeout_cleanup": {
-        "detail": "timeout is surfaced and direct child has exited and been reaped",
-        "status": "pass"
+        "status": "pass",
+        "detail": "timeout is surfaced and direct child has exited and been reaped"
       }
     },
-    "note": "Fresh F28 baseline run must reproduce the frozen T14 signature: offline wheel/install and 58 tests pass; only cancellation cleanup semantic fails."
+    "note": "Fresh F28 baseline calibration: offline wheel build/install and 58 existing tests pass; only cancellation cleanup fails.",
+    "grade_sha256": "c8ed5e2d91527df7221020ca0c003a124fa13a81c5dab9e5eccbf971f18fbf5c"
   },
   "network": "offline pip and local fake CLI only",
   "pair_id": "F28",
@@ -83,7 +90,11 @@
   "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
   "budget_seconds_per_condition": 1800,
   "positive_control_calibration": {
-    "source": "F01 v2 patch from the predeclared cancellation_vs_timeout variant",
-    "expected": "fresh offline wheel/install/full suite and all frozen T14 semantics pass"
+    "source": "F01 v2 patch from the cancellation_vs_timeout variant",
+    "patch_sha256": "a292dc66e87d80a858baa3b2d02ad59795936b1b10890ee596d55caf5b1ca265",
+    "grade_sha256": "e63016e61a99d3f6d110803d28298272461565497d7777e113660869202525b3",
+    "grade_status": "pass",
+    "suite": "60 passed in 15.32s",
+    "semantic": "all five frozen checks passed"
   }
 }
