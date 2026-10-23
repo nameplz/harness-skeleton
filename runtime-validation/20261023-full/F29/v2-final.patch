@@ -1,0 +1,36 @@
+diff --git a/src/orca_discord_bridge/state.py b/src/orca_discord_bridge/state.py
+index 214d38d..18bdbc8 100644
+--- a/src/orca_discord_bridge/state.py
++++ b/src/orca_discord_bridge/state.py
+@@ -25,6 +25,9 @@ class StateStore:
+         except (OSError, json.JSONDecodeError):
+             return BridgeState()
+ 
++        if not isinstance(raw, dict):
++            return BridgeState()
++
+         return BridgeState(
+             terminal_handle=raw.get("terminal_handle"),
+             worktree_id=raw.get("worktree_id"),
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..a084d7d 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -221,6 +221,17 @@ def test_state_roundtrip_and_malformed_json(tmp_path):
+     assert StateStore(path).state.terminal_handle is None
+ 
+ 
++@pytest.mark.parametrize('root', [None, [], 'state', 7, 1.25, True, False])
++def test_state_non_object_json_roots_load_disconnected(tmp_path, root):
++    path=tmp_path/'owned/state.json'
++    path.parent.mkdir(parents=True)
++    path.write_text(json.dumps(root))
++
++    state=StateStore(path).state
++
++    assert (state.terminal_handle, state.worktree_id, state.pane_key) == (None, None, None)
++
++
+ def test_synthetic_config_validation_and_prompt_data(monkeypatch, tmp_path):
+     monkeypatch.setattr(config,'load_dotenv',lambda:None)
+     for key,value in {'DISCORD_TOKEN':'OWNED_SYNTHETIC_TOKEN','DISCORD_GUILD_ID':'1','DISCORD_USER_ID':'2','CODEX_CHANNEL_ID':'3','STATE_PATH':str(tmp_path/'state.json'),'ORCA_WAIT_TIMEOUT_MS':'1000'}.items():

@@ -1,0 +1,44 @@
+{
+  "pair_id": "F29",
+  "condition": "v2",
+  "condition_order": "v2_then_v1",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "execution_path": "interactive native Codex TUI via Orca-managed terminal",
+  "prompt_request_id": "1fc86db7-1f93-42c9-af81-78ec241eeb1e",
+  "reported_duration": "1m 22s",
+  "fresh_conversation": true,
+  "same_candidate_baseline": true,
+  "implementation_attempts": 1,
+  "reviews": {
+    "self_review": "pass; T1 workflow does not launch independent reviewers by default"
+  },
+  "candidate_checks": {
+    "offline_wheel": "pass",
+    "offline_install": "pass",
+    "full_suite": "65 passed; two pytest temporary-directory cleanup warnings",
+    "focused_suite": "54 passed; two pytest temporary-directory cleanup warnings",
+    "diff_check": "not reported by candidate; host patch/scope validation passed"
+  },
+  "host_grade": {
+    "status": "pass",
+    "grade": "v2-grade.json",
+    "suite": "65 passed",
+    "focused": "54 passed",
+    "semantic": "all F29 standard checks passed",
+    "scope": "exactly the two allowed files"
+  },
+  "patch": "v2-final.patch",
+  "patch_sha256": "439149679748d7a1d8067f9eccb87c068bc5cd5406f0e510906a2a40eb05a191",
+  "changed_product_files": [
+    "src/orca_discord_bridge/state.py",
+    "tests/test_harness_compatibility.py"
+  ],
+  "branch": "eval-base",
+  "candidate_commit": null,
+  "staging_and_commit": "not attempted: candidate Git status was unavailable due system Git config read denial; no workaround was attempted",
+  "harness_cli": "unavailable: scripts/harness.py and .harness/config.toml are absent",
+  "protected_hashes_verified": true,
+  "external_effects": "None"
+}
