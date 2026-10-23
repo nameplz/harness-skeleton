@@ -8,6 +8,14 @@ Keep the workflow least-privilege: top-level `permissions` must grant only `cont
 
 Use an Ubuntu hosted runner. The workflow should run `python -m pip install . pytest` and `python -m pytest -q`. Keep the product diff to `.github/workflows/ci.yml` only. Do not modify application code or tests.
 
-Acceptance: the independent host grader parses the YAML and checks both event path filters and their exact relevant path list, trigger/job behavior, permission scope, matrix, immutable action pins, non-persisted checkout credentials, installation/test commands, and shell-expression safety. It also rebuilds/installs the package offline and runs the existing full project suite. The actual GitHub workflow is not dispatched during this local task.
+Acceptance: the independent host grader parses the YAML and checks both event path filters and their exact relevant path list, trigger/job behavior, permission scope, matrix, immutable action pins, non-persisted checkout credentials, installation/test commands, and shell-expression safety. It also rebuilds/installs the package offline and runs the existing full project suite. Run these same local checks in the candidate checkout (all pip commands stay offline):
+
+```bash
+PIP_NO_INDEX=1 PIP_DISABLE_PIP_VERSION_CHECK=1 .eval-venv/bin/python -m pip wheel --no-deps --no-build-isolation --wheel-dir .eval-wheelhouse .
+PIP_NO_INDEX=1 PIP_DISABLE_PIP_VERSION_CHECK=1 .eval-venv/bin/python -m pip install --no-deps --force-reinstall --no-index --find-links .eval-wheelhouse orca-discord-bridge==0.2.0
+PIP_NO_INDEX=1 PIP_DISABLE_PIP_VERSION_CHECK=1 .eval-venv/bin/python -I -B -m pytest -q -p no:cacheprovider tests
+```
+
+The actual GitHub workflow is not dispatched during this local task.
 
 For every pip command in local validation set `PIP_NO_INDEX=1` and `PIP_DISABLE_PIP_VERSION_CHECK=1`. Do not contact Discord or Orca, access the network, add credentials, publish, push, or merge. Stop at the fixed 30-minute condition cap and report actual outcomes.
