@@ -1,0 +1,83 @@
+{
+  "task_id": "T17",
+  "task_name": "Add minimal GitHub Actions CI",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "budget_seconds": 1800,
+  "execution_path": "interactive native Codex TUI under Orca-managed terminal",
+  "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+  "condition_order": "v1 then v2",
+  "v1_workflow_commit": "134c98a2f8be326e3e3688f411a6b348bd463f7f",
+  "v2_workflow_commit": "b5e8da26d721ff8b1c9be93a766d526fcf59fc06",
+  "allowed_files": [
+    ".github/workflows/ci.yml"
+  ],
+  "hashes": {
+    "task_sha256": "c0823f6c35c320ed45dfb6d04ad0a3ac37cf8e7185499893e6c14cad183656e5",
+    "prompt_sha256": "09b28c63c9e76ab04369e1fb3e942b92eba0ff7f01fd4418023b6afc51099c50",
+    "host_grader_sha256": "a10c41b13c4e5b7e0762957b3489fbe452536217165c4e7a25f8725c47ce0802",
+    "semantic_sha256": "da2c986d5227a8022420d56f8a6b0f625df22c28ca9f303cdd21fc5764394c65",
+    "baseline_compatibility_fixture_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae"
+  },
+  "criteria": [
+    {
+      "id": "events",
+      "check": "push and pull_request are the only events and both trigger the unconditionally running test job."
+    },
+    {
+      "id": "path_filters",
+      "check": "Both events use exactly the same paths list: .github/workflows/ci.yml, README.md, pyproject.toml, src/**, tests/**; no paths-ignore, branch, or type filters."
+    },
+    {
+      "id": "python_matrix",
+      "check": "Test exactly Python 3.11, 3.12, and 3.13 on an Ubuntu hosted runner."
+    },
+    {
+      "id": "least_privilege",
+      "check": "Top-level contents: read only; no broader job permissions; checkout does not persist credentials."
+    },
+    {
+      "id": "immutable_actions",
+      "check": "Only actions/checkout and actions/setup-python are used, each pinned to a full 40-character commit SHA."
+    },
+    {
+      "id": "install_and_test",
+      "check": "The workflow runs exactly python -m pip install . pytest and python -m pytest -q."
+    },
+    {
+      "id": "shell_safety",
+      "check": "No secrets, pull_request_target, or GitHub event/user-controlled expressions in shell commands."
+    },
+    {
+      "id": "build_suite_scope",
+      "check": "Fresh offline wheel build/install and full existing suite pass; product patch changes only .github/workflows/ci.yml."
+    },
+    {
+      "id": "external_effects",
+      "check": "No candidate network, live service call, workflow dispatch, publication, push, or merge."
+    }
+  ],
+  "baseline_calibration": {
+    "status": "expected_fail",
+    "grade_sha256": "45bcd1ac346856ba9909a0fd9520da5c24fd55fabd4a3139a17e7c8e9794b9fb",
+    "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+    "suite": "58 passed",
+    "reason": "No workflow is present; the offline wheel, installation, and existing suite pass."
+  },
+  "network": "offline pip and local synthetic YAML only",
+  "workflow_dispatch": "not run; remote GitHub checks are outside this local task",
+  "task_instance": "pr_push_ci_paths",
+  "positive_control_calibration": {
+    "source": "T17 v2 pilot workflow extended with the frozen F26 path filters",
+    "patch_sha256": "e6001244c1d1574842adc59cd6a30b8b63843a0df962634d2991d2bfb24cbd31",
+    "grade_sha256": "beea76071193410713676bf7582e2c0b0c18d15ba4a2ab9a07724319e39c3d75",
+    "grade_status": "pass",
+    "suite": "58 passed",
+    "semantic": "all frozen workflow checks passed",
+    "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144"
+  }
+}
