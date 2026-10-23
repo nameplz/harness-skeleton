@@ -4,12 +4,12 @@
   "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
   "required_matched_pairs": 36,
   "required_model_runs": 72,
-  "completed_pairs": 33,
-  "completed_model_runs": 66,
-  "remaining_pairs": 3,
-  "remaining_model_runs": 6,
+  "completed_pairs": 34,
+  "completed_model_runs": 68,
+  "remaining_pairs": 2,
+  "remaining_model_runs": 4,
   "condition_order_counts": {
-    "v1_then_v2": 16,
+    "v1_then_v2": 17,
     "v2_then_v1": 17
   },
   "completed_pair_ids": [
@@ -45,11 +45,12 @@
     "F30",
     "F31",
     "F32",
-    "F33"
+    "F33",
+    "F34"
   ],
-  "next_pair_id": "F34",
-  "next_task": "T13",
+  "next_pair_id": "F35",
+  "next_task": "T20",
   "next_condition_order": "v1_then_v2",
   "updated": "2026-10-23",
-  "next_task_instance": "standard"
+  "next_task_instance": "dm_unauthorized_policy"
 }

@@ -1,0 +1,308 @@
+diff --git a/src/orca_discord_bridge/state.py b/src/orca_discord_bridge/state.py
+index 214d38d..cd8ebea 100644
+--- a/src/orca_discord_bridge/state.py
++++ b/src/orca_discord_bridge/state.py
+@@ -1,10 +1,19 @@
+ from __future__ import annotations
+ 
+ import json
+-from dataclasses import asdict, dataclass
++import os
++import sqlite3
++import tempfile
++from contextlib import closing
++from dataclasses import dataclass
+ from pathlib import Path
+ 
+ 
++_SQLITE_HEADER = b"SQLite format 3\x00"
++_DATABASE_MODE = 0o600
++_MAX_LEGACY_JSON_BYTES = 1024 * 1024
++
++
+ @dataclass(slots=True)
+ class BridgeState:
+     terminal_handle: str | None = None
+@@ -15,30 +24,162 @@ class BridgeState:
+ class StateStore:
+     def __init__(self, path: Path) -> None:
+         self.path = path
++        self.path.parent.mkdir(parents=True, exist_ok=True)
++        migrated_state = self._migrate_legacy_file()
++        self._initialize_database(migrated_state)
+         self.state = self._load()
+ 
+-    def _load(self) -> BridgeState:
++    def _migrate_legacy_file(self) -> BridgeState | None:
+         try:
+-            raw = json.loads(self.path.read_text(encoding="utf-8"))
++            with self.path.open("rb") as legacy_file:
++                prefix = legacy_file.read(len(_SQLITE_HEADER))
++                if prefix.startswith(_SQLITE_HEADER):
++                    self.path.chmod(_DATABASE_MODE)
++                    return None
++
++                self.path.chmod(_DATABASE_MODE)
++                contents = prefix + legacy_file.read(
++                    _MAX_LEGACY_JSON_BYTES + 1 - len(prefix)
++                )
+         except FileNotFoundError:
++            return None
++
++        if len(contents) > _MAX_LEGACY_JSON_BYTES:
+             return BridgeState()
+-        except (OSError, json.JSONDecodeError):
+-            return BridgeState()
++        try:
++            value = json.loads(contents.decode("utf-8"))
++        except (ValueError, RecursionError):
++            value = None
++
++        if isinstance(value, dict):
++            migrated_state = BridgeState(
++                terminal_handle=self._legacy_value(value, "terminal_handle"),
++                worktree_id=self._legacy_value(value, "worktree_id"),
++                pane_key=self._legacy_value(value, "pane_key"),
++            )
++        else:
++            migrated_state = BridgeState()
++
++        return migrated_state
++
++    @staticmethod
++    def _legacy_value(value: dict[str, object], key: str) -> str | None:
++        field = value.get(key)
++        return field if isinstance(field, str) else None
++
++    def _ensure_private_file(self, path: Path) -> None:
++        try:
++            descriptor = os.open(
++                path,
++                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
++                _DATABASE_MODE,
++            )
++        except FileExistsError:
++            path.chmod(_DATABASE_MODE)
++        else:
++            os.close(descriptor)
+ 
++    def _connect(self, path: Path) -> sqlite3.Connection:
++        self._ensure_private_file(path)
++        connection = sqlite3.connect(path)
++        try:
++            path.chmod(_DATABASE_MODE)
++        except OSError:
++            connection.close()
++            raise
++        return connection
++
++    def _initialize_database(self, migrated_state: BridgeState | None) -> None:
++        if migrated_state is None:
++            self._create_database(self.path, None)
++            return
++
++        descriptor, temporary_name = tempfile.mkstemp(
++            prefix=f".{self.path.name}.",
++            suffix=".tmp",
++            dir=self.path.parent,
++        )
++        os.close(descriptor)
++        temporary_path = Path(temporary_name)
++        try:
++            self._create_database(temporary_path, migrated_state)
++            os.replace(temporary_path, self.path)
++            self.path.chmod(_DATABASE_MODE)
++        finally:
++            temporary_path.unlink(missing_ok=True)
++
++    def _create_database(self, path: Path, migrated_state: BridgeState | None) -> None:
++        with closing(self._connect(path)) as connection:
++            with connection:
++                connection.execute(
++                    """
++                    CREATE TABLE IF NOT EXISTS bridge_state (
++                        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
++                        terminal_handle TEXT,
++                        worktree_id TEXT,
++                        pane_key TEXT
++                    )
++                    """
++                )
++                connection.execute(
++                    """
++                    INSERT OR IGNORE INTO bridge_state (
++                        singleton, terminal_handle, worktree_id, pane_key
++                    ) VALUES (1, NULL, NULL, NULL)
++                    """
++                )
++                if migrated_state is not None:
++                    connection.execute(
++                        """
++                        UPDATE bridge_state
++                        SET terminal_handle = ?, worktree_id = ?, pane_key = ?
++                        WHERE singleton = 1
++                        """,
++                        (
++                            migrated_state.terminal_handle,
++                            migrated_state.worktree_id,
++                            migrated_state.pane_key,
++                        ),
++                    )
++
++    def _load(self) -> BridgeState:
++        with closing(self._connect(self.path)) as connection:
++            row = connection.execute(
++                """
++                SELECT terminal_handle, worktree_id, pane_key
++                FROM bridge_state
++                WHERE singleton = 1
++                """
++            ).fetchone()
++
++        if row is None:
++            return BridgeState()
+         return BridgeState(
+-            terminal_handle=raw.get("terminal_handle"),
+-            worktree_id=raw.get("worktree_id"),
+-            pane_key=raw.get("pane_key"),
++            terminal_handle=row[0],
++            worktree_id=row[1],
++            pane_key=row[2],
+         )
+ 
+     def save(self) -> None:
+-        self.path.parent.mkdir(parents=True, exist_ok=True)
+-        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+-        tmp.write_text(
+-            json.dumps(asdict(self.state), ensure_ascii=False, indent=2),
+-            encoding="utf-8",
+-        )
+-        tmp.replace(self.path)
++        with closing(self._connect(self.path)) as connection:
++            with connection:
++                connection.execute(
++                    """
++                    INSERT INTO bridge_state (
++                        singleton, terminal_handle, worktree_id, pane_key
++                    ) VALUES (1, ?, ?, ?)
++                    ON CONFLICT(singleton) DO UPDATE SET
++                        terminal_handle = excluded.terminal_handle,
++                        worktree_id = excluded.worktree_id,
++                        pane_key = excluded.pane_key
++                    """,
++                    (
++                        self.state.terminal_handle,
++                        self.state.worktree_id,
++                        self.state.pane_key,
++                    ),
++                )
++        self.path.chmod(_DATABASE_MODE)
+ 
+     def connect(self, handle: str, worktree_id: str, pane_key: str) -> None:
+         self.state.terminal_handle = handle
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..0ac7344 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
+ from importlib import metadata
+ import json
+ from pathlib import Path
++import sqlite3
++import stat
+ import sys
+ from types import SimpleNamespace as NS
+ from unittest.mock import AsyncMock
+@@ -211,14 +213,85 @@ def test_forward_output_routing_and_chunks(tmp_path, output, interrupted):
+     asyncio.run(run())
+ 
+ 
+-def test_state_roundtrip_and_malformed_json(tmp_path):
+-    path=tmp_path/'owned/state.json';store=StateStore(path)
++def test_state_store_sqlite_persistence_restart_and_disconnect(tmp_path):
++    path = tmp_path / 'owned/state.json'
++    store = StateStore(path)
++    assert path.read_bytes().startswith(b'SQLite format 3\x00')
+     assert store.state.terminal_handle is None
+-    store.connect('term','wt','tab:leaf')
+-    assert StateStore(path).state.pane_key=='tab:leaf'
+-    store.disconnect();assert StateStore(path).state.terminal_handle is None
+-    path.write_text('{invalid')
+-    assert StateStore(path).state.terminal_handle is None
++
++    store.connect('term', 'wt', 'tab:leaf')
++    reopened = StateStore(path)
++    assert reopened.state.terminal_handle == 'term'
++    assert reopened.state.worktree_id == 'wt'
++    assert reopened.state.pane_key == 'tab:leaf'
++    with sqlite3.connect(path) as connection:
++        assert connection.execute('PRAGMA integrity_check').fetchone() == ('ok',)
++
++    reopened.disconnect()
++    disconnected = StateStore(path)
++    assert disconnected.state.terminal_handle is None
++    assert disconnected.state.worktree_id is None
++    assert disconnected.state.pane_key is None
++
++
++def test_state_store_migrates_valid_legacy_json(tmp_path):
++    path = tmp_path / 'owned/state.json'
++    path.parent.mkdir()
++    path.write_text(json.dumps({
++        'terminal_handle': 'legacy-term',
++        'worktree_id': 'legacy-worktree',
++        'pane_key': 'legacy-pane',
++        'ignored': 'legacy-extra',
++    }))
++    path.chmod(0o644)
++
++    store = StateStore(path)
++    assert store.state.terminal_handle == 'legacy-term'
++    assert store.state.worktree_id == 'legacy-worktree'
++    assert store.state.pane_key == 'legacy-pane'
++    assert path.read_bytes().startswith(b'SQLite format 3\x00')
++    assert stat.S_IMODE(path.stat().st_mode) == 0o600
++    assert StateStore(path).state.pane_key == 'legacy-pane'
++
++
++@pytest.mark.parametrize(
++    'legacy_content',
++    [
++        '{invalid',
++        '[]',
++        'null',
++        '42',
++        '[' * 1100 + ']' * 1100,
++        '9' * 5000,
++        ' ' * (1024 * 1024 + 1),
++    ],
++)
++def test_state_store_initializes_empty_for_malformed_or_non_object_legacy_json(
++    tmp_path, legacy_content
++):
++    path = tmp_path / 'owned/state.json'
++    path.parent.mkdir()
++    path.write_text(legacy_content)
++
++    store = StateStore(path)
++    assert store.state.terminal_handle is None
++    assert store.state.worktree_id is None
++    assert store.state.pane_key is None
++    assert path.read_bytes().startswith(b'SQLite format 3\x00')
++
++
++def test_state_store_database_permissions_remain_private(tmp_path):
++    path = tmp_path / 'owned/state.json'
++    store = StateStore(path)
++    assert stat.S_IMODE(path.stat().st_mode) == 0o600
++
++    path.chmod(0o644)
++    reopened = StateStore(path)
++    assert stat.S_IMODE(path.stat().st_mode) == 0o600
++
++    path.chmod(0o644)
++    reopened.connect('term', 'wt', 'tab:leaf')
++    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+ 
+ 
+ def test_synthetic_config_validation_and_prompt_data(monkeypatch, tmp_path):
