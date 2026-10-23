@@ -1,10 +1,12 @@
 {
   "pair_id": "F27",
-  "status": "v2 complete; v1 pending",
+  "status": "v1 in progress",
   "condition_order": "v2_then_v1",
   "model_runs_completed": 1,
   "pair_decision": "pending",
   "v2_host_grade": "pass",
   "v2_reviews": "code and security passed",
-  "v2_patch_sha256": "58caaa590cb98ff78feb3f6e484513b70dd634c6eb4b2b7d0a911af56eea387e"
+  "v2_patch_sha256": "58caaa590cb98ff78feb3f6e484513b70dd634c6eb4b2b7d0a911af56eea387e",
+  "next_condition": "v1",
+  "v1_baseline_suite": "58 passed"
 }
