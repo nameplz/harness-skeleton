@@ -1,0 +1,35 @@
+{
+  "task_id": "T17",
+  "task_instance": "standard",
+  "batch": "full",
+  "pair_id": "F36",
+  "condition_order": "v2_then_v1",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550bca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "task_sha256": "284cf8ac97aba1734170adce534e6e686454837449abe11b7c1d6d503b40a8c3",
+  "prompt_sha256": "c885fcdeabcd25a705daa144b30d5abecbface223de8dc70290d943bba548fea",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "conditions": {
+    "v2": {
+      "run_record": "v2-run.json",
+      "patch": "v2.patch",
+      "host_grade": "v2-host-grade.json",
+      "status": "pass"
+    },
+    "v1": {
+      "run_record": "v1-run.json",
+      "patch": "v1.patch",
+      "host_grade": "v1-host-grade.json",
+      "status": "pass"
+    }
+  },
+  "pair_decision": "Both conditions pass the frozen host grader: exact one-file scope, YAML/security semantics, offline wheel build/install, and 58-test suite.",
+  "limitations": [
+    "GitHub Actions was not dispatched; the Python 3.11 and 3.12 matrix was not executed locally.",
+    "The candidate snapshot lacks scripts/harness.py and .harness/config.toml, so Harness risk/full checks were unavailable.",
+    "Candidate commits were blocked by sandbox Git-index permission; both final patches and host grades are retained.",
+    "The Orca TUI parent ran on the host while harness-eval applied to tool children only.",
+    "One v2 metadata-only pip --version probe lacked the requested environment variables but did not access an index; the first host-grader runtime lacked PyYAML and a Python 3.13 rerun passed."
+  ],
+  "external_effects": "No workflow dispatch, network, live service call, publish, push, or merge."
+}

@@ -1,16 +1,16 @@
 {
   "batch": "full-evaluation-20261023",
-  "status": "in_progress",
+  "status": "complete",
   "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
   "required_matched_pairs": 36,
   "required_model_runs": 72,
-  "completed_pairs": 35,
-  "completed_model_runs": 70,
-  "remaining_pairs": 1,
-  "remaining_model_runs": 2,
+  "completed_pairs": 36,
+  "completed_model_runs": 72,
+  "remaining_pairs": 0,
+  "remaining_model_runs": 0,
   "condition_order_counts": {
     "v1_then_v2": 18,
-    "v2_then_v1": 17
+    "v2_then_v1": 18
   },
   "completed_pair_ids": [
     "F01",
@@ -47,11 +47,12 @@
     "F32",
     "F33",
     "F34",
-    "F35"
+    "F35",
+    "F36"
   ],
-  "next_pair_id": "F36",
-  "next_task": "T17",
-  "next_condition_order": "v2_then_v1",
+  "next_pair_id": null,
+  "next_task": null,
+  "next_condition_order": null,
   "updated": "2026-10-23",
-  "next_task_instance": "standard"
+  "next_task_instance": null
 }
