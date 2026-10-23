@@ -8,11 +8,15 @@
   "tui_elapsed": "in progress",
   "main_prompt_count": 1,
   "followup_prompt_count": 0,
-  "prompt_request_ids": [],
+  "prompt_request_ids": [
+    "81dfefb7-edf5-419c-b6e5-f699c6c85875"
+  ],
   "setup_record": "v1-setup.json",
   "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
   "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
-  "reviews": {"workflow": "v1 workflow: independent code and test reviews in parallel, then security review; three implementation attempts maximum"},
+  "reviews": {
+    "workflow": "v1 workflow: independent code and test reviews in parallel, then security review; three implementation attempts maximum"
+  },
   "process_observations": {
     "network_or_service_calls": "none observed",
     "pip_policy": "PIP_NO_INDEX=1 and PIP_DISABLE_PIP_VERSION_CHECK=1 set for every pip command",
@@ -20,5 +24,7 @@
     "protected_hashes_before_run_unchanged": true
   },
   "status": "running",
-  "started_at_utc_observation": "2026-10-23T00:28:36Z"
+  "started_at_utc_observation": "2026-10-23T00:28:36Z",
+  "submission_receipt": "input_accepted; exact request replayed once with --retry-request and returned replayed=true",
+  "execution_observed": "terminal output confirmed the accepted task started, read the preserved v1 workflow and pending phase, and opened the project README/pyproject"
 }
