@@ -161,6 +161,17 @@ class HarnessHookTests(unittest.TestCase):
 
         self.assertIsNone(result)
 
+    def test_unconfigured_quick_profile_does_not_block_bootstrap_work(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            config = root / ".harness/config.toml"
+            config.parent.mkdir(parents=True)
+            config.write_text("schema = 2\n[checks]\nquick = []\nfull = []\n", encoding="utf-8")
+
+            result = handle_event({"hook_event_name": "Stop", "cwd": str(root)})
+
+        self.assertIsNone(result)
+
 
 if __name__ == "__main__":
     unittest.main()

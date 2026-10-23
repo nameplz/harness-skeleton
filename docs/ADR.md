@@ -7,31 +7,65 @@ Add durable choices for the concrete project here. Record the decision, the reas
 ## Harness v2 decisions
 
 ### ADR-010: Codex owns orchestration
+
 **Decision:** Use Codex's native session, planning, context, tools, and selective subagents as the execution path. Keep Harness focused on project knowledge, task contracts, deterministic validation, risk signals, and CI boundaries.
-**Reason:** The v1 Python `StepPipeline` had no Codex adapter and duplicated lifecycle behavior without running a real Codex worker.
-**Trade-off:** Progress lives in `/goal`, Git, or one optional task artifact rather than a centrally managed runtime state machine. The harness has no Python worker pipeline, heartbeat, or stuck-state runtime.
+
+**Reason:** The v1 Python StepPipeline had no Codex adapter and duplicated lifecycle behavior without running a real Codex worker.
+
+**Trade-off:** Progress lives in /goal, Git, or one optional task artifact rather than a centrally managed runtime state machine. The harness has no Python worker pipeline, heartbeat, or stuck-state runtime.
 
 ### ADR-011: Risk-based review routing
-**Decision:** Risk output is a deterministic minimum tier. Hard paths, high-confidence security behavior, and explicit complexity signals set T3/T2; hard signals cannot be lowered. Broad keywords and implementation-file count are hints, so two source files alone do not force T2. T0/T1 use deterministic checks and self-review; T2 adds one independent read-only reviewer; T3 adds an independent read-only reviewer and security reviewer after full validation.
-**Reason:** Deterministic signals should catch clear trust-boundary and complexity changes without forcing review for ordinary multi-file fixes or documentation vocabulary. Test status is deterministic; independent reasoning is most useful for complex changes and trust boundaries.
-**Trade-off:** The diff detector gives a minimum tier, not full task understanding; Codex uses hints and task context to escalate ambiguous or unseen risks. Project config enables the required multi-agent roles and hooks but leaves concurrency and reviewer model selection to user/runtime defaults.
+
+**Decision:** Risk output is a deterministic minimum tier. Hard paths, high-confidence security behavior, and explicit complexity signals set T3/T2; hard signals cannot be lowered. Broad keywords and implementation-file count are hints, so two source files alone do not force review. T0/T1 use deterministic checks and self-review; T2 adds one independent read-only reviewer; T3 adds an independent read-only reviewer and security reviewer after full validation.
+
+**Reason:** Deterministic signals catch clear trust-boundary and complexity changes without forcing review for ordinary multi-file fixes or documentation vocabulary. Test status is deterministic; independent reasoning is most useful for complex changes and trust boundaries.
+
+**Trade-off:** Diff detection gives a minimum tier, not full task understanding; Codex uses hints and task context to escalate ambiguous or unseen risks. Project config enables reviewer roles and hooks but leaves concurrency and reviewer model selection to user/runtime defaults.
 
 ### ADR-012: Project-defined validation commands
-**Decision:** Keep project commands in `.harness/config.toml` as argv arrays selected by quick/full profile. Run with `shell=False`, a 10-minute per-command limit, a 2-minute quick and 15-minute full-profile ceiling, a 1 MiB output cap, and sanitized output; terminate timed-out POSIX process groups. Run `unittest` and `compileall` through isolated Python module loading, and resolve the built-in doctor command to the trusted Harness script. The unittest output summary is only a sanity heuristic: test code can print a fake completion summary, so trusted CI obtains its validation config from the protected checkout, executes candidate code without repository secrets. Confine path arguments, option values, and path-like assignment values to the workspace. Reject environment-replacement launchers, Git subcommands outside a local read-only allowlist, Git helper configuration, and external transport options. Drop inherited `GIT_*` environment overrides, inject fixed safe Git settings, and ignore global/system Git config. Permit an absolute executable only when it resolves to the running Python interpreter.
-**Reason:** The harness must not guess toolchains or turn project configuration into arbitrary shell text.
-**Trade-off:** A new project must provide its own checks; the core does not invent tests, lint, typecheck, or build commands. Logs redact known credential forms, including URL userinfo, JWTs, PEM keys, email addresses, and unquoted multiline credential records through the next blank line, but cannot infer arbitrary secret values with no recognizable format.
 
-### ADR-013: Trusted maintenance for sensitive files
-**Decision:** Pull request checks use `pull_request_target`, which loads workflow definitions from the trusted base branch; ordinary `pull_request` and manual dispatch are disabled. Trusted base-branch validators inspect candidate files. The `security-policy` job receives `contents: read` and `pull-requests: read`; the `project-ci` `source-package` job receives only `contents: read`. Both jobs inspect or package candidate files without executing them. The explicit `github.token` expression is limited to the exact policy step; candidate tests run only in artifact-consuming jobs with `permissions: {}` and no repository secrets. One-day artifact payloads are tar archives that retain hidden files and executable modes while omitting Git metadata. Normal pull requests cannot alter security-sensitive paths, including local actions under `.github/actions/`. Trusted source comes from the PR base or protected `main`. Private cross-repository PR sources are explicitly rejected before checkout because the base token cannot reliably access them; same-repository private branches and public forks remain supported. The `harness-trusted-maintenance` label allows sensitive-path changes only on the event that applies it, after the trusted checker confirms that event actor has admin or maintain permission through GitHub's repository-permission API. Later push or PR events require a fresh label action; structural workflow checks always run. The checker requires fixed hosted runner labels, non-persisted checkout credentials, exact approved trigger mappings without path filters, and bounded authenticated Git changed-path collection.
-**Reason:** A candidate change must not replace the validator that judges that same candidate, while the harness still needs a reviewed way to evolve.
-**Trade-off:** The initial migration of the trusted gate needs one privileged bootstrap because the old base-branch validator cannot authorize its replacement. Subsequent sensitive changes need a trusted maintainer to reapply the label after each update; the label does not bypass workflow-content checks.
+**Decision:** Keep project checks in .harness/config.toml as quick/full argv arrays. The starter profiles are empty and mean unconfigured. Run configured commands with shell=False, a 10-minute per-command limit, a 2-minute quick and 15-minute full-profile ceiling, a 1 MiB output cap, and sanitized output; terminate timed-out POSIX process groups. Python unittest and compileall module commands use isolated interpreter loading. Confine path arguments, option values, and path-like assignment values to the workspace. Reject environment-replacement launchers, Git subcommands outside a local read-only allowlist, Git helper configuration, and external transport options. Drop inherited GIT_* environment overrides, inject safe Git settings, and ignore global/system Git config. Permit an absolute executable only when it resolves to the running Python interpreter.
 
-### ADR-014: Hooks are feedback, CI is enforcement
-**Decision:** Keep local hooks small and focused on command policy and project-defined validation. Treat Codex sandbox/permissions and trusted CI as enforcement boundaries.
-**Reason:** A regex hook is not a complete sandbox and must not be presented as one.
-**Trade-off:** Local checks improve feedback but do not replace repository protection or CI.
+**Reason:** Harness must not guess a toolchain or turn project configuration into arbitrary shell text. Empty checks must never become a passing result.
 
-### ADR-015: Protect the control plane and bind its evidence
-**Decision:** Protect the core agent/PR instructions, validator dependencies, and evidence helper in both trusted CI maintenance policy and local hard-risk routing. Keep ordinary documentation T0. Bind checks to HEAD, dirty-content and applied-config digests; expose execution-limit metadata and invalidate results when source/config changes during validation. Align the PR template, workflow instructions, non-empty section checker, and issue-reference requirement.
-**Reason:** A trusted policy is only complete when its dependencies are protected; results cannot be reused safely for a different revision or empty delivery evidence.
-**Trade-off:** Core instruction edits need trusted maintenance. Fingerprints are bounded, non-atomic change evidence with explicit unknown values, not execution attestations. Syntactic PR references still need remote existence checks during authorized publication.
+**Trade-off:** A new project must provide its own checks; the core does not invent tests, lint, typecheck, or build commands. Logs redact known credential forms but cannot infer arbitrary unlabelled secret values. The unittest summary check is a sanity heuristic, not proof that tests completed honestly.
+
+### ADR-013: Codex creates project-specific CI
+
+**Decision:** The starter contains no GitHub Actions workflows. Codex analyzes the actual project and configures .harness/config.toml plus a PR workflow that runs the Full profile. The local CI policy checker validates YAML structure and common security rules, but it lives in the same repository and is not an independent trust boundary. Existing deploy/release/publish jobs are preserved. pull_request_target is not used to execute PR validation.
+
+**Reason:** Skeleton consumers have different languages, runtimes, tests, and platforms. A fixed Python workflow or language template would give false assurance and duplicate project behavior.
+
+**Trade-off:** A malicious PR can change both workflow and local checker. GitHub required checks and branch protection must be configured separately. Static checks cannot prove test quality.
+
+### ADR-014: Hooks provide feedback, not isolation
+
+**Decision:** Keep local hooks small and focused on command policy and configured quick validation. Permit bootstrap work while profiles are unconfigured without reporting a pass. Treat Codex host permissions and GitHub branch protection as enforcement boundaries.
+
+**Reason:** Regex hooks and same-repository CI do not form a complete security sandbox.
+
+**Trade-off:** Local checks improve feedback but cannot confine arbitrary test code, network access, or filesystem access.
+
+### ADR-015: Protect control-plane changes with risk routing and bound evidence
+
+**Decision:** Route .github/**, .harness/**, CI policy validators, Harness skills, and related configuration to T3 review. Bind local checks to HEAD, dirty-content, and applied-config fingerprints; expose execution-limit metadata and invalidate results when source or config changes during validation.
+
+**Reason:** CI and Harness policy affect what the project validates. Results cannot be safely reused for a different revision or configuration.
+
+**Trade-off:** Fingerprints are bounded, non-atomic change evidence rather than execution attestations. Local policy does not replace GitHub enforcement.
+
+### ADR-016: Derive initialization state from files and checks
+
+**Decision:** doctor --bootstrap validates base Harness structure without requiring project profiles or CI. Normal doctor reports configured only when quick/full profiles, a pull_request Full-profile job, and static policy checks are valid. check returns unconfigured for missing/empty profiles. Do not write a persistent verified flag.
+
+**Reason:** The initial skeleton has no project stack to validate, and absent commands must not be confused with successful validation.
+
+**Trade-off:** doctor does not query GitHub. Configured means ready to run, not that a PR CI has succeeded.
+
+### ADR-017: Verify GitHub results against the current PR revision
+
+**Decision:** scripts/verify_ci.py uses gh to read the PR and its associated check results, derives expected job identities from the local policy-clean Full-profile workflows, and checks PR head plus local workspace evidence before and after the query. It does not compare a Check Run SHA to the PR head by string equality or modify remote settings.
+
+**Reason:** GitHub may attach a PR check to a synthetic merge revision, while old results or skipped/missing jobs must not imply success for the current head.
+
+**Trade-off:** Authentication, disabled Actions, missing checks, pending runs, and API errors remain incomplete. The result is a time-scoped report; branch protection still needs the generated required checks configured.

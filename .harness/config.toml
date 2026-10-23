@@ -2,12 +2,8 @@ schema = 2
 
 [checks]
 quick = [
-  ["python", "-m", "unittest", "discover", "-s", "tests", "-t", "."],
 ]
 full = [
-  ["python", "scripts/harness.py", "doctor", "--root", "."],
-  ["python", "-m", "compileall", "-q", "scripts", ".codex/hooks"],
-  ["python", "-m", "unittest", "discover", "-s", "tests", "-t", "."],
 ]
 
 [risk]

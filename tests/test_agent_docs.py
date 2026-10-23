@@ -18,6 +18,7 @@ class AgentDocsTests(unittest.TestCase):
             "docs/ADR.md",
             ".agents/skills/harness/SKILL.md",
             ".agents/skills/pr-workflow/SKILL.md",
+            ".agents/skills/ci-setup/SKILL.md",
         ):
             self.assertIn(relative, agents)
             self.assertTrue((ROOT / relative).is_file(), relative)
@@ -45,7 +46,7 @@ class AgentDocsTests(unittest.TestCase):
         self.assertIn("commit each completed task separately", skill)
         self.assertIn("configured checks and required reviews pass", agents)
         self.assertIn("unrelated changes", skill)
-        self.assertIn("wait for required ci checks to pass", agents)
+        self.assertIn("wait for generated ci checks to pass", agents)
         self.assertIn("never merge unless asked", agents)
 
     def test_issue_first_delivery_finishes_with_pr_and_green_ci(self) -> None:
@@ -85,13 +86,13 @@ class AgentDocsTests(unittest.TestCase):
                 self.assertIn("read-only", role_config["developer_instructions"].lower())
                 self.assertNotIn("model", role_config)
 
-    def test_validation_test_discovery_uses_project_root_as_top_level(self) -> None:
+    def test_skeleton_does_not_assume_a_project_validation_stack(self) -> None:
         config = tomllib.loads((ROOT / ".harness/config.toml").read_text(encoding="utf-8"))
-        expected = ["python", "-m", "unittest", "discover", "-s", "tests", "-t", "."]
-
         for profile in ("quick", "full"):
             with self.subTest(profile=profile):
-                self.assertIn(expected, config["checks"][profile])
+                self.assertEqual([], config["checks"][profile])
+        self.assertFalse((ROOT / ".github/workflows/harness-ci.yml").exists())
+        self.assertFalse((ROOT / ".github/workflows/project-ci.yml").exists())
 
 
 if __name__ == "__main__":

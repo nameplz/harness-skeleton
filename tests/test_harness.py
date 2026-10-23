@@ -16,7 +16,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.harness import HarnessError, _validate_command_safety, doctor, load_config, main, run_checks, sanitize_log  # noqa: E402
+from scripts.harness import HarnessError, _validate_command_safety, load_config, main, run_checks, sanitize_log  # noqa: E402
 from scripts.command_runner import CommandResult, run_bounded_command  # noqa: E402
 from scripts.harness_risk import MAX_DIFF_BYTES, _git_output, classify_risk, inspect_git_risk  # noqa: E402
 
@@ -236,15 +236,10 @@ class HarnessRiskTests(unittest.TestCase):
 
 
 class HarnessCheckTests(unittest.TestCase):
-    def test_full_checks_run_trusted_doctor_before_candidate_code(self) -> None:
+    def test_skeleton_profiles_start_unconfigured(self) -> None:
         config = load_config(ROOT)
-
-        self.assertEqual(
-            ("python", "scripts/harness.py", "doctor", "--root", "."),
-            config.full[0],
-        )
-        self.assertEqual(("-m", "compileall"), config.full[1][1:3])
-        self.assertEqual(("-m", "unittest"), config.full[2][1:3])
+        self.assertEqual((), config.quick)
+        self.assertEqual((), config.full)
 
     def write_config(self, root: Path, quick: list[list[str]], full: list[list[str]]) -> Path:
         config = root / ".harness/config.toml"
@@ -274,6 +269,23 @@ class HarnessCheckTests(unittest.TestCase):
             self.assertEqual("quick", report["profile"])
             self.assertEqual(0, report["checks"][0]["returncode"])
             self.assertNotIn("sample-secret", report["checks"][0]["output"])
+
+    def test_check_with_missing_or_empty_profile_is_unconfigured(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            missing = run_checks(root, "quick")
+            self.assertFalse(missing["ok"])
+            self.assertEqual("unconfigured", missing["status"])
+            output = StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(1, main(["check", "--quick", "--root", str(root)]))
+            self.assertEqual("unconfigured", json.loads(output.getvalue())["status"])
+
+            self.write_config(root, [], [])
+            empty = run_checks(root, "full")
+            self.assertFalse(empty["ok"])
+            self.assertEqual("unconfigured", empty["status"])
+            self.assertIn("no validation commands", empty["error"])
 
     def test_test_discovery_can_import_project_namespace_packages(self) -> None:
         with TemporaryDirectory() as temp:
@@ -1041,222 +1053,6 @@ class HarnessCheckTests(unittest.TestCase):
 
             with self.assertRaisesRegex(HarnessError, "security_hint_keywords"):
                 load_config(root)
-
-    def test_doctor_checks_required_files_config_and_git_state(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            self.write_config(root, [["true"]], [["true"]])
-            self.write_doctor_files(root)
-            self.run_git(root, "init", "-q")
-            self.run_git(root, "config", "user.name", "Harness Test")
-            self.run_git(root, "config", "user.email", "harness@example.test")
-            self.run_git(root, "add", ".")
-            self.run_git(root, "-c", "user.name=Harness Test", "-c", "user.email=harness@example.test", "commit", "-qm", "baseline")
-            (root / "notes.txt").write_text("dirty\n", encoding="utf-8")
-            output = StringIO()
-
-            with redirect_stdout(output):
-                exit_code = main(["doctor", "--root", str(root)])
-
-            report = json.loads(output.getvalue())
-            self.assertEqual(0, exit_code)
-            self.assertTrue(report["ok"])
-            self.assertGreater(report["git"]["changed_paths"], 0)
-            self.assertEqual(1, report["config"]["quick_checks"])
-
-    def test_doctor_reports_missing_required_file(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            self.write_config(root, [["true"]], [["true"]])
-            self.write_doctor_files(root)
-            (root / ".codex/hooks/harness_hook.py").unlink()
-            self.run_git(root, "init", "-q")
-            output = StringIO()
-
-            with redirect_stdout(output):
-                exit_code = main(["doctor", "--root", str(root)])
-
-            report = json.loads(output.getvalue())
-            self.assertEqual(1, exit_code)
-            self.assertFalse(report["ok"])
-            self.assertIn(".codex/hooks/harness_hook.py", report["errors"])
-
-    def test_doctor_rejects_missing_reviewer_role(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            self.write_config(root, [["true"]], [["true"]])
-            self.write_doctor_files(root)
-            (root / ".codex/agents/reviewer.toml").unlink()
-
-            report = doctor(root)
-
-            self.assertFalse(report["ok"])
-            self.assertTrue(any("reviewer" in error for error in report["errors"]))
-
-    def test_doctor_rejects_missing_reviewer_role_declaration(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            self.write_config(root, [["true"]], [["true"]])
-            self.write_doctor_files(root)
-            project = root / ".codex/config.toml"
-            project.write_text(
-                project.read_text(encoding="utf-8").replace(
-                    '[agents.reviewer]\nconfig_file = "agents/reviewer.toml"\n', ""
-                ),
-                encoding="utf-8",
-            )
-
-            report = doctor(root)
-
-            self.assertFalse(report["ok"])
-            self.assertIn(".codex/config.toml (missing reviewer role)", report["errors"])
-
-    def test_doctor_rejects_invalid_reviewer_toml(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            self.write_config(root, [["true"]], [["true"]])
-            self.write_doctor_files(root)
-            (root / ".codex/agents/reviewer.toml").write_text("sandbox_mode = [", encoding="utf-8")
-
-            report = doctor(root)
-
-            self.assertFalse(report["ok"])
-            self.assertTrue(any("reviewer" in error and "invalid" in error for error in report["errors"]))
-
-    def test_doctor_rejects_reviewer_config_path_escape(self) -> None:
-        for config_file in ("../reviewer.toml", "/tmp/reviewer.toml"):
-            with self.subTest(config_file=config_file), TemporaryDirectory() as temp:
-                root = Path(temp)
-                self.write_config(root, [["true"]], [["true"]])
-                self.write_doctor_files(root)
-                project = root / ".codex/config.toml"
-                content = project.read_text(encoding="utf-8").replace(
-                    'config_file = "agents/reviewer.toml"',
-                    f'config_file = {json.dumps(config_file)}',
-                )
-                project.write_text(content, encoding="utf-8")
-
-                report = doctor(root)
-
-                self.assertFalse(report["ok"])
-                self.assertTrue(any("reviewer" in error and "config_file" in error for error in report["errors"]))
-
-    def test_doctor_rejects_reviewer_symlink_escape(self) -> None:
-        with TemporaryDirectory() as temp, TemporaryDirectory() as outside:
-            root = Path(temp)
-            self.write_config(root, [["true"]], [["true"]])
-            self.write_doctor_files(root)
-            external = Path(outside) / "reviewer.toml"
-            external.write_text('sandbox_mode = "read-only"\ndeveloper_instructions = "review"\n', encoding="utf-8")
-            reviewer = root / ".codex/agents/reviewer.toml"
-            reviewer.unlink()
-            reviewer.symlink_to(external)
-
-            report = doctor(root)
-
-            self.assertFalse(report["ok"])
-            self.assertTrue(any("reviewer" in error for error in report["errors"]))
-
-    def test_doctor_requires_read_only_and_nonempty_reviewer_instructions(self) -> None:
-        cases = (
-            ('sandbox_mode = "workspace-write"', "read-only"),
-            ('developer_instructions = "   "', "developer_instructions"),
-        )
-        for replacement, expected in cases:
-            with self.subTest(expected=expected), TemporaryDirectory() as temp:
-                root = Path(temp)
-                self.write_config(root, [["true"]], [["true"]])
-                self.write_doctor_files(root)
-                reviewer = root / ".codex/agents/reviewer.toml"
-                content = reviewer.read_text(encoding="utf-8")
-                if expected == "read-only":
-                    content = content.replace('sandbox_mode = "read-only"', replacement)
-                else:
-                    content = content.replace(
-                        'developer_instructions = "read-only review"', replacement
-                    )
-                reviewer.write_text(content, encoding="utf-8")
-
-                report = doctor(root)
-
-                self.assertFalse(report["ok"])
-                self.assertTrue(any(expected in error for error in report["errors"]))
-
-    def test_doctor_accepts_roles_without_model_pinning(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            self.write_config(root, [["true"]], [["true"]])
-            self.write_doctor_files(root)
-            self.run_git(root, "init", "-q")
-
-            report = doctor(root)
-
-            self.assertTrue(report["ok"], report["errors"])
-
-    def test_doctor_preserves_docs_and_deployment_layout_checks(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            self.write_config(root, [["true"]], [["true"]])
-            self.write_doctor_files(root)
-            (root / "AGENTS.md").write_text("See {missing_policy}.\n", encoding="utf-8")
-            (root / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
-            ignored = root / "node_modules/pkg/Dockerfile"
-            ignored.parent.mkdir(parents=True)
-            ignored.write_text("FROM scratch\n", encoding="utf-8")
-            self.run_git(root, "init", "-q")
-
-            report = doctor(root)
-
-            self.assertFalse(report["ok"])
-            self.assertTrue(any("placeholder" in error for error in report["errors"]))
-            self.assertTrue(any("Dockerfile" in error for error in report["errors"]))
-            self.assertFalse(any("node_modules" in error for error in report["errors"]))
-
-    def write_doctor_files(self, root: Path) -> None:
-        for relative in (
-            "AGENTS.md",
-            "docs/ARCHITECTURE.md",
-            "docs/ADR.md",
-            ".agents/skills/harness/SKILL.md",
-            ".agents/skills/pr-workflow/SKILL.md",
-            ".github/PULL_REQUEST_TEMPLATE.md",
-            ".harness/task-template.md",
-            ".codex/config.toml",
-            ".codex/agents/reviewer.toml",
-            ".codex/agents/security-reviewer.toml",
-            ".codex/hooks/harness_hook.py",
-            "scripts/command_runner.py",
-            "scripts/harness.py",
-            "scripts/harness_common.py",
-            "scripts/harness_risk.py",
-            "scripts/harness_evidence.py",
-        ):
-            path = root / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            if relative == ".codex/config.toml":
-                path.write_text(
-                    '[agents.reviewer]\nconfig_file = "agents/reviewer.toml"\n'
-                    '[agents.security_reviewer]\nconfig_file = "agents/security-reviewer.toml"\n'
-                    "[[hooks.PreToolUse]]\nmatcher = \"^Bash$\"\n"
-                    "[[hooks.PreToolUse.hooks]]\ntype = \"command\"\n"
-                    "command = 'python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/harness_hook.py\"'\n"
-                    "[[hooks.PermissionRequest]]\nmatcher = \"^Bash$\"\n"
-                    "[[hooks.PermissionRequest.hooks]]\ntype = \"command\"\n"
-                    "command = 'python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/harness_hook.py\"'\n"
-                    "[[hooks.Stop]]\n"
-                    "[[hooks.Stop.hooks]]\ntype = \"command\"\n"
-                    "command = 'python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/harness_hook.py\"'\n",
-                    encoding="utf-8",
-                )
-            elif relative in {".codex/agents/reviewer.toml", ".codex/agents/security-reviewer.toml"}:
-                role = "security reviewer" if "security" in relative else "read-only review"
-                path.write_text(
-                    'sandbox_mode = "read-only"\n'
-                    f'developer_instructions = "{role}"\n',
-                    encoding="utf-8",
-                )
-            else:
-                path.write_text("present\n", encoding="utf-8")
 
     def run_git(self, root: Path, *arguments: str) -> None:
         completed = subprocess.run(

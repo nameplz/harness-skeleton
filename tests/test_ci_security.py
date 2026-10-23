@@ -1,735 +1,693 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import subprocess
 import sys
 import unittest
-from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.check_ci_security import (  # noqa: E402
-    changed_files_from_event,
-    collect_changed_file_list,
-    check_security_policy,
-    check_workflow_text,
-    _parse_workflow_yaml,
-)
-from scripts.check_ci_security import collaborator_permission  # noqa: E402
-from scripts.command_runner import CommandResult  # noqa: E402
+from scripts.check_ci_security import check_security_policy, check_workflow_text, is_sensitive_path  # noqa: E402
+
+PINNED_ACTION = "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
 
 
-PINNED_SHA = "11bd71901bbe5b1630ceea73d27597364c9af683"
+def setup_project(root: Path, *, quick: list[list[str]] | None = None, full: list[list[str]] | None = None) -> None:
+    config = root / ".harness/config.toml"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(
+        "schema = 2\n\n[checks]\n"
+        f"quick = {json.dumps(quick if quick is not None else [["python", "-m", "unittest"]])}\n"
+        f"full = {json.dumps(full if full is not None else [["python", "-m", "unittest"]])}\n",
+        encoding="utf-8",
+    )
+    workflow = root / ".github/workflows/ci.yml"
+    workflow.parent.mkdir(parents=True, exist_ok=True)
+    workflow.write_text(valid_workflow(), encoding="utf-8")
+
+
+def valid_workflow(*, name: str = "CI", job_id: str = "verify", job_name: str | None = None,
+                   runner: str = "ubuntu-24.04", extra: str = "") -> str:
+    display_name = f"    name: {job_name}\n" if job_name else ""
+    return (
+        f"name: {name}\n"
+        "on:\n  pull_request:\n  push:\n    branches: [main]\n"
+        "permissions: {}\n"
+        "jobs:\n"
+        f"  {job_id}:\n"
+        f"{display_name}"
+        f"    runs-on: {runner}\n"
+        "    timeout-minutes: 15\n"
+        "    permissions: {}\n"
+        "    steps:\n"
+        "      - run: python -I scripts/harness.py check --full\n"
+        f"{extra}"
+    )
 
 
 class CiSecurityTests(unittest.TestCase):
-    def write_workflow(self, root: Path, body: str) -> None:
-        workflow = root / ".github/workflows/harness-ci.yml"
-        workflow.parent.mkdir(parents=True, exist_ok=True)
-        lines = body.splitlines()
-        if not any(line in {"on:", '"on":', "'on':"} for line in lines):
-            lines[0:0] = ["on:", "  push:", "    branches: [main]"]
-        if "jobs:\n  t:\n" in body and "runs-on:" not in body:
-            lines.insert(lines.index("  t:") + 1, "    runs-on: ubuntu-24.04")
-        if "jobs:\n  t:\n" in body and "permissions:" not in body:
-            lines.insert(lines.index("jobs:"), "permissions: {}")
-            job_index = lines.index("  t:")
-            lines.insert(job_index + 1, "    permissions: {}")
-        index = 0
-        while index < len(lines):
-            line = lines[index]
-            if line.lstrip().startswith("- uses: actions/checkout@"):
-                indent = len(line) - len(line.lstrip())
-                if index + 1 >= len(lines) or lines[index + 1] != " " * (indent + 2) + "with:":
-                    lines[index + 1:index + 1] = [
-                        " " * (indent + 2) + "with:",
-                        " " * (indent + 4) + "persist-credentials: false",
-                    ]
-                    index += 2
-            index += 1
-        workflow.write_text("\n".join(lines) + ("\n" if body.endswith("\n") else ""), encoding="utf-8")
-
-    def write_event(
-        self,
-        root: Path,
-        filenames: list[str] | None = None,
-        *,
-        labels: list[str] | None = None,
-    ) -> Path:
-        event = root / "event.json"
-        event.write_text(
-            json.dumps(
-                {
-                    "action": "labeled" if labels else "opened",
-                    "label": {"name": labels[0]} if labels else None,
-                    "sender": {"login": "trusted-maintainer"},
-                    "pull_request": {
-                        "changed_files": [{"filename": name} for name in filenames or []],
-                        "labels": [{"name": name} for name in labels or []],
-                    }
-                }
-            ),
-            encoding="utf-8",
+    def test_full_profile_workflows_accept_project_specific_job_names(self) -> None:
+        examples = (
+            valid_workflow(name="Python CI", job_id="pytest", runner="ubuntu-24.04"),
+            valid_workflow(name="Node CI", job_id="node_validation", runner="windows-latest"),
+            valid_workflow(name="Go CI", job_id="go-tests", runner="macos-15"),
+            "name: Monorepo CI\non:\n  pull_request:\npermissions: {}\njobs:\n"
+            "  package-a:\n    runs-on: ubuntu-22.04\n    timeout-minutes: 10\n    steps:\n"
+            "      - run: echo package A\n  package-b:\n    needs: package-a\n"
+            "    runs-on: ubuntu-22.04\n    timeout-minutes: 20\n    steps:\n"
+            "      - run: python -I scripts/harness.py check --full\n",
         )
-        return event
+        for body in examples:
+            with self.subTest(workflow=body[:24]):
+                self.assertEqual([], check_workflow_text(Path(".github/workflows/ci.yml"), body))
 
-    def test_unpinned_external_action_fails(self) -> None:
+    def test_full_profile_requires_isolated_python(self) -> None:
+        body = valid_workflow().replace("python -I scripts/harness.py", "python scripts/harness.py")
+        errors = check_workflow_text(Path("ci.yml"), body)
+        self.assertTrue(any("no job runs scripts/harness.py check --full" in error for error in errors), errors)
+
+    def test_full_profile_rejects_python_import_path_overrides(self) -> None:
+        body = valid_workflow().replace(
+            "permissions: {}", "env:\n  PYTHONPATH: .ci-hooks\npermissions: {}", 1
+        )
+        errors = check_workflow_text(Path("ci.yml"), body)
+        self.assertTrue(any("interpreter environment" in error for error in errors), errors)
+
+    def test_only_current_hosted_runner_labels_are_accepted(self) -> None:
+        for runner in ("ubuntu-99.99", "macos-99", "xcode-99", "org-custom-runner"):
+            with self.subTest(runner=runner):
+                errors = check_workflow_text(Path("ci.yml"), valid_workflow(runner=runner))
+                self.assertTrue(any("GitHub-hosted runner" in error for error in errors), errors)
+
+    def test_ci_policy_returns_json_contract_and_actual_full_job_ids(self) -> None:
         with TemporaryDirectory() as temp:
             root = Path(temp)
-            self.write_workflow(root, "jobs:\n  t:\n    steps:\n      - uses: actions/checkout@v4\n")
-            event = self.write_event(root)
-
-            errors = check_security_policy(root=root, event_path=event)
-
-            self.assertTrue(any("full commit SHA" in error for error in errors))
-
-    def test_workflow_symlink_fails_closed(self) -> None:
-        with TemporaryDirectory() as temp, TemporaryDirectory() as external:
-            root = Path(temp)
-            workflow = root / ".github/workflows/harness-ci.yml"
-            workflow.parent.mkdir(parents=True)
-            trusted_workflow = Path(external) / "workflow.yml"
-            trusted_workflow.write_text("jobs: {}\n", encoding="utf-8")
-            workflow.symlink_to(trusted_workflow)
-            event = self.write_event(root, [".github/workflows/harness-ci.yml"])
-
-            errors = check_security_policy(root=root, event_path=event)
-
-            self.assertTrue(any("cannot be a symlink" in error for error in errors))
-
-    def test_full_sha_pinned_action_passes(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            self.write_workflow(
-                root,
-                f"jobs:\n  t:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@{PINNED_SHA}\n        with:\n          persist-credentials: false\n",
+            setup_project(root, quick=[["python", "-m", "unittest"]], full=[["python", "-m", "unittest"]])
+            (root / ".github/workflows/ci.yml").write_text(
+                valid_workflow(name="Project CI", job_id="project-tests", job_name="Project tests"),
+                encoding="utf-8",
             )
-            event = self.write_event(root)
+            result = check_security_policy(root=root)
+            self.assertTrue(result["ok"], result["errors"])
+            self.assertEqual("configured", result["status"])
+            self.assertEqual("Project tests", result["required_checks"][0]["job_name"])
+            self.assertEqual("project-tests", result["required_checks"][0]["job_id"])
+            self.assertTrue({"workflows", "checks", "errors", "warnings"}.issubset(result))
 
-            errors = check_security_policy(root=root, event_path=event)
+    def test_yaml_and_duplicate_mapping_keys_fail_closed(self) -> None:
+        for body in (
+            "jobs: [invalid\n",
+            "name: CI\nname: duplicate\non:\n  pull_request:\njobs: {}\n",
+            "on:\n  pull_request:\n---\non:\n  push:\n    branches: [main]\n",
+        ):
+            with self.subTest(body=body):
+                errors = check_workflow_text(Path("ci.yml"), body)
+                self.assertTrue(errors)
 
-            self.assertEqual([], errors)
+    def test_yml_and_yaml_are_both_scanned_and_symlinks_rejected(self) -> None:
+        with TemporaryDirectory() as temp, TemporaryDirectory() as outside:
+            root = Path(temp)
+            setup_project(root)
+            yaml = root / ".github/workflows/second.yaml"
+            yaml.write_text(valid_workflow(name="Second CI", job_id="second"), encoding="utf-8")
+            self.assertEqual(2, len(check_security_policy(root=root)["workflows"]))
+            linked = root / ".github/workflows/link.yml"
+            linked.symlink_to(Path(outside) / "external.yml")
+            (Path(outside) / "external.yml").write_text(valid_workflow(), encoding="utf-8")
+            result = check_security_policy(root=root)
+            self.assertFalse(result["ok"])
+            self.assertTrue(any("symlink" in error for error in result["errors"]))
 
-    def test_forbidden_workflow_features_fail(self) -> None:
-        cases = [
-            "on:\n  workflow_dispatch:\n",
-            "permissions:\n  contents: write\n",
-            "permissions: write-all\n",
-            "permissions:\n  id-token: write\n",
-            "runs-on: self-hosted\n",
-            "run: echo ${{ secrets.TOKEN }}\n",
-        ]
-        for body in cases:
-            with self.subTest(body=body), TemporaryDirectory() as temp:
-                root = Path(temp)
-                self.write_workflow(root, body)
-                event = self.write_event(root)
+    def test_missing_workflow_or_profiles_is_unconfigured_and_not_success(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            config = root / ".harness/config.toml"
+            config.parent.mkdir(parents=True)
+            config.write_text("schema = 2\n\n[checks]\nquick = []\nfull = []\n", encoding="utf-8")
+            result = check_security_policy(root=root)
+            self.assertFalse(result["ok"])
+            self.assertEqual("unconfigured", result["status"])
+            self.assertTrue(any("Full" in error or "full" in error for error in result["errors"]))
 
-                errors = check_security_policy(root=root, event_path=event)
+    def test_manual_only_ci_with_profiles_is_unconfigured(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            setup_project(root)
+            workflow = valid_workflow().replace(
+                "on:\n  pull_request:\n  push:\n    branches: [main]\n",
+                "on:\n  workflow_dispatch:\n",
+            )
+            (root / ".github/workflows/ci.yml").write_text(workflow, encoding="utf-8")
+            result = check_security_policy(root=root)
+        self.assertFalse(result["ok"])
+        self.assertEqual("unconfigured", result["status"])
+        self.assertTrue(any("pull_request validation workflow" in error for error in result["errors"]))
 
-                self.assertNotEqual([], errors)
+    def test_push_only_full_job_does_not_satisfy_pr_validation(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            setup_project(root)
+            workflow = valid_workflow().replace(
+                "  verify:\n", "  verify:\n    if: github.event_name == 'push'\n"
+            )
+            (root / ".github/workflows/ci.yml").write_text(workflow, encoding="utf-8")
+            result = check_security_policy(root=root)
+        self.assertFalse(result["ok"])
+        self.assertEqual("unconfigured", result["status"])
+        self.assertEqual([], result["required_checks"])
+        self.assertTrue(any("no pull_request job" in error for error in result["errors"]))
 
-    def test_structural_yaml_checks_quoted_uses_secret_expressions_and_permissions(self) -> None:
-        cases = [
-            (
-                'jobs:\n  t:\n    steps:\n      - "uses": actions/checkout@v4\n',
-                "full commit SHA",
-            ),
-            (
-                'jobs:\n  t:\n    steps:\n      - run: "echo ${{ secrets[\'TOKEN\'] }}"\n',
-                "secrets",
-            ),
-            (
-                '"permissions": { "contents": write }\n',
-                "write permissions",
-            ),
-            (
-                "permissions:\n  contents: write\n  contents: read\n",
-                "workflow YAML",
-            ),
-        ]
-        for body, expected in cases:
-            with self.subTest(expected=expected), TemporaryDirectory() as temp:
-                root = Path(temp)
-                self.write_workflow(root, body)
-                event = self.write_event(root)
+    def test_pr_workflow_without_full_profile_is_unconfigured(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            setup_project(root)
+            (root / ".github/workflows/ci.yml").write_text(
+                valid_workflow().replace("python -I scripts/harness.py check --full", "echo ok"),
+                encoding="utf-8",
+            )
+            result = check_security_policy(root=root)
+        self.assertFalse(result["ok"])
+        self.assertEqual("unconfigured", result["status"])
+        self.assertTrue(any("no job runs" in error for error in result["errors"]))
 
-                errors = check_security_policy(root=root, event_path=event)
+    def test_missing_config_is_unconfigured_but_invalid_config_is_invalid(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.assertEqual("unconfigured", check_security_policy(root=root)["status"])
+            config = root / ".harness/config.toml"
+            config.parent.mkdir(parents=True)
+            config.write_text("schema = 1\n\n[checks]\nquick = []\nfull = []\n", encoding="utf-8")
+            result = check_security_policy(root=root)
+        self.assertEqual("invalid", result["status"])
+        self.assertFalse(result["ok"])
 
-                self.assertTrue(any(expected in error for error in errors), errors)
+    def test_security_policy_rejects_write_permissions_secrets_and_github_token(self) -> None:
+        token = "$" + "{{ github.token }}"
+        secret = "$" + "{{ secrets.TEST_TOKEN }}"
+        for edit, expected in (
+            ("permissions: {}", "permissions:\n  contents: write"),
+            ("- run: python -I scripts/harness.py check --full", f"- run: echo {secret}\n      - run: python -I scripts/harness.py check --full"),
+            ("- run: python -I scripts/harness.py check --full", f"- run: echo {token}\n      - run: python -I scripts/harness.py check --full"),
+        ):
+            with self.subTest(expected=expected):
+                body = valid_workflow().replace(edit, expected, 1)
+                errors = check_workflow_text(Path("ci.yml"), body)
+                self.assertTrue(errors, errors)
 
-    def test_sensitive_github_expressions_are_rejected_in_every_yaml_form(self) -> None:
+    def test_permissions_reject_write_all_and_job_level_writes(self) -> None:
         cases = (
-            '${{ secrets }}',
-            '${{ toJSON(secrets) }}',
-            '${{ github.token }}',
-            '${{ toJSON(github) }}',
-            '${{ github["token"] }}',
+            valid_workflow().replace("permissions: {}", "permissions: write-all", 1),
+            valid_workflow().replace(
+                "    permissions: {}", "    permissions:\n      contents: write", 1
+            ),
+        )
+        for body in cases:
+            with self.subTest(body=body[:80]):
+                self.assertTrue(check_workflow_text(Path("ci.yml"), body))
+
+    def test_read_only_workflow_permissions_are_valid(self) -> None:
+        body = valid_workflow().replace("permissions: {}", "permissions:\n  contents: read", 1)
+        self.assertEqual([], check_workflow_text(Path("ci.yml"), body))
+
+    def test_sensitive_github_context_syntaxes_are_rejected(self) -> None:
+        expressions = (
+            "${{ secrets }}",
+            "${{ toJSON(secrets) }}",
+            "${{ github.token }}",
+            "${{ toJSON(github) }}",
             "${{ github['token'] }}",
             "${{ github[format('to', 'ken')] }}",
+            "${{ join(github.*, ',') }}",
         )
-        for expression in cases:
+        for expression in expressions:
             with self.subTest(expression=expression):
-                text = (
-                    "jobs:\n  t:\n    runs-on: ubuntu-24.04\n    steps:\n"
-                    f"      - run: {json.dumps('echo ' + expression)}\n"
+                body = valid_workflow().replace(
+                    "- run: python -I scripts/harness.py check --full",
+                    f"- run: {json.dumps('echo ' + expression)}\n      - run: python -I scripts/harness.py check --full",
                 )
-                errors = check_workflow_text(Path("workflow.yml"), text)
-                self.assertTrue(errors, expression)
+                self.assertTrue(check_workflow_text(Path("ci.yml"), body))
 
-    def test_github_token_is_allowed_only_in_the_exact_trusted_policy_step(self) -> None:
-        workflow = (ROOT / ".github/workflows/harness-ci.yml").read_text(encoding="utf-8")
-        self.assertEqual([], check_workflow_text(Path(".github/workflows/harness-ci.yml"), workflow))
-
-        changed = workflow.replace(
-            'python3 trusted/scripts/check_ci_security.py --root candidate --event "$GITHUB_EVENT_PATH" --changed-files "$CHANGED_FILES"',
-            'echo "${{ github.token }}"',
+    def test_malformed_github_expressions_fail_closed(self) -> None:
+        expression = "$" + "{{ format('unterminated }"
+        body = valid_workflow().replace(
+            "- run: python -I scripts/harness.py check --full",
+            f"- run: {json.dumps('echo ' + expression)}\n      - run: python -I scripts/harness.py check --full",
         )
-        errors = check_workflow_text(Path(".github/workflows/harness-ci.yml"), changed)
-        self.assertTrue(any("github.token" in error for error in errors), errors)
+        errors = check_workflow_text(Path("ci.yml"), body)
+        self.assertTrue(any("GitHub expression is malformed" in error for error in errors), errors)
 
-    def test_dynamic_or_non_hosted_runners_are_rejected(self) -> None:
+    def test_workflow_scope_secrets_are_rejected_for_pull_request_jobs(self) -> None:
+        secret = "$" + "{{ secrets.TEST_TOKEN }}"
+        body = valid_workflow().replace(
+            "permissions: {}", f'env:\n  TOKEN: "{secret}"\npermissions: {{}}', 1
+        )
+        errors = check_workflow_text(Path("ci.yml"), body)
+        self.assertTrue(any("secrets context" in error for error in errors), errors)
+
+    def test_full_profile_comment_cannot_stand_in_for_the_command(self) -> None:
+        body = valid_workflow().replace(
+            "- run: python -I scripts/harness.py check --full",
+            "- run: |\n          # python -I scripts/harness.py check --full\n          npm test",
+        )
+        errors = check_workflow_text(Path("ci.yml"), body)
+        self.assertTrue(any("no job runs scripts/harness.py check --full" in error for error in errors), errors)
+
+    def test_full_profile_command_rejects_shell_comments_and_expression_expansion(self) -> None:
+        body = valid_workflow().replace(
+            "      - run: python -I scripts/harness.py check --full",
+            "      - run: |\n          python -I scripts/harness.py check --full # ${{ env.EXTRA }}",
+        )
+        self.assertTrue(check_workflow_text(Path("ci.yml"), body))
+
+    def test_full_profile_rejects_loader_environment_and_prior_github_env_writes(self) -> None:
         cases = (
-            "${{ inputs.runner }}",
-            "[ubuntu-24.04, self-hosted]",
-            "{group: custom, labels: ubuntu-24.04}",
-            None,
+            valid_workflow().replace("    timeout-minutes:", "    env:\n      LD_PRELOAD: /tmp/pwn.so\n    timeout-minutes:"),
+            valid_workflow().replace("    timeout-minutes:", "    env:\n      DYLD_INSERT_LIBRARIES: /tmp/pwn.dylib\n    timeout-minutes:"),
+            valid_workflow(extra=(
+                "      - run: a=GITHUB_; b=PATH; n=\"$a$b\"; printf '/tmp\\n' >> \"${!n}\"\n"
+                "      - run: python -I scripts/harness.py check --full\n"
+            )),
+            valid_workflow(extra=(
+                "      - run: a=$(printf '\\x47ITHUB_'); b=PATH; n=\"$a$b\"; printf '/tmp\\n' >> \"${!n}\"\n"
+                "      - run: python -I scripts/harness.py check --full\n"
+            )),
+            valid_workflow(extra=(
+                "      - run: echo /tmp >> \"$GITHUB_PATH\"\n"
+                "      - run: python -I scripts/harness.py check --full\n"
+            )),
         )
-        for runner in cases:
-            with self.subTest(runner=runner):
-                runner_line = f"    runs-on: {runner}\n" if runner is not None else ""
-                body = f"jobs:\n  t:\n{runner_line}    steps: []\n"
-                errors = check_workflow_text(Path("workflow.yml"), body)
-                self.assertTrue(any("runs-on" in error for error in errors), errors)
+        for body in cases:
+            with self.subTest(body=body):
+                self.assertTrue(check_workflow_text(Path("ci.yml"), body))
 
-    def test_checkout_requires_disabled_credentials_and_no_custom_credentials(self) -> None:
+    def test_pull_request_jobs_reject_execution_containers(self) -> None:
         cases = (
-            "",
-            "        with:\n          persist-credentials: true\n",
-            "        with:\n          persist-credentials: false\n          token: ${{ github.token }}\n",
-            "        with:\n          persist-credentials: false\n          ssh-key: private\n",
-            "        with:\n          persist-credentials: false\n          ssh-token: private\n",
-            "        with:\n          persist-credentials: false\n          TOKEN: private\n",
-            "        with:\n          persist-credentials: false\n          SSH-KEY: private\n",
-            "        with:\n          persist-credentials: false\n          SSH-TOKEN: private\n",
+            "    container: attacker/image:latest\n",
+            "    container:\n      image: attacker/image:latest\n      options: --privileged\n",
+            "    container:\n      image: attacker/image@sha256:" + "a" * 64 + "\n"
+            "      volumes: ['/:/host']\n      env:\n        LD_PRELOAD: /tmp/pwn.so\n",
+            "    services:\n      db:\n        image: attacker/db:latest\n",
         )
-        for options in cases:
-            with self.subTest(options=options):
-                body = (
-                    "permissions: {}\n"
-                    f"jobs:\n  t:\n    permissions: {{}}\n    runs-on: ubuntu-24.04\n    steps:\n"
-                    f"      - uses: actions/checkout@{PINNED_SHA}\n{options}"
+        for container in cases:
+            with self.subTest(container=container):
+                body = valid_workflow().replace("    timeout-minutes:", container + "    timeout-minutes:")
+                self.assertTrue(check_workflow_text(Path("ci.yml"), body))
+
+    def test_pull_request_jobs_cannot_request_deployment_environments(self) -> None:
+        body = valid_workflow().replace("    timeout-minutes:", "    environment:\n      name: production\n    timeout-minutes:")
+        errors = check_workflow_text(Path("ci.yml"), body)
+        self.assertTrue(any("deployment environment" in error for error in errors), errors)
+
+    def test_full_job_must_not_use_a_matrix_check_name(self) -> None:
+        body = valid_workflow().replace(
+            "    runs-on:", "    strategy:\n      matrix:\n        os: [ubuntu-24.04, ubuntu-22.04]\n    runs-on:", 1
+        )
+        errors = check_workflow_text(Path("ci.yml"), body)
+        self.assertTrue(any("matrix" in error for error in errors), errors)
+
+    def test_checkout_must_use_the_current_pull_request_repository_root(self) -> None:
+        for option, value in (("repository", "attacker/project"), ("ref", "main"), ("path", "tmp")):
+            with self.subTest(option=option):
+                body = valid_workflow(extra=(
+                    f"      - uses: {PINNED_ACTION}\n"
+                    "        with:\n          persist-credentials: false\n"
+                    f"          {option}: {value}\n"
+                ))
+                errors = check_workflow_text(Path("ci.yml"), body)
+                self.assertTrue(any("current pull request" in error for error in errors), errors)
+
+    def test_full_profile_shell_failure_suppression_is_not_accepted(self) -> None:
+        cases = [
+            valid_workflow().replace(
+                "python -I scripts/harness.py check --full",
+                f"python -I scripts/harness.py check --full{suffix}",
+            )
+            for suffix in (" || true", " || echo failed", "; true")
+        ]
+        cases.extend((
+            valid_workflow().replace(
+                "- run: python -I scripts/harness.py check --full",
+                "- run: |\n          set +e\n          python -I scripts/harness.py check --full\n          echo ignored",
+            ),
+            valid_workflow().replace(
+                "- run: python -I scripts/harness.py check --full",
+                "- run: |\n          if false; then\n            python -I scripts/harness.py check --full\n          fi",
+            ),
+        ))
+        for body in cases:
+            with self.subTest(body=body[-100:]):
+                errors = check_workflow_text(Path("ci.yml"), body)
+                self.assertTrue(any("no job runs scripts/harness.py check --full" in error for error in errors), errors)
+
+    def test_full_profile_effective_directory_and_shell_are_constrained(self) -> None:
+        cases = (
+            valid_workflow().replace(
+                "permissions: {}", "defaults:\n  run:\n    working-directory: untrusted\npermissions: {}", 1
+            ),
+            valid_workflow().replace(
+                "    runs-on:", "    defaults:\n      run:\n        working-directory: untrusted\n    runs-on:", 1
+            ),
+            valid_workflow().replace(
+                "- run: python -I scripts/harness.py check --full",
+                "- run: python -I scripts/harness.py check --full\n        working-directory: untrusted",
+            ),
+            valid_workflow().replace(
+                "permissions: {}", "defaults:\n  run:\n    shell: \"bash -c 'source {0} || true'\"\npermissions: {}", 1
+            ),
+            valid_workflow().replace(
+                "    runs-on:",
+                "    defaults:\n      run:\n        shell: \"bash -c 'source {0} || true'\"\n    runs-on:", 1,
+            ),
+            valid_workflow().replace(
+                "- run: python -I scripts/harness.py check --full",
+                "- run: python -I scripts/harness.py check --full\n        shell: \"bash -c 'source {0} || true'\"",
+            ),
+        )
+        for body in cases:
+            with self.subTest(body=body[-120:]):
+                errors = check_workflow_text(Path("ci.yml"), body)
+                self.assertTrue(any("repository root" in error or "unsupported shell" in error for error in errors), errors)
+
+    def test_security_policy_rejects_untrusted_interpolation_into_run(self) -> None:
+        event = "$" + "{{ github.event.pull_request.title }}"
+        body = valid_workflow().replace(
+            "- run: python -I scripts/harness.py check --full",
+            f"- run: echo {event}\n      - run: python -I scripts/harness.py check --full",
+        )
+        errors = check_workflow_text(Path("ci.yml"), body)
+        self.assertTrue(any("untrusted event data" in error for error in errors), errors)
+
+    def test_nested_pr_event_data_cannot_be_interpolated_into_run_scripts(self) -> None:
+        expressions = (
+            "github.event['pull_request']['title']",
+            "fromJSON(toJSON(github.event.pull_request)).title",
+        )
+        for expression in expressions:
+            with self.subTest(expression=expression):
+                interpolation = "$" + "{{ " + expression + " }}"
+                body = valid_workflow().replace(
+                    "- run: python -I scripts/harness.py check --full",
+                    f"- run: {json.dumps('echo ' + interpolation)}\n      - run: python -I scripts/harness.py check --full",
                 )
-                errors = check_workflow_text(Path("workflow.yml"), body)
-                self.assertTrue(any("checkout credentials" in error for error in errors), errors)
+                errors = check_workflow_text(Path("ci.yml"), body)
+                self.assertTrue(any("untrusted event data" in error for error in errors), errors)
 
-    def test_checkout_with_credentials_disabled_passes_structural_policy(self) -> None:
+    def test_untrusted_pr_event_data_cannot_flow_through_environment_variables(self) -> None:
+        expression = "$" + "{{ github.event.pull_request.title }}"
+        body = valid_workflow().replace(
+            "permissions: {}", f'env:\n  TITLE: "{expression}"\npermissions: {{}}', 1
+        )
+        errors = check_workflow_text(Path("ci.yml"), body)
+        self.assertTrue(any("untrusted event data" in error for error in errors), errors)
+
+    def test_security_policy_rejects_unpinned_actions_and_persisted_checkout_credentials(self) -> None:
+        cases = (
+            valid_workflow(extra="      - uses: actions/checkout@v4\n"),
+            valid_workflow(extra=f"      - uses: {PINNED_ACTION}\n        with:\n          persist-credentials: true\n"),
+            valid_workflow(extra="      - uses: ./../outside\n"),
+        )
+        for body in cases:
+            with self.subTest(body=body[-70:]):
+                self.assertTrue(check_workflow_text(Path("ci.yml"), body))
+
+    def test_local_actions_must_stay_under_github_actions(self) -> None:
+        body = valid_workflow(extra="      - uses: ./ci/action\n")
+        errors = check_workflow_text(Path("ci.yml"), body)
+        self.assertTrue(any("local action path" in error for error in errors), errors)
+
+    def test_ci_policy_rejects_target_event_self_hosted_runner_and_path_filters(self) -> None:
+        cases = (
+            valid_workflow().replace("pull_request:", "pull_request_target:"),
+            valid_workflow(runner="[self-hosted, linux]"),
+            valid_workflow(runner="[ubuntu-24.04, macos-15]"),
+            valid_workflow(runner="ubuntu-24.04-private"),
+            valid_workflow().replace("pull_request:", "pull_request:\n    paths: ['src/**']"),
+            valid_workflow().replace("pull_request:", "pull_request:\n    branches: [never]"),
+            valid_workflow().replace("pull_request:", "pull_request:\n    branches-ignore: [main]"),
+            valid_workflow().replace("pull_request:", "pull_request:\n    branches: ['**', '!main']"),
+        )
+        for body in cases:
+            with self.subTest(body=body[:70]):
+                self.assertTrue(check_workflow_text(Path("ci.yml"), body))
+
+    def test_pull_request_target_validation_is_rejected_without_full_profile_command(self) -> None:
         body = (
-            "permissions: {}\n"
-            f"jobs:\n  t:\n    permissions: {{}}\n    runs-on: ubuntu-24.04\n    steps:\n"
-            f"      - uses: actions/checkout@{PINNED_SHA}\n"
-            "        with:\n          persist-credentials: false\n"
+            "name: Legacy tests\non:\n  pull_request_target:\njobs:\n  tests:\n"
+            "    runs-on: ubuntu-24.04\n    timeout-minutes: 10\n    steps:\n"
+            "      - run: pytest\n"
         )
-        self.assertEqual([], check_workflow_text(Path("workflow.yml"), body))
+        errors = check_workflow_text(Path(".github/workflows/legacy.yml"), body)
+        self.assertTrue(any("pull_request_target" in error for error in errors), errors)
 
-    def test_only_trusted_policy_job_may_receive_read_permissions(self) -> None:
-        candidate_workflow = (
-            "permissions: {}\n"
-            "jobs:\n  project-validation:\n"
-            "    permissions:\n      contents: read\n"
-            "    runs-on: ubuntu-24.04\n    steps: []\n"
+    def test_pull_request_target_external_actions_are_not_treated_as_safe(self) -> None:
+        body = (
+            "name: Metadata\non:\n  pull_request_target:\njobs:\n  label:\n"
+            "    runs-on: ubuntu-24.04\n    steps:\n"
+            f"      - uses: actions/github-script@{PINNED_ACTION}\n"
         )
-        errors = check_workflow_text(Path(".github/workflows/project-ci.yml"), candidate_workflow)
-        self.assertTrue(any("permissions must be empty" in error for error in errors), errors)
+        errors = check_workflow_text(Path(".github/workflows/metadata.yml"), body)
+        self.assertTrue(any("pull_request_target" in error for error in errors), errors)
 
-    def test_workflow_level_permissions_must_be_empty(self) -> None:
-        text = (
-            "permissions:\n  contents: read\n"
-            "jobs:\n  project-validation:\n"
-            "    permissions: {}\n    runs-on: ubuntu-24.04\n    steps: []\n"
-        )
-        errors = check_workflow_text(Path(".github/workflows/project-ci.yml"), text)
-        self.assertTrue(any("workflow permissions must be empty" in error for error in errors), errors)
-
-    def test_unparseable_workflow_yaml_fails_closed(self) -> None:
+    def test_actions_in_non_pr_workflows_are_still_pinned(self) -> None:
         with TemporaryDirectory() as temp:
             root = Path(temp)
-            self.write_workflow(root, "jobs: [this is not valid YAML\n")
-            event = self.write_event(root)
+            setup_project(root)
+            (root / ".github/workflows/manual.yml").write_text(
+                "name: Manual\non:\n  workflow_dispatch:\njobs:\n  deploy:\n"
+                "    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n    steps:\n"
+                "      - uses: actions/checkout@v4\n        with:\n          persist-credentials: false\n",
+                encoding="utf-8",
+            )
+            result = check_security_policy(root=root)
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("full commit SHA" in error for error in result["errors"]))
 
-            errors = check_security_policy(root=root, event_path=event)
+    def test_external_reusable_workflows_are_pinned_too(self) -> None:
+        body = (
+            "name: Manual\non:\n  workflow_dispatch:\njobs:\n  deploy:\n"
+            "    uses: owner/repo/.github/workflows/deploy.yml@v1\n"
+        )
+        errors = check_workflow_text(Path("manual.yml"), body)
+        self.assertTrue(any("reusable workflow must be pinned" in error for error in errors), errors)
 
-            self.assertTrue(any("workflow YAML" in error for error in errors))
-
-    def test_yaml_date_scalars_remain_valid_workflow_values(self) -> None:
+    def test_local_composite_actions_must_pin_nested_external_actions(self) -> None:
         with TemporaryDirectory() as temp:
             root = Path(temp)
-            self.write_workflow(root, "run: echo 2026-10-05\n")
-            event = self.write_event(root)
+            setup_project(root)
+            action = root / ".github/actions/check/action.yml"
+            action.parent.mkdir(parents=True)
+            action.write_text(
+                "name: Check\nruns:\n  using: composite\n  steps:\n"
+                "    - uses: owner/action@v1\n",
+                encoding="utf-8",
+            )
+            result = check_security_policy(root=root)
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("full commit SHA" in error for error in result["errors"]))
 
-            errors = check_security_policy(root=root, event_path=event)
-
-            self.assertEqual([], errors)
-
-    def test_security_sensitive_pr_changes_fail(self) -> None:
+    def test_full_job_rejects_local_node_actions_before_validation(self) -> None:
         with TemporaryDirectory() as temp:
             root = Path(temp)
-            self.write_workflow(root, f"jobs:\n  t:\n    steps:\n      - uses: actions/checkout@{PINNED_SHA}\n")
-            event = self.write_event(root, [".harness/ci.json"])
+            setup_project(root)
+            action = root / ".github/actions/node/action.yml"
+            action.parent.mkdir(parents=True)
+            action.write_text("name: node\nruns:\n  using: node20\n  main: index.js\n", encoding="utf-8")
+            (action.parent / "index.js").write_text("process.env.GITHUB_PATH", encoding="utf-8")
+            workflow = valid_workflow().replace(
+                "      - run: python -I scripts/harness.py check --full\n",
+                "      - uses: ./.github/actions/node\n"
+                "      - run: python -I scripts/harness.py check --full\n",
+            )
+            (root / ".github/workflows/ci.yml").write_text(workflow, encoding="utf-8")
+            result = check_security_policy(root=root)
+        self.assertFalse(result["ok"], result["errors"])
+        self.assertTrue(any("local action" in error and "before Full" in error
+                            for error in result["errors"]))
 
-            errors = check_security_policy(root=root, event_path=event)
+    def test_composite_action_rejects_untrusted_event_interpolation(self) -> None:
+        cases = (
+            ('    - run: echo "${{ github.event.pull_request.head.ref }}"\n      shell: bash\n',
+             "untrusted event data"),
+            ("    - run: 'echo \"${{ github[\"event\"][\"pull_request\"][\"title\"] }}\"'\n"
+             "      shell: bash\n", "broad GitHub context"),
+            ("    - if: secrets.API_KEY\n      run: echo safe\n      shell: bash\n", "secrets context"),
+            ('    - run: echo "${{ github.token }}"\n      shell: bash\n', "github.token"),
+        )
+        for steps, expected in cases:
+            with self.subTest(expected=expected), TemporaryDirectory() as temp:
+                root = Path(temp)
+                setup_project(root)
+                action = root / ".github/actions/unsafe/action.yml"
+                action.parent.mkdir(parents=True)
+                action.write_text(
+                    "name: unsafe\nruns:\n  using: composite\n  steps:\n" + steps,
+                    encoding="utf-8",
+                )
+                workflow = valid_workflow().replace(
+                    "      - run: python -I scripts/harness.py check --full\n",
+                    "      - uses: ./.github/actions/unsafe\n"
+                    "      - run: python -I scripts/harness.py check --full\n",
+                )
+                (root / ".github/workflows/ci.yml").write_text(workflow, encoding="utf-8")
+                result = check_security_policy(root=root)
+            self.assertFalse(result["ok"])
+            self.assertTrue(any(expected in error for error in result["errors"]), result["errors"])
 
-            self.assertTrue(any("security-sensitive" in error for error in errors))
+    def test_unreferenced_deployment_action_secrets_do_not_block_pr_ci(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            setup_project(root)
+            action = root / ".github/actions/deploy/action.yml"
+            action.parent.mkdir(parents=True)
+            action.write_text(
+                "name: deploy\nruns:\n  using: composite\n  steps:\n"
+                "    - run: deploy\n      shell: bash\n      env:\n        TOKEN: ${{ secrets.DEPLOY_TOKEN }}\n",
+                encoding="utf-8",
+            )
+            result = check_security_policy(root=root)
+        self.assertTrue(result["ok"], result["errors"])
 
-    def test_sensitive_directory_roots_are_gated(self) -> None:
-        for filename in (
+    def test_docker_actions_require_digest_pinned_images(self) -> None:
+        digest = "a" * 64
+        for image, expected_ok in (("docker://alpine:latest", False),
+                                   (f"docker://alpine@sha256:{digest}", True)):
+            with self.subTest(step_image=image):
+                body = valid_workflow(extra=f"      - uses: {image}\n")
+                errors = check_workflow_text(Path("ci.yml"), body)
+                self.assertEqual(expected_ok, not errors, errors)
+        cases = (
+            ("docker://alpine:latest", None, False),
+            (f"docker://alpine@sha256:{digest}", None, True),
+            ("Dockerfile", f"FROM alpine@sha256:{digest}\n", True),
+            ("Dockerfile", f"FROM alpine@sha256:{digest} AS base\nFROM base\n", True),
+            ("Dockerfile", "FROM alpine:3.20\n", False),
+        )
+        for image, dockerfile, expected_ok in cases:
+            with self.subTest(image=image, dockerfile=dockerfile), TemporaryDirectory() as temp:
+                root = Path(temp)
+                setup_project(root)
+                action = root / ".github/actions/docker/action.yml"
+                action.parent.mkdir(parents=True)
+                action.write_text(
+                    f"name: docker\nruns:\n  using: docker\n  image: {image}\n",
+                    encoding="utf-8",
+                )
+                if dockerfile is not None:
+                    (action.parent / "Dockerfile").write_text(dockerfile, encoding="utf-8")
+                workflow = valid_workflow() + (
+                    "  deploy:\n    if: github.event_name == 'push'\n"
+                    "    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n    steps:\n"
+                    "      - uses: ./.github/actions/docker\n      - run: echo done\n"
+                )
+                (root / ".github/workflows/ci.yml").write_text(workflow, encoding="utf-8")
+                result = check_security_policy(root=root)
+                self.assertEqual(expected_ok, result["ok"], result["errors"])
+
+    def test_full_profile_cannot_be_skipped_ignored_or_a_noop(self) -> None:
+        cases = (
+            valid_workflow().replace("    timeout-minutes: 15", "    if: false\n    timeout-minutes: 15"),
+            valid_workflow().replace("python -I scripts/harness.py check --full", "echo all tests passed"),
+            valid_workflow().replace("python -I scripts/harness.py check --full", "python -I scripts/harness.py check --full\n        continue-on-error: true"),
+            valid_workflow().replace("    timeout-minutes: 15", ""),
+        )
+        for body in cases:
+            with self.subTest(body=body[-90:]):
+                self.assertTrue(check_workflow_text(Path("ci.yml"), body))
+
+    def test_ci_dependencies_must_exist_and_be_acyclic(self) -> None:
+        body = valid_workflow().replace("  verify:", "  verify:\n    needs: absent")
+        errors = check_workflow_text(Path("ci.yml"), body)
+        self.assertTrue(any("dependency" in error for error in errors), errors)
+
+    def test_full_job_cannot_depend_on_a_conditional_gate(self) -> None:
+        body = valid_workflow().replace(
+            "  verify:",
+            "  gate:\n    if: false\n    runs-on: ubuntu-24.04\n    timeout-minutes: 5\n"
+            "    steps:\n      - run: echo ready\n  verify:\n    needs: gate",
+        )
+        errors = check_workflow_text(Path("ci.yml"), body)
+        self.assertTrue(any("depends on conditional job gate" in error for error in errors), errors)
+
+    def test_duplicate_required_check_identities_are_invalid(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            setup_project(root)
+            (root / ".github/workflows/other.yaml").write_text(
+                valid_workflow(name="CI", job_id="other", job_name="verify"), encoding="utf-8"
+            )
+            result = check_security_policy(root=root)
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("ambiguous required check identity" in error for error in result["errors"]))
+
+    def test_job_id_cannot_alias_another_required_job_display_name(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            setup_project(root)
+            workflow = valid_workflow(name="CI", job_id="foo", job_name="A").replace(
+                "      - run: python -I scripts/harness.py check --full\n",
+                "      - run: python -I scripts/harness.py check --full\n"
+                "  bar:\n    name: foo\n    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n"
+                "    permissions: {}\n    steps:\n      - run: python -I scripts/harness.py check --full\n",
+            )
+            (root / ".github/workflows/ci.yml").write_text(workflow, encoding="utf-8")
+            result = check_security_policy(root=root)
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("ambiguous required check identity" in error for error in result["errors"]))
+
+    def test_non_full_job_cannot_reuse_a_required_full_check_name(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            setup_project(root)
+            workflow = valid_workflow(job_id="full", job_name="Actual") + (
+                "  decoy:\n    name: full\n    runs-on: ubuntu-24.04\n"
+                "    timeout-minutes: 10\n    permissions: {}\n    steps:\n      - run: echo decoy\n"
+            )
+            (root / ".github/workflows/ci.yml").write_text(workflow, encoding="utf-8")
+            result = check_security_policy(root=root)
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("ambiguous required check identity" in error for error in result["errors"]))
+
+    def test_existing_manual_deploy_job_does_not_collide_with_pr_full_check(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            setup_project(root, quick=[["python", "-m", "unittest"]], full=[["python", "-m", "unittest"]])
+            (root / ".github/workflows/deploy.yml").write_text(
+                "name: CI\non:\n  workflow_dispatch:\njobs:\n  verify:\n"
+                "    name: verify\n    runs-on: ubuntu-24.04\n    steps:\n      - run: deploy\n",
+                encoding="utf-8",
+            )
+            result = check_security_policy(root=root)
+        self.assertTrue(result["ok"], result["errors"])
+
+    def test_security_sensitive_paths_remain_t3_inputs(self) -> None:
+        for path in (
+            ".agents",
             ".github",
-            ".github/workflows",
-            ".github/actions",
             ".harness",
             ".codex",
-            ".codex/hooks",
+            ".github/workflows/ci.yml",
+            ".harness/config.toml",
+            "nested/AGENTS.md",
+            ".github\\workflows\\ci.yml",
+            "scripts/check_ci_security.py",
+            "scripts/ci_action_policy.py",
+            "scripts/harness_doctor.py",
+            "scripts/verify_ci.py",
         ):
-            with self.subTest(filename=filename), TemporaryDirectory() as temp:
-                root = Path(temp)
-                self.write_workflow(root, f"jobs:\n  t:\n    steps:\n      - uses: actions/checkout@{PINNED_SHA}\n")
-                event = self.write_event(root, [filename])
+            self.assertTrue(is_sensitive_path(path))
+        self.assertFalse(is_sensitive_path("docs/guide.md"))
 
-                errors = check_security_policy(root=root, event_path=event)
-
-                self.assertTrue(any("security-sensitive" in error for error in errors))
-
-    def test_local_action_files_are_security_sensitive(self) -> None:
+    def test_unexpected_config_loader_errors_are_not_reported_as_bad_user_config(self) -> None:
         with TemporaryDirectory() as temp:
             root = Path(temp)
-            self.write_workflow(
-                root,
-                f"jobs:\n  t:\n    steps:\n      - uses: ./.github/actions/check@main\n      - uses: actions/checkout@{PINNED_SHA}\n",
-            )
-            event = self.write_event(root, [".github/actions/check/action.yml"])
-
-            errors = check_security_policy(root=root, event_path=event)
-
-            self.assertTrue(any("security-sensitive" in error for error in errors))
-
-    def test_local_action_reference_cannot_traverse_outside_the_checkout(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            self.write_workflow(
-                root,
-                f"jobs:\n  t:\n    steps:\n      - uses: ./../outside-action\n      - uses: actions/checkout@{PINNED_SHA}\n",
-            )
-            event = self.write_event(root)
-
-            errors = check_security_policy(root=root, event_path=event)
-
-            self.assertTrue(any("local action path cannot escape" in error for error in errors), errors)
-
-    def test_local_actions_must_live_under_the_sensitive_github_actions_directory(self) -> None:
-        text = (
-            "permissions: {}\n"
-            "jobs:\n  t:\n    permissions: {}\n    runs-on: ubuntu-24.04\n    steps:\n"
-            "      - uses: ./ci/action\n"
-        )
-        errors = check_workflow_text(Path(".github/workflows/harness-ci.yml"), text)
-        self.assertTrue(any("local actions must live under .github/actions/" in error for error in errors), errors)
-
-    def test_workflow_directory_cannot_be_replaced_with_a_file(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            self.write_workflow(root, f"jobs:\n  t:\n    steps:\n      - uses: actions/checkout@{PINNED_SHA}\n")
-            (root / ".github/workflows/harness-ci.yml").unlink()
-            (root / ".github/workflows").rmdir()
-            (root / ".github/workflows").write_text("untrusted", encoding="utf-8")
-            event = self.write_event(root, [".github/workflows"])
-
-            errors = check_security_policy(root=root, event_path=event)
-
-            self.assertTrue(any("must be a directory" in error for error in errors))
-
-    def test_trusted_maintenance_label_allows_sensitive_changes(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            self.write_workflow(root, f"jobs:\n  t:\n    steps:\n      - uses: actions/checkout@{PINNED_SHA}\n")
-            event = self.write_event(
-                root,
-                ["scripts/check_ci_security.py", ".harness/config.toml"],
-                labels=["harness-trusted-maintenance"],
-            )
-
-            with patch("scripts.check_ci_security.collaborator_permission", return_value="maintain"):
-                errors = check_security_policy(
-                    root=root,
-                    event_path=event,
-                    github_token="test-token",
-                    repository="owner/repo",
-                )
-
-            self.assertEqual([], errors)
-
-    def test_stale_maintenance_label_does_not_authorize_new_commits(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            self.write_workflow(root, f"jobs:\n  t:\n    steps:\n      - uses: actions/checkout@{PINNED_SHA}\n")
-            event = self.write_event(root, [".harness/config.toml"], labels=["harness-trusted-maintenance"])
-            payload = json.loads(event.read_text(encoding="utf-8"))
-            payload["action"] = "synchronize"
-            event.write_text(json.dumps(payload), encoding="utf-8")
-
-            with patch("scripts.check_ci_security.collaborator_permission") as permission_lookup:
-                errors = check_security_policy(
-                    root=root,
-                    event_path=event,
-                    github_token="test-token",
-                    repository="owner/repo",
-                )
-
-            permission_lookup.assert_not_called()
-            self.assertTrue(any("security-sensitive" in error for error in errors))
-
-    def test_unprivileged_actor_cannot_authorize_maintenance_label(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            self.write_workflow(root, f"jobs:\n  t:\n    steps:\n      - uses: actions/checkout@{PINNED_SHA}\n")
-            event = self.write_event(root, [".harness/config.toml"], labels=["harness-trusted-maintenance"])
-
-            with patch("scripts.check_ci_security.collaborator_permission", return_value="write"):
-                errors = check_security_policy(
-                    root=root,
-                    event_path=event,
-                    github_token="test-token",
-                    repository="owner/repo",
-                )
-
-            self.assertTrue(any("security-sensitive" in error for error in errors))
-            self.assertTrue(any("not an admin or maintainer" in error for error in errors))
-
-    def test_collaborator_permission_preserves_maintain_role_name(self) -> None:
-        class Response:
-            def __enter__(self) -> Response:
-                return self
-
-            def __exit__(self, *_args: object) -> None:
-                return None
-
-            def read(self) -> bytes:
-                return b'{"permission":"write","role_name":"maintain"}'
-
-        with patch("scripts.check_ci_security.urllib.request.urlopen", return_value=Response()) as open_url:
-            permission = collaborator_permission("owner/repo", "maintainer", "test-token")
-
-        self.assertEqual("maintain", permission)
-        request = open_url.call_args.args[0]
-        self.assertEqual(
-            "https://api.github.com/repos/owner/repo/collaborators/maintainer/permission",
-            request.full_url,
-        )
-        self.assertEqual("2026-03-10", request.get_header("X-github-api-version"))
-
-    def test_trusted_maintenance_label_does_not_bypass_workflow_safety(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            self.write_workflow(root, "jobs:\n  t:\n    steps:\n      - uses: actions/checkout@v4\n")
-            event = self.write_event(
-                root,
-                [".github/workflows/harness-ci.yml"],
-                labels=["harness-trusted-maintenance"],
-            )
-
-            with patch("scripts.check_ci_security.collaborator_permission", return_value="maintain"):
-                errors = check_security_policy(
-                    root=root,
-                    event_path=event,
-                    github_token="test-token",
-                    repository="owner/repo",
-                )
-
-            self.assertTrue(any("full commit SHA" in error for error in errors))
-            self.assertFalse(any("security-sensitive" in error for error in errors))
-
-    def test_trusted_maintenance_label_does_not_allow_unsafe_changed_paths(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            self.write_workflow(root, f"jobs:\n  t:\n    steps:\n      - uses: actions/checkout@{PINNED_SHA}\n")
-            event = self.write_event(
-                root,
-                ["../scripts/check_ci_security.py"],
-                labels=["harness-trusted-maintenance"],
-            )
-
-            errors = check_security_policy(root=root, event_path=event)
-
-            self.assertTrue(any("unsafe changed path" in error for error in errors))
-
-    def test_external_nul_delimited_changed_file_list_is_used(self) -> None:
-        with TemporaryDirectory() as temp, TemporaryDirectory() as external:
-            root = Path(temp)
-            self.write_workflow(root, f"jobs:\n  t:\n    steps:\n      - uses: actions/checkout@{PINNED_SHA}\n")
-            event = self.write_event(root)
-            changed_files = Path(external) / "changed-files.nul"
-            changed_files.write_bytes(b".harness/config.toml\0scripts/check_ci_security.py\0")
-
-            errors = check_security_policy(root=root, event_path=event, changed_files_path=changed_files)
-
-            self.assertEqual(2, sum("security-sensitive" in error for error in errors))
-
-    def test_changed_file_list_inside_candidate_checkout_is_rejected(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            self.write_workflow(root, f"jobs:\n  t:\n    steps:\n      - uses: actions/checkout@{PINNED_SHA}\n")
-            event = self.write_event(root)
-            changed_files = root / ".harness-changed-files.nul"
-            changed_files.write_bytes(b".harness/config.toml\0")
-
-            errors = check_security_policy(root=root, event_path=event, changed_files_path=changed_files)
-
-            self.assertTrue(any("outside candidate checkout" in error for error in errors))
-
-    def test_git_changed_path_capture_fails_closed_at_size_limit(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            event = {"pull_request": {"base": {"sha": "a" * 40}, "head": {"sha": "b" * 40}}}
-            limited = CommandResult(125, "partial", output_limited=True)
-            with patch("scripts.check_ci_security.run_bounded_command", return_value=limited) as run_command:
-                with self.assertRaisesRegex(ValueError, "changed path list exceeds"):
-                    changed_files_from_event(root=root, event=event)
-
-        self.assertEqual(1024 * 1024, run_command.call_args.kwargs["max_output_bytes"])
-
-    def test_workflow_changed_path_collector_uses_bounded_binary_git_diff(self) -> None:
-        with TemporaryDirectory() as temp, TemporaryDirectory() as external:
-            root = Path(temp)
-            output = Path(external) / "changed-files.nul"
-            result = CommandResult(0, "src/main.py\0docs/readme.md\0")
-            with patch("scripts.check_ci_security.run_bounded_command", return_value=result) as run_command:
-                collect_changed_file_list(
-                    root=root,
-                    base_sha="a" * 40,
-                    head_sha="b" * 40,
-                    output_path=output,
-                )
-
-            self.assertEqual(b"src/main.py\0docs/readme.md\0", output.read_bytes())
-            argv = run_command.call_args.args[0]
-            self.assertIn("--no-ext-diff", argv)
-            self.assertIn("--no-textconv", argv)
-            self.assertIn("--no-renames", argv)
-            self.assertIn("-z", argv)
-            self.assertEqual(60, run_command.call_args.kwargs["timeout_seconds"])
-            self.assertEqual(1024 * 1024, run_command.call_args.kwargs["max_output_bytes"])
-
-    def test_workflow_changed_path_collector_fails_closed_before_writing(self) -> None:
-        with TemporaryDirectory() as temp, TemporaryDirectory() as external:
-            root = Path(temp)
-            output = Path(external) / "changed-files.nul"
-            limited = CommandResult(125, "partial", output_limited=True)
-            with patch("scripts.check_ci_security.run_bounded_command", return_value=limited):
-                with self.assertRaisesRegex(ValueError, "exceeds 1 MiB"):
-                    collect_changed_file_list(
-                        root=root,
-                        base_sha="a" * 40,
-                        head_sha="b" * 40,
-                        output_path=output,
-                    )
-            self.assertFalse(output.exists())
-
-            with self.assertRaisesRegex(ValueError, "full Git commit SHAs"):
-                collect_changed_file_list(
-                    root=root,
-                    base_sha="not-a-sha",
-                    head_sha="b" * 40,
-                    output_path=output,
-                )
-
-    def test_workflow_changed_path_collector_reads_real_commit_paths(self) -> None:
-        with TemporaryDirectory() as temp, TemporaryDirectory() as external:
-            root = Path(temp)
-            output = Path(external) / "changed-files.nul"
-            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-            subprocess.run(["git", "config", "user.name", "Harness Test"], cwd=root, check=True)
-            subprocess.run(["git", "config", "user.email", "harness@example.test"], cwd=root, check=True)
-            (root / "base.txt").write_text("base\n", encoding="utf-8")
-            subprocess.run(["git", "add", "base.txt"], cwd=root, check=True)
-            subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
-            base_sha = subprocess.run(
-                ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
-            ).stdout.strip()
-            (root / "file with spaces.txt").write_text("changed\n", encoding="utf-8")
-            subprocess.run(["git", "add", "file with spaces.txt"], cwd=root, check=True)
-            subprocess.run(["git", "commit", "-qm", "change"], cwd=root, check=True)
-            head_sha = subprocess.run(
-                ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
-            ).stdout.strip()
-
-            collect_changed_file_list(
-                root=root,
-                base_sha=base_sha,
-                head_sha=head_sha,
-                output_path=output,
-            )
-
-            self.assertEqual(b"file with spaces.txt\0", output.read_bytes())
-
-    def test_workflow_changed_path_collector_reports_both_sides_of_sensitive_rename(self) -> None:
-        with TemporaryDirectory() as temp, TemporaryDirectory() as external:
-            root = Path(temp)
-            output = Path(external) / "changed-files.nul"
-            sensitive = root / ".github/workflows/harness-ci.yml"
-            sensitive.parent.mkdir(parents=True)
-            sensitive.write_text("name: trusted workflow\n", encoding="utf-8")
-            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-            subprocess.run(["git", "config", "user.name", "Harness Test"], cwd=root, check=True)
-            subprocess.run(["git", "config", "user.email", "harness@example.test"], cwd=root, check=True)
-            subprocess.run(["git", "add", "."], cwd=root, check=True)
-            subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
-            base_sha = subprocess.run(
-                ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
-            ).stdout.strip()
-            renamed = root / "safe.txt"
-            sensitive.replace(renamed)
-            subprocess.run(["git", "add", "-A"], cwd=root, check=True)
-            subprocess.run(["git", "commit", "-qm", "rename"], cwd=root, check=True)
-            head_sha = subprocess.run(
-                ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
-            ).stdout.strip()
-
-            collect_changed_file_list(root=root, base_sha=base_sha, head_sha=head_sha, output_path=output)
-
-            self.assertEqual(
-                {".github/workflows/harness-ci.yml", "safe.txt"},
-                set(output.read_bytes().decode("utf-8").split("\0")[:-1]),
-            )
-
-    def test_workflow_changed_path_collector_requires_external_regular_output(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            with self.assertRaisesRegex(ValueError, "outside candidate checkout"):
-                collect_changed_file_list(
-                    root=root,
-                    base_sha="a" * 40,
-                    head_sha="b" * 40,
-                    output_path=root / "changed-files.nul",
-                )
-
-    def test_missing_changed_file_list_fails_closed(self) -> None:
-        with TemporaryDirectory() as temp, TemporaryDirectory() as external:
-            root = Path(temp)
-            self.write_workflow(root, f"jobs:\n  t:\n    steps:\n      - uses: actions/checkout@{PINNED_SHA}\n")
-            event = self.write_event(root)
-
-            errors = check_security_policy(
-                root=root,
-                event_path=event,
-                changed_files_path=Path(external) / "missing.nul",
-            )
-
-            self.assertTrue(any("could not safely read changed paths" in error for error in errors))
-
-    def test_trusted_harness_entrypoints_are_sensitive(self) -> None:
-        for filename in (
-            "scripts/harness.py",
-            "scripts/command_runner.py",
-            "scripts/github_expression_scanner.py",
-            "AGENTS.md",
-            ".agents/skills/harness/SKILL.md",
-            ".agents/skills/pr-workflow/SKILL.md",
-            "scripts/validate_project.py",
-            "scripts/check_pr_contract.py",
-        ):
-            with self.subTest(filename=filename), TemporaryDirectory() as temp:
-                root = Path(temp)
-                self.write_workflow(root, f"jobs:\n  t:\n    steps:\n      - uses: actions/checkout@{PINNED_SHA}\n")
-                event = self.write_event(root, [filename])
-
-                errors = check_security_policy(root=root, event_path=event)
-
-                self.assertTrue(any("security-sensitive" in error for error in errors))
-
-    def test_security_workflow_writes_changed_paths_outside_candidate(self) -> None:
-        workflow = (ROOT / ".github/workflows/harness-ci.yml").read_text(encoding="utf-8")
-
-        self.assertIn("${{ runner.temp }}/harness-changed-files.nul", workflow)
-        self.assertIn("--changed-files \"$CHANGED_FILES\"", workflow)
-        self.assertIn("--collect-changed-files", workflow)
-        self.assertIn("Initialize changed file list", workflow)
-        self.assertNotIn('git -C candidate diff --name-only', workflow)
-        self.assertNotIn("workflow_dispatch:", workflow)
-        self.assertNotIn("> candidate/.harness-changed-files.txt", workflow)
-        self.assertIn("GITHUB_TOKEN: ${{ github.token }}", workflow)
-        self.assertIn("pull-requests: read", workflow)
-
-    def test_repository_and_project_validation_workflows_are_separate(self) -> None:
-        harness_workflow = (ROOT / ".github/workflows/harness-ci.yml").read_text(encoding="utf-8")
-        project_workflow = (ROOT / ".github/workflows/project-ci.yml").read_text(encoding="utf-8")
-
-        self.assertIn("runs-on: ubuntu-24.04", harness_workflow)
-        self.assertIn("runs-on: ubuntu-24.04", project_workflow)
-        self.assertIn("pull_request_target:", harness_workflow)
-        self.assertIn("pull_request_target:", project_workflow)
-        self.assertIn("harness-core:", harness_workflow)
-        self.assertNotIn("project-validation:", harness_workflow)
-        self.assertIn("project-validation:", project_workflow)
-        self.assertIn("trusted/scripts/harness.py check --full", project_workflow)
-        self.assertIn("--config-root trusted", project_workflow)
-        self.assertNotIn("unittest", project_workflow)
-        self.assertNotIn("test_harness.py", project_workflow)
-        self.assertIn("permissions: {}", project_workflow)
-        self.assertIn("source-package:", project_workflow)
-        self.assertIn("download-artifact", project_workflow)
-        self.assertIn("upload-artifact", project_workflow)
-        self.assertIn("candidate-source.tar", project_workflow)
-        self.assertIn("trusted-source.tar", project_workflow)
-        self.assertIn("retention-days: 1", project_workflow)
-        self.assertIn("git init candidate", project_workflow)
-        self.assertEqual(3, project_workflow.count("persist-credentials: false"))
-        self.assertNotIn("GITHUB_TOKEN", project_workflow)
-        self.assertNotIn("secrets.", project_workflow)
-
-    def test_repository_ci_runs_candidate_checks_through_trusted_isolated_harness(self) -> None:
-        workflow = (ROOT / ".github/workflows/harness-ci.yml").read_text(encoding="utf-8")
-
-        self.assertIn('"${RUNNER_TEMP}/trusted-source.tar"', workflow)
-        self.assertIn('"${RUNNER_TEMP}/candidate-source.tar"', workflow)
-        self.assertIn("trusted-source.tar", workflow)
-        self.assertIn("candidate-source.tar", workflow)
-        self.assertIn("python3 -I trusted/scripts/harness.py check --full", workflow)
-        self.assertIn("--root candidate --config-root trusted", workflow)
-        self.assertNotIn("python3 -m unittest", workflow)
-        self.assertNotIn("python3 -m py_compile", workflow)
-        self.assertNotIn("python3 scripts/harness.py doctor", workflow)
-
-    def test_only_protected_triggers_use_trusted_main_for_checkouts(self) -> None:
-        for workflow in (
-            (ROOT / ".github/workflows/harness-ci.yml").read_text(encoding="utf-8"),
-            (ROOT / ".github/workflows/project-ci.yml").read_text(encoding="utf-8"),
-        ):
-            trusted = workflow.split("- name: Checkout trusted", 1)[1].split("- name:", 1)[0]
-            with self.subTest(workflow=workflow[:40]):
-                self.assertNotIn("workflow_dispatch:", workflow)
-                self.assertIn("refs/heads/main", trusted)
-                self.assertNotIn("github.sha", trusted)
-
-    def test_pr_workflow_definition_must_come_from_the_base_branch(self) -> None:
-        pull_request = "on:\n  pull_request:\n    branches: [main]\n"
-        errors = check_workflow_text(Path(".github/workflows/harness-ci.yml"), pull_request)
-        self.assertTrue(any("trusted pull_request_target" in error for error in errors), errors)
-
-        wrong_ref = (
-            "on:\n  pull_request_target:\n    branches: [release]\n"
-            "    types: [opened, synchronize, reopened, ready_for_review, edited, labeled, unlabeled]\n"
-        )
-        errors = check_workflow_text(Path(".github/workflows/harness-ci.yml"), wrong_ref)
-        self.assertTrue(any("limited to reviewed PR events on main" in error for error in errors), errors)
-
-        malformed_types = (
-            "on:\n  pull_request_target:\n    branches: [main]\n"
-            "    types: [{name: opened}]\n"
-        )
-        errors = check_workflow_text(Path(".github/workflows/harness-ci.yml"), malformed_types)
-        self.assertTrue(errors)
+            setup_project(root)
+            with patch("scripts.harness.load_config", side_effect=RuntimeError("programmer error")):
+                with self.assertRaisesRegex(RuntimeError, "programmer error"):
+                    check_security_policy(root=root)
 
 
 if __name__ == "__main__":

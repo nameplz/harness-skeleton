@@ -6,6 +6,7 @@
 - Durable design decisions: `docs/ADR.md`
 - Task routing, planning, and review: `.agents/skills/harness/SKILL.md`
 - GitHub PR publication and CI completion: `.agents/skills/pr-workflow/SKILL.md`
+- Project CI initialization: `.agents/skills/ci-setup/SKILL.md`
 - Project validation and risk settings: `.harness/config.toml`
 - Product scope: `docs/PRD.md`; visual work: `docs/UI_GUIDE.md`
 
@@ -15,10 +16,11 @@
 - Project validation commands are explicit argv arrays. Never infer a language tool or invoke a command through a shell.
 - Invalid configuration, unsafe paths, and failed required checks stop the operation. Bound captured output and redact known credential-shaped values and email addresses.
 - Keep one implementation writer. Use subagents only for independent read-only investigation or review.
-- Require a published GitHub issue and an issue-specific branch before implementation for issue-to-PR delivery. An explicit local-only user request authorizes local implementation and validation without creating an external issue or publishing. Commit each completed delivery task after configured checks and required reviews pass; then use the project PR workflow and wait for required CI checks to pass. Keep incomplete, failed, unrelated, and pre-existing user changes out of commits; honor explicit no-commit requests. Never merge unless asked.
+- Require a published GitHub issue and an issue-specific branch before implementation for issue-to-PR delivery. An explicit local-only user request authorizes local implementation and validation without creating an external issue or publishing. Commit each completed delivery task after configured checks and required reviews pass; then use the project PR workflow and wait for generated CI checks to pass. Keep incomplete, failed, unrelated, and pre-existing user changes out of commits; honor explicit no-commit requests. Never merge unless asked.
 - Validation and review evidence belongs to its HEAD, dirty diff, and configuration. Rerun affected checks/reviews after changes; unknown identity is not proof that a previous result applies.
 
 ## Development
 
 - Add or update tests for behavior changes. Run `python scripts/harness.py check --quick` for focused work and `--full` before completion when configured.
-- Run `python scripts/harness.py risk` after code changes and follow its review signals. CI remains the trusted merge gate.
+- For an unconfigured project, run `python scripts/harness.py doctor --bootstrap` and use `.agents/skills/ci-setup/SKILL.md`; `check` must report `unconfigured`, never pass empty profiles.
+- Run `python scripts/harness.py risk` after code changes and follow its review signals. GitHub Actions and branch protection provide the merge gate when configured; the local policy checker is not an independent trust boundary.

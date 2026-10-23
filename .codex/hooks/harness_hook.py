@@ -135,6 +135,8 @@ def _run_quick_check(root: Path) -> tuple[bool, str]:
         report = json.loads(completed.stdout)
     except json.JSONDecodeError:
         return False, sanitize_log(completed.stdout + completed.stderr) or "quick validation returned invalid output"
+    if report.get("status") == "unconfigured":
+        return True, ""
     if completed.returncode == 0 and report.get("ok") is True:
         return True, ""
     if isinstance(report.get("checks"), list):

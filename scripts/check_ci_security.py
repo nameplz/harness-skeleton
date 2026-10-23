@@ -1,330 +1,472 @@
 #!/usr/bin/env python3
-"""Check GitHub Actions workflow safety for Harness CI."""
+"""Validate a project's GitHub Actions CI contract and security policy."""
 
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import json
-import os
 import re
 import subprocess
-import urllib.error
-import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import Any
 
+_HELPER_IMPORT_ERROR: str | None = None
 try:
-    from .command_runner import run_bounded_command
+    from .ci_action_policy import check_job_actions as _check_job_actions
+    from .ci_action_policy import check_local_action_metadata as _check_local_action_metadata
     from .github_expression_scanner import extract_github_expressions
-except ImportError:  # Direct script invocation from the scripts directory.
-    from command_runner import run_bounded_command
-    from github_expression_scanner import extract_github_expressions
+    from .harness_common import HarnessError, sanitize_log
+except ImportError as exc:
+    try:  # Direct script invocation from the scripts directory.
+        from ci_action_policy import check_job_actions as _check_job_actions
+        from ci_action_policy import check_local_action_metadata as _check_local_action_metadata
+        from github_expression_scanner import extract_github_expressions
+        from harness_common import HarnessError, sanitize_log
+    except ImportError:
+        _HELPER_IMPORT_ERROR = str(exc)
+        _check_job_actions = None
+        _check_local_action_metadata = None
+        extract_github_expressions = None
 
-FULL_SHA_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@[0-9a-f]{40}")
-FORBIDDEN_WORKFLOW_PATTERNS = (
-    (re.compile(r"\bworkflow_dispatch\b", re.IGNORECASE), "manual workflow dispatch is forbidden"),
-    (re.compile(r"\bself-hosted\b", re.IGNORECASE), "self-hosted runners are forbidden"),
-    (re.compile(r"\b(deploy|publish|migration)\b", re.IGNORECASE), "deploy/publish/migration terms are forbidden"),
+        class HarnessError(Exception):
+            pass
+
+        def sanitize_log(value: Any) -> str:
+            return str(value)
+
+FULL_PROFILE_RE = re.compile(
+    r"(?:python|python3)[ \t]+-I[ \t]+scripts/harness\.py[ \t]+check[ \t]+--full\Z"
 )
-SENSITIVE_PREFIXES = (".github/workflows/", ".github/actions/", ".agents/", ".harness/", ".codex/")
-SENSITIVE_DIRECTORY_PATHS = frozenset(
-    {".github", ".github/workflows", ".github/actions", ".agents", ".harness", ".codex"}
-)
-SENSITIVE_SCRIPT_PATTERNS = ("*validation*.py", "validate*.py", "check_*.py")
-SENSITIVE_FILE_PATHS = frozenset(
-    {
-        "AGENTS.md",
-        ".agents/skills/harness/SKILL.md",
-        ".agents/skills/pr-workflow/SKILL.md",
-        "scripts/harness.py",
-        "scripts/harness_common.py",
-        "scripts/harness_risk.py",
-        "scripts/command_runner.py",
-        "scripts/github_expression_scanner.py",
-        "scripts/harness_evidence.py",
-    }
-)
-TRUSTED_MAINTENANCE_LABEL = "harness-trusted-maintenance"
-MAX_CHANGED_FILES_BYTES = 1024 * 1024
+JOB_ID_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*\Z")
+# shortcut: labels cannot attest hosted-runner identity; enforce trusted runner groups in GitHub settings.
+HOSTED_RUNNERS = frozenset({
+    "ubuntu-slim", "ubuntu-latest", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04",
+    "ubuntu-22.04-arm", "ubuntu-24.04-arm", "ubuntu-26.04-arm",
+    "windows-latest", "windows-2022", "windows-2025",
+    "windows-11-arm", "windows-11-vs2026-arm",
+    "macos-latest", "macos-14", "macos-15", "macos-26", "macos-15-intel", "macos-26-intel",
+    "xcode-27",
+})
+UNTRUSTED_EVENT_CONTEXT_RE = re.compile(r"\bgithub\s*\.\s*(?:head_ref|event)\b", re.IGNORECASE)
+FULL_ENV_HIJACK_KEYS = frozenset({
+    "path", "pythonpath", "pythonhome", "pythonuserbase", "pythonstartup", "pythoninspect",
+    "pythonexecutable", "bash_env", "env", "pathext", "ld_preload", "ld_library_path", "ld_audit",
+})
 MAX_WORKFLOW_BYTES = 1024 * 1024
 WORKFLOW_PARSE_TIMEOUT_SECONDS = 5
-TRUSTED_LABEL_PERMISSIONS = frozenset({"admin", "maintain"})
-HOSTED_RUNNER_LABELS = frozenset({"ubuntu-24.04"})
-TRUSTED_POLICY_JOB_PERMISSIONS = frozenset({("contents", "read"), ("pull-requests", "read")})
-TRUSTED_SOURCE_PACKAGE_PERMISSIONS = frozenset({("contents", "read")})
-TRUSTED_READ_ONLY_JOBS = {
-    (".github/workflows/harness-ci.yml", "security-policy"): TRUSTED_POLICY_JOB_PERMISSIONS,
-    (".github/workflows/project-ci.yml", "source-package"): TRUSTED_SOURCE_PACKAGE_PERMISSIONS,
-}
-TRUSTED_PULL_REQUEST_WORKFLOWS = frozenset(
-    {".github/workflows/harness-ci.yml", ".github/workflows/project-ci.yml"}
-)
-PULL_REQUEST_TARGET_TYPES = frozenset(
-    {"opened", "synchronize", "reopened", "ready_for_review", "edited", "labeled", "unlabeled"}
-)
-GITHUB_TOKEN_RE = re.compile(
-    r"\bgithub\s*(?:\.\s*token\b|\[\s*['\"]?\s*token\s*['\"]?\s*\])",
-    re.IGNORECASE,
-)
-GITHUB_INDEX_RE = re.compile(r"\bgithub\s*\[", re.IGNORECASE)
-GITHUB_OBJECT_FILTER_RE = re.compile(r"\bgithub\s*\.\s*\*", re.IGNORECASE)
-GITHUB_SERIALIZATION_RE = re.compile(r"\btojson\s*\(\s*github\s*\)", re.IGNORECASE)
-GIT_SHA_RE = re.compile(r"[0-9a-fA-F]{40}")
+MAX_WORKFLOWS = 100
+SAFE_RUN_SHELLS = frozenset({"bash", "sh", "pwsh", "powershell", "cmd", "cmd.exe"})
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--event")
-    parser.add_argument("--root", default=".")
-    parser.add_argument("--changed-files")
-    parser.add_argument("--collect-changed-files", action="store_true")
-    parser.add_argument("--base-sha")
-    parser.add_argument("--head-sha")
-    parser.add_argument("--output")
+    parser = argparse.ArgumentParser(description="Validate GitHub Actions CI workflows.")
+    parser.add_argument("--root", default=".", help="project root")
     return parser.parse_args()
 
 
 def workflow_files(root: Path) -> list[Path]:
     workflows = root / ".github/workflows"
-    if not workflows.exists():
+    if workflows.is_symlink() or not workflows.is_dir():
         return []
-    return sorted([*workflows.glob("*.yml"), *workflows.glob("*.yaml")])
+    return sorted(path for path in workflows.iterdir()
+                  if (path.is_file() or path.is_symlink()) and path.suffix in {".yml", ".yaml"})
 
 
-def check_security_policy(
-    *,
-    root: Path,
-    event_path: Path,
-    changed_files_path: Path | None = None,
-    github_token: str | None = None,
-    repository: str | None = None,
-) -> list[str]:
-    root = root.resolve()
+def check_security_policy(*, root: Path, config_root: Path | None = None) -> dict[str, Any]:
+    """Return a static CI policy result; this is not an independent trust boundary."""
+    warnings = _policy_warnings()
+    try:
+        workspace = root.resolve(strict=True)
+        if not workspace.is_dir():
+            raise OSError
+    except (OSError, RuntimeError):
+        return _result(["project root is unavailable"], [], [], warnings, [])
+    if _HELPER_IMPORT_ERROR is not None:
+        return _result(["required CI policy modules are unavailable"], [], [], warnings, [], status="invalid")
+
+    errors = _workflow_directory_errors(workspace)
+    files, scan_failed, scan_errors = _scan_workflow_files(workspace)
+    errors.extend(scan_errors)
+    if len(files) > MAX_WORKFLOWS:
+        errors.append("workflow count exceeds the limit")
+        files = files[:MAX_WORKFLOWS]
+    if not files:
+        errors.append("CI is unconfigured: no .github/workflows/*.yml or *.yaml files exist")
+    profiles_status, profile_error = _configured_profiles(workspace, config_root=config_root)
+    if profiles_status != "configured":
+        errors.append(profile_error)
+    policy_errors, workflows, checks, required_checks, has_pull_request = _inspect_workflow_policy(workspace, files)
+    errors.extend(policy_errors)
+    checks.extend([
+        {"name": "validation_profiles", "passed": profiles_status == "configured"},
+        {"name": "pull_request_trigger", "passed": has_pull_request},
+        {"name": "full_profile_job", "passed": bool(required_checks)},
+    ])
+    status = _policy_status(profiles_status, scan_failed, errors, files, profile_error,
+                            has_pull_request, required_checks)
+    return _result(list(dict.fromkeys(errors)), workflows, checks, warnings, required_checks, status=status)
+
+
+def _policy_warnings() -> list[str]:
+    return [
+        "Static checks cannot prove test quality or replace GitHub branch protection.",
+        "Runner labels cannot prove GitHub-hosted runner identity; enforce trusted runner groups in GitHub settings.",
+        "External action code is not inspected; pin and trust reviewed action revisions.",
+        "Pre-Full shell setup is checked for common command-file writes, not fully interpreted; review those scripts.",
+        "Dockerfile RUN checks catch common package and network APIs but cannot prove arbitrary build commands are offline.",
+    ]
+
+
+def _workflow_directory_errors(workspace: Path) -> list[str]:
     errors: list[str] = []
-    for relative in (".github", ".github/workflows", ".github/actions"):
-        path = root / relative
+    for relative in (".github", ".github/workflows"):
+        path = workspace / relative
         if path.is_symlink():
             errors.append(f"{relative} cannot be a symlink")
-            return errors
-        if path.exists() and not path.is_dir():
+        elif path.exists() and not path.is_dir():
             errors.append(f"{relative} must be a directory")
-            return errors
-    for workflow in workflow_files(root):
-        if workflow.is_symlink():
-            errors.append(f"{workflow.relative_to(root)} cannot be a symlink")
-            continue
+    return errors
+
+
+def _scan_workflow_files(workspace: Path) -> tuple[list[Path], bool, list[str]]:
+    try:
+        return workflow_files(workspace), False, []
+    except (OSError, RuntimeError):
+        return [], True, ["CI workflow directory could not be inspected"]
+
+
+def _inspect_workflow_policy(workspace: Path, files: list[Path]) -> tuple[
+    list[str], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, str]], bool
+]:
+    errors, workflows, checks, required_checks, has_pull_request = _inspect_workflows(workspace, files)
+    pr_action_refs = [reference for workflow in workflows for reference in workflow.get("pr_action_refs", [])]
+    try:
+        errors.extend(_check_local_action_metadata(
+            workspace, pr_action_refs, parse_workflow_yaml=_parse_workflow_yaml,
+            check_expressions=_check_expressions, max_actions=MAX_WORKFLOWS,
+            max_file_bytes=MAX_WORKFLOW_BYTES,
+        ))
+    except (OSError, RuntimeError):
+        errors.append(".github/actions metadata could not be inspected")
+    job_checks = [job for workflow in workflows for job in workflow.get("job_checks", [])]
+    errors.extend(_check_required_check_collisions(required_checks, job_checks))
+    if not has_pull_request:
+        errors.append("at least one pull_request validation workflow is required")
+    if not required_checks:
+        errors.append("no pull_request job runs scripts/harness.py check --full")
+    return errors, workflows, checks, required_checks, has_pull_request
+
+
+def _policy_status(profiles_status: str, scan_failed: bool, errors: list[str], files: list[Path],
+                   profile_error: str, has_pull_request: bool,
+                   required_checks: list[dict[str, str]]) -> str:
+    empty_ci_errors = {
+        "CI is unconfigured: no .github/workflows/*.yml or *.yaml files exist",
+        "at least one pull_request validation workflow is required",
+        "no pull_request job runs scripts/harness.py check --full",
+    }
+    incomplete_ci_errors = {
+        "at least one pull_request validation workflow is required",
+        "no pull_request job runs scripts/harness.py check --full",
+    }
+    policy_errors = [error for error in errors if error != profile_error
+                     and error not in incomplete_ci_errors
+                     and not error.endswith(": no job runs scripts/harness.py check --full")
+                     and (files or error not in empty_ci_errors)]
+    if profiles_status == "invalid" or scan_failed or policy_errors:
+        return "invalid"
+    if files and profiles_status == "configured" and has_pull_request and required_checks:
+        return "configured"
+    return "unconfigured"
+
+
+def _inspect_workflows(workspace: Path, files: list[Path]) -> tuple[
+    list[str], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, str]], bool
+]:
+    errors: list[str] = []
+    workflows: list[dict[str, Any]] = []
+    checks: list[dict[str, Any]] = []
+    required_checks: list[dict[str, str]] = []
+    has_pull_request = False
+    for path in files:
         try:
-            workflow.resolve(strict=True).relative_to(root)
-        except (OSError, RuntimeError, ValueError):
-            errors.append(f"{workflow.relative_to(root)} must remain inside candidate checkout")
-            continue
-        try:
-            if workflow.stat().st_size > MAX_WORKFLOW_BYTES:
-                errors.append(f"{workflow.relative_to(root)} exceeds the workflow size limit")
+            relative = path.relative_to(workspace)
+            if path.is_symlink():
+                errors.append(f"{relative} cannot be a symlink")
                 continue
-            text = workflow.read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
-            errors.append(f"{workflow.relative_to(root)} could not be read safely")
+            path.resolve(strict=True).relative_to(workspace)
+            if path.stat().st_size > MAX_WORKFLOW_BYTES:
+                errors.append(f"{relative} exceeds the workflow size limit")
+                continue
+            parsed = _parse_workflow_yaml(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, RuntimeError, ValueError, subprocess.SubprocessError):
+            errors.append(f"{path.name}: workflow YAML or file path is invalid")
             continue
-        errors.extend(check_workflow_text(workflow.relative_to(root), text, root=root))
+        workflow_errors, meta = _check_workflow(relative, parsed, workspace)
+        errors.extend(workflow_errors)
+        workflows.append(meta)
+        has_pull_request = has_pull_request or "pull_request" in meta["events"]
+        required_checks.extend(meta["required_checks"])
+        checks.append({"name": f"workflow:{relative.as_posix()}", "passed": not workflow_errors})
+    return errors, workflows, checks, required_checks, has_pull_request
 
+
+def _result(errors: list[str], workflows: list[dict[str, Any]], checks: list[dict[str, Any]],
+            warnings: list[str], required_checks: list[dict[str, str]], *, status: str | None = None) -> dict[str, Any]:
+    ok = not errors
+    return {"ok": ok, "status": status or ("configured" if ok else "invalid"),
+            "workflows": workflows, "required_checks": required_checks, "checks": checks,
+            "errors": errors, "warnings": warnings}
+
+
+def _configured_profiles(root: Path, *, config_root: Path | None = None) -> tuple[str, str]:
+    config_path = (root if config_root is None else config_root) / ".harness/config.toml"
     try:
-        event = read_event(event_path)
-        changed = changed_files_from_event(
-            root=root,
-            event=event,
-            changed_files_path=changed_files_path,
-        )
-    except (OSError, UnicodeError, ValueError, subprocess.SubprocessError) as error:
-        errors.append(f"could not safely read changed paths: {error}")
-        return errors
-
-    safe_changed: list[str] = []
-    for filename in changed:
-        if not is_safe_changed_path(filename):
-            errors.append(f"PR contains unsafe changed path: {filename!r}")
-        else:
-            safe_changed.append(filename)
-
-    sensitive = [filename for filename in safe_changed if is_sensitive_path(filename)]
-    if not sensitive:
-        return errors
-
-    authorized, reason = trusted_maintenance_authorized(
-        event=event,
-        github_token=github_token or os.environ.get("GITHUB_TOKEN"),
-        repository=repository or os.environ.get("GITHUB_REPOSITORY"),
-    )
-    if authorized:
-        return errors
-    errors.extend(f"PR changes security-sensitive path: {filename}" for filename in sensitive)
-    if has_trusted_maintenance_label(event):
-        errors.append(f"trusted maintenance label was not authorized: {reason}")
-    return errors
-
-
-def read_event(event_path: Path) -> dict[str, Any]:
-    event = json.loads(event_path.read_text(encoding="utf-8"))
-    if not isinstance(event, dict):
-        raise ValueError("event payload must be a JSON object")
-    return event
-
-
-def has_trusted_maintenance_label(event: dict[str, Any]) -> bool:
-    pull_request = event.get("pull_request")
-    if not isinstance(pull_request, dict):
-        return False
-    labels = pull_request.get("labels")
-    if not isinstance(labels, list):
-        return False
-    return any(
-        isinstance(label, dict) and label.get("name") == TRUSTED_MAINTENANCE_LABEL
-        for label in labels
-    )
-
-
-def trusted_maintenance_authorized(
-    *,
-    event: dict[str, Any],
-    github_token: str | None,
-    repository: str | None,
-) -> tuple[bool, str]:
-    """Authorize only a fresh label action made by an admin or maintainer."""
-
-    if not has_trusted_maintenance_label(event):
-        return False, "label is absent"
-    if event.get("action") != "labeled":
-        return False, "the label must be applied in this workflow event"
-    label = event.get("label")
-    if not isinstance(label, dict) or label.get("name") != TRUSTED_MAINTENANCE_LABEL:
-        return False, "this event did not apply the trusted maintenance label"
-    sender = event.get("sender")
-    username = sender.get("login") if isinstance(sender, dict) else None
-    if not isinstance(username, str) or not re.fullmatch(r"[A-Za-z0-9-]+", username):
-        return False, "label actor is missing or invalid"
-    if not isinstance(repository, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
-        return False, "trusted repository is missing or invalid"
-    if not github_token:
-        return False, "GitHub token is unavailable"
-
+        config_missing = not config_path.exists() and not config_path.is_symlink()
+    except (OSError, RuntimeError) as exc:
+        return "invalid", f".harness/config.toml is unavailable: {sanitize_log(str(exc))}"
+    if config_missing:
+        return "unconfigured", "unconfigured: .harness/config.toml is missing"
     try:
-        permission = collaborator_permission(repository, username, github_token)
-    except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError):
-        return False, "GitHub could not verify the label actor's repository permission"
-    if permission not in TRUSTED_LABEL_PERMISSIONS:
-        return False, "label actor is not an admin or maintainer"
-    return True, "authorized"
+        try:
+            from .harness import load_config
+        except ImportError:  # Direct script invocation from the scripts directory.
+            from harness import load_config
+        config = load_config(root, config_root=config_root)
+    except HarnessError as exc:
+        return "invalid", f".harness/config.toml is invalid or unavailable: {sanitize_log(str(exc))}"
+    if not config.quick or not config.full:
+        return "unconfigured", ".harness/config.toml must define non-empty checks.quick and checks.full profiles"
+    return "configured", ""
 
 
-def collaborator_permission(repository: str, username: str, token: str) -> str | None:
-    encoded_username = urllib.parse.quote(username, safe="")
-    request = urllib.request.Request(
-        f"https://api.github.com/repos/{repository}/collaborators/{encoded_username}/permission",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
-            "X-GitHub-Api-Version": "2026-03-10",
-        },
-    )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        result = json.loads(response.read().decode("utf-8"))
-    if not isinstance(result, dict):
-        return None
-    role_name = result.get("role_name")
-    if role_name == "maintain":
-        return "maintain"
-    permission = result.get("permission")
-    return permission if isinstance(permission, str) else None
-
-
-def check_workflow_text(relative: Path, text: str, *, root: Path | None = None) -> list[str]:
+def _check_workflow(relative: Path, workflow: dict[str, Any], root: Path) -> tuple[list[str], dict[str, Any]]:
     errors: list[str] = []
-    try:
-        workflow = _parse_workflow_yaml(text)
-    except (OSError, ValueError, subprocess.SubprocessError):
-        return [f"{relative}: workflow YAML is invalid or could not be parsed safely"]
-
-    for value in _string_values(workflow):
-        for pattern, reason in FORBIDDEN_WORKFLOW_PATTERNS:
-            if pattern.search(value):
-                message = f"{relative}: {reason}"
-                if message not in errors:
-                    errors.append(message)
-
-    errors.extend(_check_workflow_triggers(relative, workflow))
-    errors.extend(_check_github_expressions(relative, workflow))
-    errors.extend(_check_job_runners(relative, workflow))
-
-    for mapping in _mappings(workflow):
-        action_ref = mapping.get("uses")
-        if action_ref is not None:
-            if not isinstance(action_ref, str):
-                errors.append(f"{relative}: action reference must be a string")
-            elif action_ref.startswith("../"):
-                errors.append(f"{relative}: local action path cannot escape the checkout")
-            elif action_ref.startswith("./") and not _is_safe_local_action_reference(action_ref, root=root):
-                errors.append(f"{relative}: local action path cannot escape the checkout")
-            elif action_ref.startswith("./") and not _is_sensitive_local_action_reference(action_ref):
-                errors.append(f"{relative}: local actions must live under .github/actions/")
-            elif not action_ref.startswith("./") and not FULL_SHA_RE.fullmatch(action_ref):
-                errors.append(f"{relative}: external action must be pinned to full commit SHA: {action_ref}")
-            elif _is_checkout_action(action_ref):
-                errors.extend(_check_checkout_credentials(relative, mapping))
-
-        if "permissions" in mapping:
-            errors.extend(_check_permissions(relative, mapping["permissions"]))
-    return errors
-
-
-def _check_workflow_triggers(relative: Path, workflow: dict[str, Any]) -> list[str]:
     triggers = workflow.get("on")
-    if triggers is None:
-        if relative.as_posix().startswith(".github/workflows/"):
-            return [f"{relative}: workflow must declare an approved trigger"]
-        return []
+    events = list(triggers) if isinstance(triggers, dict) else []
+    is_pr = "pull_request" in events
+    jobs = workflow.get("jobs")
     if not isinstance(triggers, dict):
-        return [f"{relative}: workflow triggers must be a mapping"]
+        errors.append(f"{relative}: workflow triggers must be a mapping")
+    elif is_pr:
+        if set(events) - {"pull_request", "push"}:
+            errors.append(f"{relative}: validation workflows may use only pull_request and push")
+        errors.extend(_check_triggers(relative, triggers))
+    if "pull_request_target" in events and _has_pr_target_execution(jobs):
+        errors.append(f"{relative}: pull_request_target jobs with executable steps are unsupported")
+    if not isinstance(jobs, dict) or not jobs:
+        errors.append(f"{relative}: jobs must be a non-empty mapping")
+        jobs = {}
+    if is_pr:
+        workflow_context = {key: value for key, value in workflow.items() if key != "jobs"}
+        errors.extend(_check_expressions(relative, "workflow", workflow_context))
+        if "permissions" not in workflow:
+            errors.append(f"{relative}: workflow must declare least-privilege permissions")
+        else:
+            errors.extend(_check_permissions(relative, workflow["permissions"]))
 
+    job_errors, full_jobs, job_checks, pr_action_refs = _collect_job_metadata(
+        relative, workflow, jobs, root, is_pr
+    )
+    errors.extend(job_errors)
+    if is_pr:
+        errors.extend(_check_dependencies(relative, jobs))
+        errors.extend(_check_full_job_dependencies(relative, jobs, full_jobs))
+        if not full_jobs:
+            errors.append(f"{relative}: no job runs scripts/harness.py check --full")
+    meta = {"path": relative.as_posix(), "name": str(workflow.get("name") or relative.stem),
+            "events": events, "jobs": [key for key in jobs if isinstance(key, str)], "job_checks": job_checks,
+            "pr_action_refs": pr_action_refs,
+            "required_checks": full_jobs}
+    return list(dict.fromkeys(errors)), meta
+
+
+def _collect_job_metadata(relative: Path, workflow: dict[str, Any], jobs: dict[str, Any],
+                          root: Path, is_pr: bool) -> tuple[
+    list[str], list[dict[str, str]], list[dict[str, str]], list[str]
+]:
     errors: list[str] = []
-    if "pull_request" in triggers:
-        errors.append(f"{relative}: PR workflows must use the trusted pull_request_target event")
-    allowed_events = {"push", "pull_request_target"}
-    if set(triggers) - allowed_events:
-        errors.append(f"{relative}: workflow event is not approved")
+    full_jobs: list[dict[str, str]] = []
+    job_checks: list[dict[str, str]] = []
+    pr_action_refs: list[str] = []
+    for job_id, job in jobs.items():
+        job_errors, full_job = _check_job(relative, job_id, job, workflow, root, is_pr)
+        errors.extend(job_errors)
+        if is_pr and isinstance(job_id, str) and isinstance(job, dict) and not _is_push_only_job(job):
+            workflow_name = str(workflow.get("name") or relative.stem)
+            job_checks.append({"workflow": workflow_name, "workflow_path": relative.as_posix(),
+                               "job_id": job_id, "job_name": str(job.get("name") or job_id)})
+            steps = job.get("steps")
+            if isinstance(steps, list):
+                pr_action_refs.extend(step["uses"] for step in steps if isinstance(step, dict)
+                                      and isinstance(step.get("uses"), str)
+                                      and (step["uses"] == "./.github/actions"
+                                           or step["uses"].startswith("./.github/actions/")))
+        if full_job:
+            full_jobs.append(full_job)
+    return errors, full_jobs, job_checks, pr_action_refs
 
-    has_target = "pull_request_target" in triggers
-    target = triggers.get("pull_request_target")
-    if has_target:
-        if relative.as_posix() not in TRUSTED_PULL_REQUEST_WORKFLOWS:
-            errors.append(f"{relative}: pull_request_target is restricted to trusted CI workflows")
-        if (
-            not isinstance(target, dict)
-            or set(target) != {"branches", "types"}
-            or target.get("branches") != ["main"]
-            or not isinstance(target.get("types"), list)
-            or not all(isinstance(event_type, str) for event_type in target["types"])
-            or frozenset(target["types"]) != PULL_REQUEST_TARGET_TYPES
-        ):
-            errors.append(f"{relative}: pull_request_target must be limited to reviewed PR events on main")
 
-    has_push = "push" in triggers
-    push = triggers.get("push")
-    if has_push and (
-        not isinstance(push, dict)
-        or set(push) != {"branches"}
-        or push.get("branches") != ["main"]
+def _check_job(relative: Path, job_id: Any, job: Any, workflow: dict[str, Any], root: Path,
+               is_pr: bool) -> tuple[list[str], dict[str, str] | None]:
+    errors: list[str] = []
+    if not isinstance(job_id, str) or not JOB_ID_RE.fullmatch(job_id):
+        return [f"{relative}: job identifiers must be stable strings"], None
+    if not isinstance(job, dict):
+        return [f"{relative}: job {job_id} must be a mapping"], None
+    errors.extend(_check_job_actions(relative, job, root))
+    if is_pr and not _is_push_only_job(job):
+        errors.extend(_check_validation_job(relative, job_id, job))
+        errors.extend(_check_expressions(relative, job_id, job))
+    has_full, full_steps = _full_profile_steps(job)
+    if not is_pr or not has_full or _is_push_only_job(job):
+        return errors, None
+    workflow_name = str(workflow.get("name") or relative.stem)
+    full_job = {"workflow": workflow_name, "workflow_path": relative.as_posix(),
+                "job_id": job_id, "job_name": str(job.get("name") or job_id)}
+    if job.get("if") is not None:
+        errors.append(f"{relative}: Full validation job {job_id} cannot be conditional")
+    if _is_enabled(job.get("continue-on-error")):
+        errors.append(f"{relative}: Full validation job {job_id} cannot ignore failures")
+    strategy = job.get("strategy")
+    if isinstance(strategy, dict) and "matrix" in strategy:
+        errors.append(f"{relative}: Full validation job {job_id} cannot use a matrix check name")
+    for index, step in full_steps:
+        if step.get("if") is not None:
+            errors.append(f"{relative}: Full validation step in {job_id} cannot be conditional")
+        if _is_enabled(step.get("continue-on-error")):
+            errors.append(f"{relative}: Full validation step in {job_id} cannot ignore failures")
+        errors.extend(_check_full_execution_context(relative, workflow, job_id, job, step, index))
+    return errors, full_job
+
+
+def _check_full_execution_context(relative: Path, workflow: dict[str, Any], job_id: str,
+                                  job: dict[str, Any], step: dict[str, Any], step_index: int) -> list[str]:
+    errors: list[str] = []
+    working_directory = _effective_run_option(workflow, job, step, "working-directory")
+    if working_directory is not None and (
+        not isinstance(working_directory, str) or working_directory.strip() not in {".", "./"}
     ):
-        errors.append(f"{relative}: push workflows must be limited to main")
-    if not has_target and not has_push:
-        errors.append(f"{relative}: workflow must use a trusted CI trigger")
+        errors.append(f"{relative}: Full validation step in {job_id} must run from the repository root")
+    shell = _effective_run_option(workflow, job, step, "shell")
+    if shell is not None and (not isinstance(shell, str) or shell.casefold() not in SAFE_RUN_SHELLS):
+        errors.append(f"{relative}: Full validation step in {job_id} has an unsupported shell")
+    for settings in (workflow, job, step):
+        environment = settings.get("env")
+        if isinstance(environment, dict) and any(
+            str(key).casefold() in FULL_ENV_HIJACK_KEYS
+            or str(key).casefold().startswith("dyld_") for key in environment
+        ):
+            errors.append(f"{relative}: interpreter environment can alter Full validation in {job_id}")
+            break
+    steps = job.get("steps")
+    if isinstance(steps, list):
+        for prior_step in steps[:step_index]:
+            if not isinstance(prior_step, dict):
+                continue
+            action_ref = prior_step.get("uses")
+            if isinstance(action_ref, str) and (action_ref == "./.github/actions"
+                                                or action_ref.startswith("./.github/actions/")):
+                errors.append(f"{relative}: local actions cannot run before Full validation in {job_id}")
+            run = prior_step.get("run")
+            # shortcut: detect common shell indirection; review other script obfuscation as a blocker.
+            if isinstance(run, str) and re.search(
+                r"\bGITHUB_|\$\(|\$\{!|`|\beval\b", run, re.IGNORECASE
+            ):
+                errors.append(f"{relative}: prior steps cannot change Full validation environment in {job_id}")
+                break
     return errors
 
 
-def _check_github_expressions(relative: Path, workflow: dict[str, Any]) -> list[str]:
-    errors: list[str] = []
+def _effective_run_option(workflow: dict[str, Any], job: dict[str, Any], step: dict[str, Any],
+                          option: str) -> Any:
+    for settings in (step, _run_defaults(job), _run_defaults(workflow)):
+        if isinstance(settings, dict) and settings.get(option) is not None:
+            return settings[option]
+    return None
 
+
+def _run_defaults(source: dict[str, Any]) -> Any:
+    defaults = source.get("defaults")
+    return defaults.get("run") if isinstance(defaults, dict) else None
+
+
+def _check_triggers(relative: Path, triggers: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    pr = triggers.get("pull_request")
+    if pr is None:
+        pr = {}
+    if not isinstance(pr, dict):
+        errors.append(f"{relative}: pull_request trigger must be a mapping")
+    else:
+        if "branches" in pr or "branches-ignore" in pr:
+            errors.append(f"{relative}: pull_request branch filters can skip required validation")
+        if "paths" in pr or "paths-ignore" in pr:
+            errors.append(f"{relative}: path filters can skip required validation")
+        types = pr.get("types")
+        required_types = {"opened", "synchronize", "reopened"}
+        if types is not None and (not isinstance(types, list) or not required_types.issubset(types)):
+            errors.append(f"{relative}: pull_request types must include opened, synchronize, and reopened")
+    push = triggers.get("push")
+    if push is not None:
+        branches = push.get("branches") if isinstance(push, dict) else None
+        if not isinstance(branches, list) or not branches or not all(
+            isinstance(item, str) and item not in {"*", "**"} for item in branches
+        ):
+            errors.append(f"{relative}: push must be limited to an explicit branch list")
+        if isinstance(push, dict) and ("paths" in push or "paths-ignore" in push):
+            errors.append(f"{relative}: path filters can skip required validation")
+    return errors
+
+
+def _check_validation_job(relative: Path, job_id: str, job: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if "container" in job or "services" in job:
+        errors.append(f"{relative}: job {job_id} cannot use job or service containers in pull_request validation")
+    if "environment" in job:
+        errors.append(f"{relative}: job {job_id} cannot request a deployment environment in pull_request validation")
+    if not _hosted_runner(job.get("runs-on")):
+        errors.append(f"{relative}: job {job_id} must use a GitHub-hosted runner")
+    timeout = job.get("timeout-minutes")
+    if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= 360:
+        errors.append(f"{relative}: job {job_id} must set timeout-minutes from 1 to 360")
+    steps = job.get("steps")
+    if not isinstance(steps, list) or not steps:
+        errors.append(f"{relative}: job {job_id} must define steps")
+    else:
+        for step in steps:
+            if not isinstance(step, dict):
+                errors.append(f"{relative}: job {job_id} steps must be mappings")
+            elif "run" in step and (not isinstance(step["run"], str) or not step["run"].strip()):
+                errors.append(f"{relative}: job {job_id} has an empty run step")
+    if job.get("permissions") is not None:
+        errors.extend(_check_permissions(relative, job["permissions"]))
+    return errors
+
+
+def _hosted_runner(value: Any) -> bool:
+    labels = [value] if isinstance(value, str) else value if isinstance(value, list) else []
+    return len(labels) == 1 and isinstance(labels[0], str) and labels[0].casefold() in HOSTED_RUNNERS
+
+
+def _check_permissions(relative: Path, value: Any) -> list[str]:
+    if value == "none":
+        return []
+    if not isinstance(value, dict):
+        return [f"{relative}: permissions must be a scoped read/none mapping"]
+    errors: list[str] = []
+    for scope, level in value.items():
+        if not isinstance(scope, str) or not isinstance(level, str):
+            errors.append(f"{relative}: permission declaration is invalid")
+        elif level.casefold() == "write":
+            errors.append(f"{relative}: write token permissions are forbidden in validation CI")
+        elif level.casefold() not in {"read", "none"}:
+            errors.append(f"{relative}: permission level must be read or none")
+    return errors
+
+
+def _check_expressions(relative: Path, job_id: str, job: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
     def inspect(value: Any, path: tuple[str | int, ...] = ()) -> None:
         if isinstance(value, dict):
             for key, item in value.items():
@@ -335,141 +477,153 @@ def _check_github_expressions(relative: Path, workflow: dict[str, Any]) -> list[
         elif isinstance(value, str):
             expressions, malformed = extract_github_expressions(value)
             if not expressions and not malformed and path and path[-1] == "if":
-                expressions, malformed = extract_github_expressions(f"${{{{ {value} }}}}")
+                expressions, malformed = extract_github_expressions("${{ " + value + " }}")
             if malformed:
                 errors.append(f"{relative}: GitHub expression is malformed")
-            for expression, code in expressions:
+            for _expression, code in expressions:
                 if re.search(r"\bsecrets\b", code, re.IGNORECASE):
-                    errors.append(f"{relative}: secrets access is forbidden in CI workflow")
-                elif GITHUB_OBJECT_FILTER_RE.search(code):
-                    errors.append(f"{relative}: object filters over the github context are forbidden")
-                elif GITHUB_INDEX_RE.search(code):
-                    errors.append(f"{relative}: bracket access to the github context is forbidden")
-                elif GITHUB_TOKEN_RE.search(code):
-                    if not _is_allowed_policy_token_expression(workflow, path, value, expression):
-                        errors.append(f"{relative}: github.token access is forbidden outside the trusted policy step")
-                elif GITHUB_SERIALIZATION_RE.search(code):
-                    errors.append(f"{relative}: serialization of the github context is forbidden")
-
-    inspect(workflow)
+                    errors.append(f"{relative}: secrets context is forbidden in pull_request validation")
+                if re.search(r"\bgithub\s*\.\s*token\b", code, re.IGNORECASE):
+                    errors.append(f"{relative}: github.token is forbidden in pull_request validation")
+                if re.search(r"\bgithub\s*\.\s*(?:env|path)\b", code, re.IGNORECASE):
+                    errors.append(f"{relative}: GitHub command-file context is forbidden in pull_request validation")
+                if re.search(r"\bgithub\s*\.\s*\*|\bgithub\s*\[|\btojson\s*\(\s*github\s*\)", code, re.IGNORECASE):
+                    errors.append(f"{relative}: broad GitHub context access is forbidden")
+                if UNTRUSTED_EVENT_CONTEXT_RE.search(code):
+                    errors.append(
+                        f"{relative}: untrusted event data cannot be interpolated into pull_request workflow values"
+                    )
+    inspect(job, ("jobs", job_id))
     return list(dict.fromkeys(errors))
 
 
-def _is_allowed_policy_token_expression(
-    workflow: dict[str, Any],
-    path: tuple[str | int, ...],
-    value: str,
-    expression: str,
-) -> bool:
-    jobs = workflow.get("jobs")
-    job = jobs.get("security-policy") if isinstance(jobs, dict) else None
+def _is_push_only_job(job: dict[str, Any]) -> bool:
+    condition = job.get("if")
+    if not isinstance(condition, str):
+        return False
+    return re.fullmatch(r"\s*(?:\$\{\{\s*)?github\.event_name\s*==\s*['\"]push['\"]\s*(?:\}\})?\s*",
+                        condition, re.IGNORECASE) is not None
+
+
+def _full_profile_steps(job: Any) -> tuple[bool, list[tuple[int, dict[str, Any]]]]:
     steps = job.get("steps") if isinstance(job, dict) else None
     if not isinstance(steps, list):
+        return False, []
+    matches = [(index, step) for index, step in enumerate(steps)
+               if isinstance(step, dict) and _is_full_profile_run(step.get("run"))]
+    return bool(matches), matches
+
+
+def _is_full_profile_run(value: Any) -> bool:
+    if not isinstance(value, str):
         return False
-    normalized_expression = re.sub(r"\s+", "", expression).casefold()
-    expected_run = """if [ "$GITHUB_EVENT_NAME" = "pull_request_target" ]; then
-  export GIT_CONFIG_COUNT=1
-  export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
-  export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 --wrap=0)"
-  git -C candidate remote add base "https://github.com/${BASE_REPO}.git"
-  git -C candidate fetch --no-tags --depth=1 base "$BASE_SHA"
-  python3 trusted/scripts/check_ci_security.py --collect-changed-files --root candidate --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" --output "$CHANGED_FILES"
-fi
-python3 trusted/scripts/check_ci_security.py --root candidate --event "$GITHUB_EVENT_PATH" --changed-files "$CHANGED_FILES"
-if [ "$GITHUB_EVENT_NAME" = "pull_request_target" ]; then
-  python3 trusted/scripts/check_pr_contract.py --event "$GITHUB_EVENT_PATH"
-fi"""
-    for index, step in enumerate(steps):
-        if path != ("jobs", "security-policy", "steps", index, "env", "GITHUB_TOKEN"):
+    commands = [line.strip() for line in value.splitlines()
+                if line.strip() and not line.lstrip().startswith("#")]
+    return len(commands) == 1 and FULL_PROFILE_RE.fullmatch(commands[0]) is not None
+
+
+def _has_pr_target_execution(jobs: Any) -> bool:
+    if not isinstance(jobs, dict):
+        return False
+    for job in jobs.values():
+        if isinstance(job, dict) and isinstance(job.get("uses"), str):
+            return True
+        steps = job.get("steps") if isinstance(job, dict) else None
+        if not isinstance(steps, list):
             continue
-        if not isinstance(step, dict) or set(step) != {"name", "env", "run"}:
-            return False
-        env = step.get("env")
-        return (
-            normalized_expression == "github.token"
-            and value == "${{ github.token }}"
-            and step.get("name") == "Check security policy"
-            and step.get("run") == expected_run
-            and isinstance(env, dict)
-            and env == {
-                "GITHUB_TOKEN": "${{ github.token }}",
-                "CHANGED_FILES": "${{ runner.temp }}/harness-changed-files.nul",
-                "BASE_REPO": "${{ github.event.pull_request.base.repo.full_name }}",
-                "BASE_SHA": "${{ github.event.pull_request.base.sha }}",
-                "HEAD_SHA": "${{ github.event.pull_request.head.sha }}",
-            }
-        )
+        for step in steps:
+            if isinstance(step, dict) and ("run" in step or "uses" in step):
+                return True
     return False
 
 
-def _check_job_runners(relative: Path, workflow: dict[str, Any]) -> list[str]:
-    jobs = workflow.get("jobs")
-    if jobs is None:
-        return []
-    if not isinstance(jobs, dict):
-        return [f"{relative}: jobs must be a mapping"]
+def _is_enabled(value: Any) -> bool:
+    return value is True or isinstance(value, str) and value.strip().casefold() not in {"", "false"}
+
+
+def _check_dependencies(relative: Path, jobs: dict[str, Any]) -> list[str]:
     errors: list[str] = []
-    if workflow.get("permissions") != {}:
-        errors.append(f"{relative}: workflow permissions must be empty")
-    for name, job in jobs.items():
-        runner = job.get("runs-on") if isinstance(job, dict) else None
-        if not isinstance(name, str) or not isinstance(runner, str) or runner not in HOSTED_RUNNER_LABELS:
-            errors.append(f"{relative}: every job must use a fixed GitHub-hosted runs-on label")
-        permissions = job.get("permissions") if isinstance(job, dict) else None
-        expected_permissions = TRUSTED_READ_ONLY_JOBS.get((relative.as_posix(), name), frozenset())
-        valid_entries = isinstance(permissions, dict) and all(
-            isinstance(scope, str) and isinstance(level, str)
-            for scope, level in permissions.items()
-        )
-        if not valid_entries or frozenset(permissions.items()) != expected_permissions:
-            errors.append(f"{relative}: job permissions must be empty except for approved read-only source jobs")
-    return errors
+    graph: dict[str, tuple[str, ...]] = {}
+    for job_id, job in jobs.items():
+        if not isinstance(job_id, str) or not isinstance(job, dict):
+            continue
+        needs = job.get("needs", [])
+        if isinstance(needs, str):
+            needs = [needs]
+        if not isinstance(needs, list) or not all(isinstance(item, str) for item in needs):
+            errors.append(f"{relative}: job {job_id} has invalid needs")
+            continue
+        for dependency in needs:
+            if dependency not in jobs or dependency == job_id:
+                errors.append(f"{relative}: job {job_id} has an invalid dependency")
+        graph[job_id] = tuple(needs)
+    visiting: set[str] = set()
+    visited: set[str] = set()
+    def visit(job_id: str) -> None:
+        if job_id in visiting:
+            errors.append(f"{relative}: job dependencies contain a cycle")
+            return
+        if job_id in visited:
+            return
+        visiting.add(job_id)
+        for dependency in graph.get(job_id, ()):
+            if dependency in graph:
+                visit(dependency)
+        visiting.remove(job_id)
+        visited.add(job_id)
+    for job_id in graph:
+        visit(job_id)
+    return list(dict.fromkeys(errors))
 
 
-def _is_checkout_action(action_ref: str) -> bool:
-    action_name = action_ref.rsplit("@", 1)[0] if "@" in action_ref else action_ref
-    return action_name.casefold() == "actions/checkout"
+def _check_full_job_dependencies(relative: Path, jobs: dict[str, Any], full_jobs: list[dict[str, str]]) -> list[str]:
+    errors: list[str] = []
+    for full_job in full_jobs:
+        pending = _job_dependencies(jobs.get(full_job["job_id"]))
+        visited: set[str] = set()
+        while pending:
+            dependency_id = pending.pop()
+            if dependency_id in visited:
+                continue
+            visited.add(dependency_id)
+            dependency = jobs.get(dependency_id)
+            if not isinstance(dependency, dict):
+                continue
+            if dependency.get("if") is not None:
+                errors.append(
+                    f"{relative}: Full validation job {full_job['job_id']} depends on conditional job {dependency_id}"
+                )
+            pending.extend(_job_dependencies(dependency))
+    return list(dict.fromkeys(errors))
 
 
-def _check_checkout_credentials(relative: Path, step: dict[str, Any]) -> list[str]:
-    options = step.get("with")
-    if not isinstance(options, dict) or not all(isinstance(key, str) for key in options):
-        return [f"{relative}: actions/checkout credentials must not persist"]
-    normalized_keys = [key.casefold() for key in options]
-    if len(set(normalized_keys)) != len(normalized_keys):
-        return [f"{relative}: actions/checkout credentials must not persist"]
-    if "persist-credentials" not in options or options["persist-credentials"] is not False:
-        return [f"{relative}: actions/checkout credentials must not persist"]
-    sensitive_options = set(normalized_keys)
-    if sensitive_options & {"token", "ssh-key", "ssh-token"}:
-        return [f"{relative}: custom checkout credentials are forbidden"]
-    return []
+def _job_dependencies(job: Any) -> list[str]:
+    needs = job.get("needs", []) if isinstance(job, dict) else []
+    if isinstance(needs, str):
+        return [needs]
+    return [item for item in needs if isinstance(item, str)] if isinstance(needs, list) else []
 
 
-def _is_safe_local_action_reference(action_ref: str, *, root: Path | None = None) -> bool:
-    if not action_ref.startswith("./") or "\\" in action_ref:
-        return False
-    parts = action_ref[2:].split("/")
-    if not parts or any(part in {"", ".", ".."} for part in parts):
-        return False
-    if bool(re.match(r"^[A-Za-z]:", parts[0])) or any(
-        ord(character) < 32 or ord(character) == 127 for character in action_ref
-    ):
-        return False
-    if root is None:
-        return True
-    workspace = root.resolve(strict=True)
-    actions_root = (workspace / ".github/actions").resolve(strict=False)
-    target = (workspace / action_ref[2:]).resolve(strict=False)
-    try:
-        target.relative_to(actions_root)
-    except ValueError:
-        return False
-    return True
-
-
-def _is_sensitive_local_action_reference(action_ref: str) -> bool:
-    return action_ref == "./.github/actions" or action_ref.startswith("./.github/actions/")
+def _check_required_check_collisions(required_checks: list[dict[str, str]],
+                                    job_checks: list[dict[str, str]]) -> list[str]:
+    errors: list[str] = []
+    for required in required_checks:
+        workflow_path = Path(required["workflow_path"])
+        workflow_aliases = {required["workflow"].casefold(), workflow_path.name.casefold(),
+                            workflow_path.stem.casefold()}
+        job_aliases = {required["job_id"].casefold(), required["job_name"].casefold()}
+        for candidate in job_checks:
+            if (candidate["workflow_path"], candidate["job_id"]) == (
+                required["workflow_path"], required["job_id"]
+            ):
+                continue
+            candidate_path = Path(candidate["workflow_path"])
+            candidate_workflows = {candidate["workflow"].casefold(), candidate_path.name.casefold(),
+                                  candidate_path.stem.casefold()}
+            candidate_jobs = {candidate["job_id"].casefold(), candidate["job_name"].casefold()}
+            if workflow_aliases & candidate_workflows and job_aliases & candidate_jobs:
+                errors.append(f"ambiguous required check identity: {required['workflow']} / {required['job_name']}")
+    return list(dict.fromkeys(errors))
 
 
 def _parse_workflow_yaml(text: str) -> dict[str, Any]:
@@ -525,17 +679,10 @@ if plain_on && workflow.key?(true)
 end
 STDOUT.write(JSON.generate(workflow))
 """.strip()
-    completed = subprocess.run(
-        ["ruby", "-rjson", "-ryaml", "-rdate", "-e", ruby_script],
-        input=text,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=WORKFLOW_PARSE_TIMEOUT_SECONDS,
-        shell=False,
-        check=False,
-    )
+    completed = subprocess.run(["ruby", "-rjson", "-ryaml", "-rdate", "-e", ruby_script],
+                               input=text, capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", timeout=WORKFLOW_PARSE_TIMEOUT_SECONDS,
+                               shell=False, check=False)
     if completed.returncode != 0:
         raise ValueError("workflow YAML parser rejected the document")
     workflow = json.loads(completed.stdout)
@@ -544,237 +691,42 @@ STDOUT.write(JSON.generate(workflow))
     return workflow
 
 
-def _mappings(value: Any) -> list[dict[str, Any]]:
-    if isinstance(value, dict):
-        return [value, *(mapping for item in value.values() for mapping in _mappings(item))]
-    if isinstance(value, list):
-        return [mapping for item in value for mapping in _mappings(item)]
-    return []
-
-
-def _string_values(value: Any) -> list[str]:
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, dict):
-        return [text for key, item in value.items() for text in [*_string_values(key), *_string_values(item)]]
-    if isinstance(value, list):
-        return [text for item in value for text in _string_values(item)]
-    return []
-
-
-def _check_permissions(relative: Path, value: Any) -> list[str]:
-    if isinstance(value, str):
-        level = value.casefold()
-        if level == "write-all":
-            return [f"{relative}: write-all permissions are forbidden"]
-        if level == "read-all":
-            return []
-        return [f"{relative}: permission declaration is not recognized"]
-    if not isinstance(value, dict):
-        return [f"{relative}: permission declaration is not a mapping"]
-
-    errors: list[str] = []
-    for scope, level in value.items():
-        if not isinstance(scope, str) or not isinstance(level, str):
-            errors.append(f"{relative}: permission declaration is not recognized")
-        elif level.casefold() == "write":
-            errors.append(f"{relative}: write permissions are forbidden")
-        elif level.casefold() not in {"read", "none"}:
-            errors.append(f"{relative}: permission declaration is not recognized")
-    return errors
-
-
-def changed_files_from_event(
-    *,
-    root: Path,
-    event: dict[str, Any],
-    changed_files_path: Path | None = None,
-) -> list[str]:
-    if changed_files_path is not None:
-        return read_changed_file_list(root=root, changed_files_path=changed_files_path)
-
-    files = files_from_event_payload(event)
-    if files or has_event_file_list(event):
-        return files
-
-    pull_request = event.get("pull_request")
-    if not isinstance(pull_request, dict):
-        return []
-    base = pull_request.get("base")
-    head = pull_request.get("head")
-    base_sha = base.get("sha") if isinstance(base, dict) else None
-    head_sha = head.get("sha") if isinstance(head, dict) else None
-    if not isinstance(base_sha, str) or not isinstance(head_sha, str) or not GIT_SHA_RE.fullmatch(base_sha) or not GIT_SHA_RE.fullmatch(head_sha):
-        raise ValueError("pull request base/head commit must be full Git commit SHAs")
-
-    completed = run_bounded_command(
-        ["git", "diff", "--no-renames", "--no-ext-diff", "--no-textconv", "--name-only", "-z", base_sha, head_sha],
-        cwd=root,
-        timeout_seconds=60,
-        max_output_bytes=MAX_CHANGED_FILES_BYTES,
-    )
-    if completed.output_limited:
-        raise ValueError("Git changed path list exceeds 1 MiB")
-    if completed.timed_out:
-        raise ValueError("Git changed path list timed out")
-    if completed.returncode != 0:
-        raise ValueError("git could not determine pull request changed paths")
-    if "\ufffd" in completed.output:
-        raise ValueError("changed path list is not valid UTF-8")
-    return split_nul_delimited_paths(completed.output)
-
-
-def collect_changed_file_list(
-    *,
-    root: Path,
-    base_sha: str,
-    head_sha: str,
-    output_path: Path,
-) -> None:
-    candidate_root = root.resolve(strict=True)
-    if not GIT_SHA_RE.fullmatch(base_sha) or not GIT_SHA_RE.fullmatch(head_sha):
-        raise ValueError("base and head must be full Git commit SHAs")
-    output = output_path.resolve(strict=False)
+def check_workflow_text(relative: Path, text: str, *, root: Path | None = None) -> list[str]:
+    """Check a workflow text fixture without reading neighboring files."""
+    if _HELPER_IMPORT_ERROR is not None:
+        return [f"{relative}: required CI policy modules are unavailable"]
     try:
-        output.relative_to(candidate_root)
-    except ValueError:
-        pass
-    else:
-        raise ValueError("changed file list must be outside candidate checkout")
-    if output_path.is_symlink():
-        raise ValueError("changed file list cannot be a symlink")
-    if not output.parent.is_dir() or (output.exists() and not output.is_file()):
-        raise ValueError("changed file list output must have an existing directory parent")
-
-    completed = run_bounded_command(
-        ["git", "diff", "--no-renames", "--no-ext-diff", "--no-textconv", "--name-only", "-z", base_sha, head_sha],
-        cwd=candidate_root,
-        timeout_seconds=60,
-        max_output_bytes=MAX_CHANGED_FILES_BYTES,
-    )
-    if completed.output_limited:
-        raise ValueError("Git changed path list exceeds 1 MiB")
-    if completed.timed_out:
-        raise ValueError("Git changed path list timed out")
-    if completed.returncode != 0:
-        raise ValueError("git could not determine pull request changed paths")
-    if "\ufffd" in completed.output:
-        raise ValueError("changed path list is not valid UTF-8")
-    paths = split_nul_delimited_paths(completed.output)
-    if any(not path for path in paths):
-        raise ValueError("changed path list contains an empty path")
-    output.write_bytes("\0".join(paths).encode("utf-8") + (b"\0" if paths else b""))
-
-
-def read_changed_file_list(*, root: Path, changed_files_path: Path) -> list[str]:
-    candidate_root = root.resolve(strict=True)
-    changed_list = changed_files_path.resolve(strict=True)
-    try:
-        changed_list.relative_to(candidate_root)
-    except ValueError:
-        pass
-    else:
-        raise ValueError("changed file list must be outside candidate checkout")
-    if not changed_list.is_file():
-        raise ValueError("changed file list must be a regular file")
-    if changed_list.stat().st_size > MAX_CHANGED_FILES_BYTES:
-        raise ValueError("changed file list exceeds 1 MiB")
-    return split_nul_delimited_paths(changed_list.read_bytes().decode("utf-8", errors="strict"))
-
-
-def split_nul_delimited_paths(output: str) -> list[str]:
-    paths = output.split("\0")
-    if paths and paths[-1] == "":
-        paths.pop()
-    return paths
-
-
-def files_from_event_payload(event: dict[str, Any]) -> list[str]:
-    candidates: list[Any] = []
-    if isinstance(event.get("changed_files"), list):
-        candidates.extend(event["changed_files"])
-    if isinstance(event.get("files"), list):
-        candidates.extend(event["files"])
-    pull_request = event.get("pull_request")
-    if isinstance(pull_request, dict):
-        for key in ("changed_files", "files"):
-            if isinstance(pull_request.get(key), list):
-                candidates.extend(pull_request[key])
-
-    files: list[str] = []
-    for item in candidates:
-        if isinstance(item, str):
-            files.append(item)
-        elif isinstance(item, dict) and isinstance(item.get("filename"), str):
-            files.append(item["filename"])
-    return files
-
-
-def has_event_file_list(event: dict[str, Any]) -> bool:
-    if any(isinstance(event.get(key), list) for key in ("changed_files", "files")):
-        return True
-    pull_request = event.get("pull_request")
-    return isinstance(pull_request, dict) and any(
-        isinstance(pull_request.get(key), list) for key in ("changed_files", "files")
-    )
-
-
-def is_safe_changed_path(filename: str) -> bool:
-    if not filename or "\\" in filename or filename.startswith("/"):
-        return False
-    if re.match(r"^[A-Za-z]:", filename):
-        return False
-    if any(ord(character) < 32 or ord(character) == 127 for character in filename):
-        return False
-    return all(part not in {"", ".", ".."} for part in filename.split("/"))
+        parsed = _parse_workflow_yaml(text)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return [f"{relative}: workflow YAML is invalid or could not be parsed safely"]
+    return _check_workflow(relative, parsed, (root or Path.cwd()).resolve())[0]
 
 
 def is_sensitive_path(filename: str) -> bool:
-    if filename.rsplit("/", 1)[-1] == "AGENTS.md":
-        return True
-    if filename in SENSITIVE_DIRECTORY_PATHS or filename in SENSITIVE_FILE_PATHS:
-        return True
-    if filename.startswith(SENSITIVE_PREFIXES):
-        return True
-    if filename.startswith("scripts/"):
-        basename = filename.rsplit("/", 1)[-1]
-        return any(fnmatch.fnmatch(basename, pattern) for pattern in SENSITIVE_SCRIPT_PATTERNS)
-    return False
+    """Keep CI policy and Harness control files on the existing T3 risk route."""
+    normalized = filename.replace(chr(92), "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    sensitive_roots = (".agents", ".github", ".harness", ".codex")
+    return (normalized == "AGENTS.md"
+            or normalized.endswith("/AGENTS.md")
+            or normalized in sensitive_roots
+            or normalized.startswith(tuple(f"{root}/" for root in sensitive_roots))
+            or normalized in {"scripts/harness.py", "scripts/harness_common.py", "scripts/harness_risk.py",
+                              "scripts/harness_doctor.py", "scripts/harness_evidence.py", "scripts/command_runner.py",
+            "scripts/github_expression_scanner.py", "scripts/check_ci_security.py", "scripts/ci_action_policy.py",
+            "scripts/verify_ci.py"}
+            or normalized.startswith("scripts/check_") or normalized.startswith("scripts/validate"))
 
 
 def main() -> int:
     args = parse_args()
-    if args.collect_changed_files:
-        if args.event or args.changed_files or not args.base_sha or not args.head_sha or not args.output:
-            print("CI security policy failed: changed-path collection arguments are incomplete")
-            return 2
-        try:
-            collect_changed_file_list(
-                root=Path(args.root),
-                base_sha=args.base_sha,
-                head_sha=args.head_sha,
-                output_path=Path(args.output),
-            )
-        except (OSError, ValueError, subprocess.SubprocessError) as error:
-            print(f"CI security policy failed: could not safely collect changed paths: {error}")
-            return 1
-        print("Changed path list collected safely")
-        return 0
-    if not args.event:
-        print("CI security policy failed: --event is required")
-        return 2
-    errors = check_security_policy(
-        root=Path(args.root),
-        event_path=Path(args.event),
-        changed_files_path=Path(args.changed_files) if args.changed_files else None,
-    )
-    if not errors:
-        print("CI security policy passed")
-        return 0
-    print("CI security policy failed:")
-    for error in errors:
-        print(f"- {error}")
-    return 1
+    try:
+        result = check_security_policy(root=Path(args.root))
+    except (OSError, RuntimeError, ValueError) as exc:
+        result = _result([f"CI policy inspection failed: {exc}"], [], [], [], [])
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result["ok"] else 1
 
 
 if __name__ == "__main__":

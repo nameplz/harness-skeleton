@@ -14,6 +14,7 @@ from scripts.command_runner import CommandResult
 from scripts.harness import HarnessError, doctor, run_checks
 from scripts.harness_risk import classify_risk, inspect_git_risk
 from tests import test_harness as baseline
+from tests import test_harness_doctor as doctor_fixtures
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTROL_PATHS = (
@@ -97,7 +98,7 @@ class HarnessRegressionTests(unittest.TestCase):
             root = Path(temp)
             self.git(root, "init", "-q")
             self.config(root)
-            baseline.HarnessCheckTests.write_doctor_files(self, root)
+            doctor_fixtures._write_doctor_files(root)
             self.assertTrue(doctor(root)["ok"])
             (root / ".agents/skills/pr-workflow/SKILL.md").unlink()
             self.assertIn(".agents/skills/pr-workflow/SKILL.md", doctor(root)["errors"])

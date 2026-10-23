@@ -7,14 +7,12 @@ import argparse
 from dataclasses import dataclass
 import hashlib
 import json
-import os
 import re
-import shlex
 import subprocess
 import sys
 import time
 from collections.abc import Sequence
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import tomllib
 from typing import Any
 
@@ -54,24 +52,6 @@ UNSAFE_COMMAND_TOKENS = frozenset(
 )
 SHELL_EXECUTABLES = frozenset({"sh", "bash", "zsh", "dash", "fish", "pwsh", "powershell", "cmd", "cmd.exe"})
 SCRIPT_EXECUTABLE_SUFFIXES = frozenset({".py", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ps1", ".bat", ".cmd"})
-REQUIRED_PROJECT_FILES = (
-    "AGENTS.md", "docs/ARCHITECTURE.md", "docs/ADR.md", ".agents/skills/harness/SKILL.md",
-    ".agents/skills/pr-workflow/SKILL.md",
-    ".github/PULL_REQUEST_TEMPLATE.md", ".harness/task-template.md",
-    ".codex/config.toml", ".codex/agents/reviewer.toml", ".codex/agents/security-reviewer.toml",
-    ".codex/hooks/harness_hook.py", "scripts/command_runner.py",
-    "scripts/harness.py", "scripts/harness_common.py", "scripts/harness_risk.py", "scripts/harness_evidence.py",
-)
-REQUIRED_DOC_SCAN_PATHS = ("AGENTS.md", "docs/ARCHITECTURE.md", "docs/ADR.md")
-PLACEHOLDER_RE = re.compile(r"\{[^{}\n]+\}")
-DEPLOY_FILE_NAMES = frozenset(
-    {
-        "Dockerfile", "Procfile", "app.yaml", "cloudbuild.yaml", "docker-compose.yml",
-        "docker-compose.yaml", "fly.toml", "netlify.toml", "railway.json", "render.yaml",
-        "render.yml", "serverless.yml", "vercel.json",
-    }
-)
-DEPLOY_DIR_NAMES = frozenset({"helm", "k8s", "kubernetes", "terraform", ".netlify", ".vercel"})
 SENSITIVE_OPTION_RE = re.compile(
     r"^--?(?:api[_-]?key|access[_-]?key|private[_-]?key|authorization|password|secret|token)$", re.IGNORECASE
 )
@@ -167,8 +147,8 @@ def _resolve_workspace(root: Path) -> Path:
 
 
 def _validate_command_list(raw: Any, field: str, workspace: Path) -> tuple[tuple[str, ...], ...]:
-    if not isinstance(raw, list) or not raw or len(raw) > MAX_COMMAND_COUNT:
-        raise HarnessError(f"{field} must be a non-empty list of argv commands")
+    if not isinstance(raw, list) or len(raw) > MAX_COMMAND_COUNT:
+        raise HarnessError(f"{field} must be a list of argv commands")
     commands: list[tuple[str, ...]] = []
     for index, command in enumerate(raw):
         if not isinstance(command, list) or not command or len(command) > MAX_COMMAND_ARGUMENTS:
@@ -472,9 +452,28 @@ def run_checks(root: Path, profile: str, *, config_root: Path | None = None) -> 
     if profile not in {"quick", "full"}:
         raise HarnessError("check profile must be quick or full")
     workspace = _resolve_workspace(root)
+    config_workspace = workspace if config_root is None else _resolve_workspace(config_root)
+    config_path = config_workspace / ".harness/config.toml"
+    if not config_path.exists() and not config_path.is_symlink():
+        return {
+            "ok": False,
+            "status": "unconfigured",
+            "profile": profile,
+            "checks": [],
+            "error": "unconfigured: .harness/config.toml is missing",
+        }
     config = load_config(workspace, config_root=config_root)
     evidence = {**capture_workspace(workspace), "config_sha256": config.config_sha256}
     commands = config.quick if profile == "quick" else config.full
+    if not commands:
+        return {
+            "ok": False,
+            "status": "unconfigured",
+            "profile": profile,
+            "checks": [],
+            "evidence": evidence,
+            "error": f"unconfigured: checks.{profile} has no validation commands",
+        }
     if evidence.get("status") == "error":
         checks = _unstarted_results(commands, 1, reason="identity_error")
         return {"ok": False, "profile": profile, "checks": checks, "evidence": evidence,
@@ -547,7 +546,8 @@ def run_checks(root: Path, profile: str, *, config_root: Path | None = None) -> 
         unchanged = None
     else:
         unchanged = evidence == evidence_after
-    return {"ok": all(item["passed"] for item in results) and unchanged is not False,
+    ok = all(item["passed"] for item in results) and unchanged is not False
+    return {"ok": ok, "status": "configured" if ok else "failure",
             "profile": profile, "checks": results, "evidence": evidence,
             "evidence_after": evidence_after, "evidence_unchanged": unchanged}
 
@@ -602,181 +602,17 @@ def _unstarted_results(commands: Sequence[Sequence[str]], first_index: int, *, r
     ]
 
 
-def _valid_harness_hook(hook: Any, workspace: Path) -> bool:
-    if not isinstance(hook, dict) or hook.get("type") != "command" or not isinstance(hook.get("command"), str):
-        return False
+
+def doctor(root: Path, *, config_root: Path | None = None, bootstrap: bool = False) -> dict[str, Any]:
     try:
-        argv = shlex.split(hook["command"])
-    except ValueError:
-        return False
-    if len(argv) == 3 and argv[1] == "-I":
-        argv = [argv[0], argv[2]]
-    return len(argv) == 2 and _is_python_executable(argv[0]) and argv[1] in {
-        ".codex/hooks/harness_hook.py",
-        "$(git rev-parse --show-toplevel)/.codex/hooks/harness_hook.py",
-        str(workspace / ".codex/hooks/harness_hook.py"),
-    }
-
-
-def doctor(root: Path, *, config_root: Path | None = None) -> dict[str, Any]:
-    """Report whether this checkout has the files and config needed by Harness."""
-
-    workspace = _resolve_workspace(root)
-    errors: list[str] = []
-    for relative in REQUIRED_PROJECT_FILES:
-        path = workspace / relative
+        from .harness_doctor import doctor as run_doctor
+    except ImportError:  # Direct script invocation from the scripts directory.
         try:
-            resolved = path.resolve(strict=True)
-            resolved.relative_to(workspace)
-            if not resolved.is_file():
-                errors.append(relative)
-        except (OSError, RuntimeError, ValueError):
-            errors.append(relative)
-
-    config_report: dict[str, Any] | None = None
-    try:
-        config = load_config(workspace, config_root=config_root)
-        config_report = {"schema": 2, "quick_checks": len(config.quick), "full_checks": len(config.full)}
-    except HarnessError:
-        errors.append(".harness/config.toml (invalid)")
-    errors.extend(_doctor_doc_and_deploy_errors(workspace))
-
-    codex_config = workspace / ".codex/config.toml"
-    try:
-        resolved_codex = codex_config.resolve(strict=True)
-        resolved_codex.relative_to(workspace)
-        codex_data = tomllib.loads(resolved_codex.read_text(encoding="utf-8"))
-        hooks = codex_data.get("hooks")
-        if not isinstance(hooks, dict):
-            errors.append(".codex/config.toml (missing hooks)")
-        else:
-            for event in ("PreToolUse", "PermissionRequest", "Stop"):
-                entries = hooks.get(event)
-                valid_hook = False
-                if isinstance(entries, list):
-                    for entry in entries:
-                        if not isinstance(entry, dict) or not isinstance(entry.get("hooks"), list):
-                            continue
-                        if event != "Stop" and entry.get("matcher") != "^Bash$":
-                            continue
-                        valid_hook = valid_hook or any(
-                            _valid_harness_hook(hook, workspace) for hook in entry["hooks"]
-                        )
-                if not valid_hook:
-                    errors.append(f".codex/config.toml (missing {event} Harness hook)")
-        errors.extend(_doctor_codex_role_errors(workspace, codex_data))
-    except (OSError, RuntimeError, ValueError, tomllib.TOMLDecodeError):
-        if ".codex/config.toml" not in errors:
-            errors.append(".codex/config.toml (invalid)")
-
-    git_report: dict[str, Any] | None = None
-    try:
-        repository = _git_root(workspace)
-        branch = _git_output(repository, ["branch", "--show-current"]).strip()
-        status = _git_output(repository, ["status", "--porcelain=v1", "-z"])
-        git_report = {
-            "root": str(repository),
-            "branch": branch or "detached",
-            "changed_paths": sum(bool(item) for item in status.split("\0")),
-        }
-    except HarnessError:
-        errors.append("Git repository unavailable")
-
-    return {
-        "ok": not errors,
-        "root": str(workspace),
-        "config": config_report,
-        "git": git_report,
-        "errors": list(dict.fromkeys(errors)),
-    }
-
-
-def _doctor_codex_role_errors(root: Path, codex_data: dict[str, Any]) -> list[str]:
-    errors: list[str] = []
-    agents = codex_data.get("agents")
-    codex_dir = root / ".codex"
-    try:
-        resolved_codex_dir = codex_dir.resolve(strict=True)
-        resolved_codex_dir.relative_to(root)
-    except (OSError, RuntimeError, ValueError):
-        return [".codex/config.toml (invalid role config directory)"]
-
-    for role in ("reviewer", "security_reviewer"):
-        role_data = agents.get(role) if isinstance(agents, dict) else None
-        if not isinstance(role_data, dict):
-            errors.append(f".codex/config.toml (missing {role} role)")
-            continue
-        config_file = role_data.get("config_file")
-        if not isinstance(config_file, str) or not config_file.strip():
-            errors.append(f".codex/config.toml ({role} config_file missing)")
-            continue
-        normalized = config_file.replace("\\", "/")
-        relative = PurePosixPath(normalized)
-        if (
-            normalized.startswith(("/", "~"))
-            or re.match(r"^[A-Za-z]:", normalized)
-            or "\x00" in normalized
-            or any(part in {"", ".", ".."} for part in normalized.split("/"))
-        ):
-            errors.append(f".codex/config.toml ({role} config_file is unsafe)")
-            continue
-        role_path = codex_dir.joinpath(*relative.parts)
-        try:
-            resolved_role_path = role_path.resolve(strict=True)
-        except (OSError, RuntimeError):
-            errors.append(f".codex/config.toml ({role} config_file unavailable)")
-            continue
-        try:
-            resolved_role_path.relative_to(resolved_codex_dir)
-        except ValueError:
-            errors.append(f".codex/config.toml ({role} config_file escapes .codex)")
-            continue
-        try:
-            if not resolved_role_path.is_file() or resolved_role_path.stat().st_size > MAX_CONFIG_BYTES:
-                errors.append(f".codex/config.toml ({role} config is not a regular TOML file)")
-                continue
-            role_config = tomllib.loads(resolved_role_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, tomllib.TOMLDecodeError):
-            errors.append(f".codex/config.toml ({role} config_file unavailable or invalid TOML)")
-            continue
-        if role_config.get("sandbox_mode") != "read-only":
-            errors.append(f".codex/config.toml ({role} sandbox_mode must be read-only)")
-        if not isinstance(role_config.get("developer_instructions"), str) or not role_config[
-            "developer_instructions"
-        ].strip():
-            errors.append(f".codex/config.toml ({role} developer_instructions must be non-empty)")
-    return errors
-
-
-def _doctor_doc_and_deploy_errors(root: Path) -> list[str]:
-    errors: list[str] = []
-    for relative in REQUIRED_DOC_SCAN_PATHS:
-        path = root / relative
-        try:
-            if PLACEHOLDER_RE.search(path.read_text(encoding="utf-8")):
-                errors.append(f"unresolved placeholder: {relative}")
-        except (OSError, UnicodeError):
-            errors.append(f"could not read project guide: {relative}")
-
-    ignored_roots = {".git", ".worktrees", ".harness", ".pytest_cache", "node_modules", ".next"}
-    for current, directories, files in os.walk(
-        root,
-        topdown=True,
-        followlinks=False,
-        onerror=lambda _error: errors.append("could not scan deployment layout"),
-    ):
-        relative = Path(current).relative_to(root)
-        if any(part in ignored_roots or part == "deploy" for part in relative.parts):
-            directories.clear()
-            continue
-        for name in directories:
-            if name in DEPLOY_DIR_NAMES:
-                errors.append(f"deployment directory must live under deploy/: {(relative / name).as_posix()}")
-        directories[:] = [name for name in directories if name not in ignored_roots and name != "deploy"]
-        for name in files:
-            if name in DEPLOY_FILE_NAMES:
-                errors.append(f"deployment file must live under deploy/: {(relative / name).as_posix()}")
-    return errors
+            from harness_doctor import doctor as run_doctor
+        except ImportError:
+            return {"ok": False, "status": "invalid", "root": str(root), "config": {}, "ci": {},
+                    "git": None, "errors": ["required Harness doctor module is unavailable"]}
+    return run_doctor(root, config_root=config_root, bootstrap=bootstrap)
 
 
 def _safe_command(command: Sequence[str]) -> list[str]:
@@ -829,6 +665,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     doctor_command = commands.add_parser("doctor", help="inspect Harness project setup")
     doctor_command.add_argument("--root", default=".", help="project root to inspect")
     doctor_command.add_argument("--config-root", help="trusted repository root supplying .harness/config.toml")
+    doctor_command.add_argument("--bootstrap", action="store_true", help="check Harness structure before CI setup")
     return parser.parse_args(argv)
 
 
@@ -847,6 +684,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = doctor(
                 Path(args.root),
                 config_root=Path(args.config_root) if args.config_root else None,
+                bootstrap=args.bootstrap,
             )
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0 if result["ok"] else 1

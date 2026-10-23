@@ -10,7 +10,7 @@ This project uses one existing GitHub issue, task-scoped commits, one pull reque
 ## Prepare the branch
 
 - Use the existing GitHub issue for the task. Do not create a duplicate issue or invent an issue number. If no issue exists, stop and hand off to the currently configured issue workflow; resume when its GitHub issue link is available.
-- Confirm the repository, issue, current branch, remote, and base branch. This repository's CI runs pull request workflows against `main`; follow an explicit user-selected base or the repository's current default if it has changed.
+- Confirm the repository, issue, current branch, remote, and base branch. Follow an explicit user-selected base or the repository's current default if it has changed.
 - Ensure the current branch contains only this issue's completed task commits and has no uncommitted or unrelated changes. Do not push the base branch. If task commits are mixed with other work or only exist on the base branch, stop and separate them safely before publishing; never rewrite shared history to make a PR fit.
 - Each task commit must already have passed risk classification and any required reviews while its diff was present, following the Harness workflow. Do not treat `harness risk` on a clean committed tree as the branch risk result: it only inspects changes since `HEAD`.
 - Before publishing, run `python scripts/harness.py check --full` against the complete branch and confirm each issue commit's validation and required-review results. If PR preparation creates a new uncommitted fix, classify and review that diff before committing it.
@@ -26,7 +26,8 @@ This project uses one existing GitHub issue, task-scoped commits, one pull reque
 
 ## Wait for CI
 
-- Wait until every required check reports success. In this repository, expect `security-policy`, `harness-core`, `source-package`, and `project-validation`; inspect the actual PR checks because workflow configuration can change.
-- For a failed check, inspect its run log. Fix failures caused by this task, rerun local full validation, commit the fix on the same issue branch, push, and wait for the new checks. Do not suppress or bypass a failure.
-- If a check is pending, missing, blocked by permissions, or failing for an external reason that cannot be fixed in the branch, report the PR URL and exact status as blocked. Do not claim CI passed.
-- Finish with the issue and PR links, commits, local validation result, and CI status.
+- Run `python scripts/verify_ci.py --pr <number>` from the clean local PR head. The verifier derives required checks from PR workflows that run `scripts/harness.py check --full`; do not hard-code job names.
+- Treat only `success` as verified for that PR head. `failure`, `pending`, `missing`, `cancelled`, `skipped`, and `blocked` are incomplete. The verifier uses GitHub's PR-associated check results and confirms the PR head again after reading them; do not require a Check Run SHA to equal the head SHA because GitHub may use a synthetic merge revision.
+- For a failed check, inspect its run log. Fix failures caused by this task, rerun local full validation, commit the fix on the same issue branch, push, and verify the new revision. Do not suppress or bypass a failure.
+- If a check is pending, missing, skipped, cancelled, blocked by permissions, or failing for an external reason that cannot be fixed in the branch, report the PR URL and exact status. Do not claim CI passed.
+- Finish with the issue and PR links, commits, local validation result, and revision-matched CI status.

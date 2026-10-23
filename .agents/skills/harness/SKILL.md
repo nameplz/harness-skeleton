@@ -7,6 +7,12 @@ description: Route Harness tasks through Codex-native planning and risk-based va
 
 Codex is the execution environment. Use its normal planning, tools, context handling, and subagent support. Harness does not run implementation workers or retry loops.
 
+## CI initialization state
+
+- The starter skeleton has no GitHub Actions workflow and empty quick/full profiles. Run `python scripts/harness.py doctor --bootstrap` to check its base structure.
+- If normal `doctor` reports `unconfigured`, use `.agents/skills/ci-setup/SKILL.md` to analyze the project and configure real validation commands and PR CI. Do not call an empty `check` a pass or treat an unconfigured project as release-ready.
+- `doctor` reports `configured` only when quick/full profiles, a pull request workflow, its Full-profile job, and static CI policy checks are valid. Only `python scripts/verify_ci.py --pr <number>` can report the current GitHub execution result; it is revision-scoped and is not stored as a permanent flag.
+
 ## Classify the task
 
 Use `python scripts/harness.py risk` for a deterministic minimum tier. Hard T2/T3 signals must not be lowered. `hints` are non-binding context signals, not automatic review triggers; use task meaning and trust-boundary context to escalate when needed. File count alone does not force T2.
@@ -51,6 +57,7 @@ Keep reviewers read-only, including external tool write permissions. Ask each re
 
 - Read the project-specific command lists in `.harness/config.toml`; do not guess test, lint, typecheck, or build tools from the language.
 - Run `python scripts/harness.py check --quick` for T0/T1 and `--full` for T2/T3. Resolve failed checks before finishing.
+- If a check reports `unconfigured`, configure CI with the CI Setup skill or report why the task remains unconfigured. Never infer success from a skipped command.
 - Read `evidence`, `evidence_after`, and `evidence_unchanged` in check output. A source/config change during validation fails the overall check even if individual commands passed. A null identity is unavailable evidence, not an attestation.
 - Run the risk command on the final diff. When it reports `code_review`, obtain a read-only code review; when it reports `security_review`, obtain a read-only security review.
 - Hooks provide fast feedback only. Codex sandbox and permissions, trusted CI, and repository branch protection define enforcement boundaries.

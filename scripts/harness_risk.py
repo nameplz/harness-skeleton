@@ -49,6 +49,9 @@ DEFAULT_SECURITY_PATHS = (
     "scripts/harness_evidence.py",
     "scripts/command_runner.py",
     "scripts/github_expression_scanner.py",
+    "scripts/verify_ci.py",
+    "scripts/ci_action_policy.py",
+    "scripts/harness_doctor.py",
     "scripts/*validation*.py",
     "scripts/check_*.py",
 )
