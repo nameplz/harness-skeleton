@@ -1,0 +1,46 @@
+{
+  "pair_id": "F26",
+  "condition": "v1",
+  "condition_order": "v1_then_v2",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "execution_path": "interactive native Codex TUI via Orca-managed terminal",
+  "prompt_request_id": "e19c0a03-be5b-42cd-a376-214a7bc29034",
+  "reported_duration": "2m 1s",
+  "fresh_conversation": true,
+  "same_candidate_baseline": true,
+  "implementation_attempts": 1,
+  "reviews": {
+    "code": "pass, no findings",
+    "test": "pass, no findings",
+    "security": "pass, all required checks"
+  },
+  "candidate_checks": {
+    "offline_wheel": "pass",
+    "offline_install": "pass",
+    "full_suite": "58 passed; two temporary-directory cleanup warnings",
+    "pip_environment": "offline variables set for every pip command"
+  },
+  "host_grade": {
+    "status": "pass",
+    "grade": "v1-grade.json",
+    "suite": "58 passed",
+    "semantic": "all frozen checks passed"
+  },
+  "patch": "v1-final.patch",
+  "patch_sha256": "95fe0397270a35fd558079fd6cc889d2e2e28a94d9ceec5f2ddd75fb6cf3549d",
+  "changed_product_files": [
+    ".github/workflows/ci.yml"
+  ],
+  "branch": "eval-base",
+  "candidate_commit": null,
+  "branch_creation": "blocked by candidate sandbox .git ref lock; stayed on eval-base and retained patch only",
+  "protected_hashes_verified": true,
+  "tui_notes": [
+    "Initial hook reported exit 125 without a surfaced cause; work continued.",
+    "pip emitted local cache-permission and missing-SSL warnings; offline build/install completed.",
+    "No GitHub dispatch, network, live services, or external writes."
+  ],
+  "structured_phase_output": "absent"
+}
