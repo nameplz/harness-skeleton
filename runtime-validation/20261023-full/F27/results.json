@@ -1,0 +1,41 @@
+{
+  "pair_id": "F27",
+  "task_id": "T03",
+  "task_instance": "standard",
+  "batch": "full",
+  "condition_order": "v2_then_v1",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550bca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "task_sha256": "198d6da500ebc88e9b2f10fe6d398db75c1176ccd800f12708e8ae18aa317319",
+  "prompt_sha256": "5c42f3c0bbd084052505372124c7cbec0eb3afb6bfcb2567bac107e08a37e7ce",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "conditions": {
+    "v1": {
+      "run_record": "v1-run.json",
+      "patch": "v1-final.patch",
+      "patch_sha256": "16d00a49e3fceb6fbe4e8aff600609eab123be09bbd4367cfe93e5a8509a3957",
+      "host_grade": "v1-grade.json",
+      "raw_status": "pass",
+      "suite": "59 passed; two temporary-directory cleanup warnings",
+      "reviews": "code, test, and security passed"
+    },
+    "v2": {
+      "run_record": "v2-run.json",
+      "patch": "v2-final.patch",
+      "patch_sha256": "58caaa590cb98ff78feb3f6e484513b70dd634c6eb4b2b7d0a911af56eea387e",
+      "host_grade": "v2-grade.json",
+      "raw_status": "pass",
+      "suite": "59 passed; two temporary-directory cleanup warnings",
+      "reviews": "code and security passed"
+    }
+  },
+  "pair_decision": "Both frozen host grades passed the focused regression, pane/worktree drift semantics, build/install, full suite, and exact two-file scope. The pair is accepted.",
+  "limitations": [
+    "The v2 initial test invocation exposed an incorrectly configured fake for validation failure; the fake was corrected and the final candidate suite and host grade passed.",
+    "Candidate branch creation/commit was blocked by sandbox Git metadata permissions for both conditions; no candidate commit was made.",
+    "Harness CLI risk/full checks were unavailable because scripts/harness.py and .harness/config.toml are absent from the pinned snapshot.",
+    "Both candidate suites emitted two temporary-directory cleanup warnings. Token usage/model-turn counts were not captured."
+  ],
+  "context_carryover_risk": "Both conditions used fresh Codex conversations from the same pinned baseline; no cross-condition context was carried.",
+  "external_effects": "None: no network, live Discord/Orca calls, push, publication, or merge."
+}

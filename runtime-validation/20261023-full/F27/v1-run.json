@@ -1,0 +1,47 @@
+{
+  "pair_id": "F27",
+  "condition": "v1",
+  "condition_order": "v2_then_v1",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "execution_path": "interactive native Codex TUI via Orca-managed terminal",
+  "prompt_request_id": "f8dad66a-9dae-44f5-a3fd-3c352bcba9fb",
+  "reported_duration": "6m 51s",
+  "fresh_conversation": true,
+  "same_candidate_baseline": true,
+  "implementation_attempts": 1,
+  "reviews": {
+    "code": "pass, no findings",
+    "test": "pass, no findings",
+    "security": "pass, no findings"
+  },
+  "candidate_checks": {
+    "offline_wheel": "pass",
+    "offline_install": "pass",
+    "full_suite": "59 passed; two temporary-directory cleanup warnings",
+    "focused": "1 passed; two temporary-directory cleanup warnings",
+    "diff_check": "pass",
+    "pip_environment": "offline variables set for every pip command"
+  },
+  "host_grade": {
+    "status": "pass",
+    "grade": "v1-grade.json",
+    "suite": "59 passed",
+    "focused": "1 passed",
+    "semantic": "all frozen checks passed",
+    "scope": "exactly the two allowed files"
+  },
+  "patch": "v1-final.patch",
+  "patch_sha256": "16d00a49e3fceb6fbe4e8aff600609eab123be09bbd4367cfe93e5a8509a3957",
+  "changed_product_files": [
+    "src/orca_discord_bridge/bot.py",
+    "tests/test_harness_compatibility.py"
+  ],
+  "branch": "eval-base",
+  "candidate_commit": null,
+  "branch_creation": "blocked by candidate sandbox .git ref permissions; no bypass attempted",
+  "harness_cli": "not available in pinned source snapshot; docs/ and .harness/validation.json absent",
+  "protected_hashes_verified": true,
+  "external_effects": "None"
+}

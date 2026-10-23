@@ -1,12 +1,14 @@
 {
   "pair_id": "F27",
-  "status": "v1 in progress",
+  "status": "complete",
   "condition_order": "v2_then_v1",
-  "model_runs_completed": 1,
-  "pair_decision": "pending",
+  "model_runs_completed": 2,
+  "pair_decision": "accepted_under_frozen_grader",
   "v2_host_grade": "pass",
   "v2_reviews": "code and security passed",
   "v2_patch_sha256": "58caaa590cb98ff78feb3f6e484513b70dd634c6eb4b2b7d0a911af56eea387e",
-  "next_condition": "v1",
-  "v1_baseline_suite": "58 passed"
+  "v1_host_grade": "pass",
+  "v1_reviews": "code, test, and security passed",
+  "v1_patch_sha256": "16d00a49e3fceb6fbe4e8aff600609eab123be09bbd4367cfe93e5a8509a3957",
+  "product_scope": "both patches change only bot.py and tests/test_harness_compatibility.py"
 }
