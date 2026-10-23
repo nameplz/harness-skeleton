@@ -14,12 +14,14 @@ This project uses one existing GitHub issue, task-scoped commits, one pull reque
 - Ensure the current branch contains only this issue's completed task commits and has no uncommitted or unrelated changes. Do not push the base branch. If task commits are mixed with other work or only exist on the base branch, stop and separate them safely before publishing; never rewrite shared history to make a PR fit.
 - Each task commit must already have passed risk classification and any required reviews while its diff was present, following the Harness workflow. Do not treat `harness risk` on a clean committed tree as the branch risk result: it only inspects changes since `HEAD`.
 - Before publishing, run `python scripts/harness.py check --full` against the complete branch and confirm each issue commit's validation and required-review results. If PR preparation creates a new uncommitted fix, classify and review that diff before committing it.
+- Match review and validation evidence to the final revision/diff and trusted configuration. Confirm the exact repository, issue, remote, branch, base, and authorized write scope immediately before publication. Preserve existing standing authorization; do not request it again for the same scope.
 
 ## Publish or update the PR
 
 - Check for an existing open PR from this branch. Update that PR instead of creating a duplicate.
 - Push the task branch to `origin`. Use the connected GitHub integration for PR operations when available; otherwise use `gh`.
-- Create a PR against the confirmed base. Use a concise title and a body with `Summary`, `Validation`, and a link to the task issue. Use `Closes #<number>` only when this PR completes that issue; otherwise use `Refs #<number>`.
+- Create a PR against the confirmed base. Use a conventional title and `.github/PULL_REQUEST_TEMPLATE.md`: `작업 목적`, `변경 범위`, `테스트 내용`, `검증 결과`, `영향 범위`, and `롤백 방법`. Every section needs meaningful content outside comments/code fences; record commands/results and revision-matched review evidence under `검증 결과`. Include the published task issue. Use `Closes #<number>` only when this PR completes that issue; otherwise use `Refs #<number>` or its GitHub issue URL. A syntactically valid reference does not prove that the issue exists; verify it before publication.
+- If a push or PR operation loses its response, query the remote branch/PR first. Update an existing result rather than repeating the write blindly. Record unresolved approval/denial or external status in the task note and report it as incomplete.
 - Do not change workflow permissions, skip required checks, force-push, or merge.
 
 ## Wait for CI

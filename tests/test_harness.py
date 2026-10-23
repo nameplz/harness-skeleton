@@ -94,13 +94,6 @@ class HarnessRiskTests(unittest.TestCase):
         self.assertEqual("T3", result.level)
         self.assertTrue(result.security_review)
 
-    def test_eval_policy_paths_require_security_review(self) -> None:
-        for path in ("scripts/eval_harness.py", "evals/risk-cases.json"):
-            with self.subTest(path=path):
-                result = classify_risk([path], "+change expected evidence")
-                self.assertEqual("T3", result.level)
-                self.assertTrue(result.security_review)
-
     def test_hard_complexity_signals_raise_t2(self) -> None:
         cases = (
             (["package.json", "src/app.py"], "+return value", "changed dependency declarations"),
@@ -252,7 +245,6 @@ class HarnessCheckTests(unittest.TestCase):
         )
         self.assertEqual(("-m", "compileall"), config.full[1][1:3])
         self.assertEqual(("-m", "unittest"), config.full[2][1:3])
-        self.assertIn(("python", "scripts/eval_harness.py"), config.full)
 
     def write_config(self, root: Path, quick: list[list[str]], full: list[list[str]]) -> Path:
         config = root / ".harness/config.toml"
@@ -497,6 +489,7 @@ class HarnessCheckTests(unittest.TestCase):
             with (
                 patch("scripts.harness.CHECK_TOTAL_TIMEOUT_SECONDS", 5),
                 patch("scripts.harness.time.monotonic", side_effect=[0, 0, 6]),
+                patch("scripts.harness.capture_workspace", return_value={"head": None, "dirty": None, "diff_sha256": None}),
                 patch(
                     "scripts.harness.run_bounded_command",
                     return_value=SimpleNamespace(returncode=0, output="", timed_out=False, output_limited=False),
@@ -517,6 +510,7 @@ class HarnessCheckTests(unittest.TestCase):
             with (
                 patch("scripts.harness.CHECK_QUICK_TIMEOUT_SECONDS", 3),
                 patch("scripts.harness.time.monotonic", side_effect=[0, 0]),
+                patch("scripts.harness.capture_workspace", return_value={"head": None, "dirty": None, "diff_sha256": None}),
                 patch(
                     "scripts.harness.run_bounded_command",
                     return_value=SimpleNamespace(returncode=0, output="", timed_out=False, output_limited=False),
@@ -1224,6 +1218,9 @@ class HarnessCheckTests(unittest.TestCase):
             "docs/ARCHITECTURE.md",
             "docs/ADR.md",
             ".agents/skills/harness/SKILL.md",
+            ".agents/skills/pr-workflow/SKILL.md",
+            ".github/PULL_REQUEST_TEMPLATE.md",
+            ".harness/task-template.md",
             ".codex/config.toml",
             ".codex/agents/reviewer.toml",
             ".codex/agents/security-reviewer.toml",
@@ -1232,6 +1229,7 @@ class HarnessCheckTests(unittest.TestCase):
             "scripts/harness.py",
             "scripts/harness_common.py",
             "scripts/harness_risk.py",
+            "scripts/harness_evidence.py",
         ):
             path = root / relative
             path.parent.mkdir(parents=True, exist_ok=True)

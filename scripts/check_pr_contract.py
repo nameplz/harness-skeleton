@@ -12,6 +12,12 @@ from pathlib import Path
 ALLOWED_TYPES = ("feat", "fix", "refactor", "docs", "test", "chore", "perf", "ci")
 TITLE_RE = re.compile(rf"^({'|'.join(ALLOWED_TYPES)}): .+$")
 REQUIRED_SECTIONS = ("작업 목적", "변경 범위", "테스트 내용", "검증 결과", "영향 범위", "롤백 방법")
+ISSUE_RE = re.compile(
+    r"\b(?:closes|fixes|resolves|refs)\s+#[1-9][0-9]*\b"
+    r"|https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[1-9][0-9]*\b",
+    re.IGNORECASE,
+)
+MARKUP_SENTINEL = "\u2060"
 
 
 def parse_args() -> argparse.Namespace:
@@ -22,6 +28,8 @@ def parse_args() -> argparse.Namespace:
 
 def check_event_file(event_path: Path) -> list[str]:
     event = json.loads(event_path.read_text(encoding="utf-8"))
+    if not isinstance(event, dict):
+        return ["event payload must be a JSON object"]
     pull_request = event.get("pull_request")
     if not isinstance(pull_request, dict):
         return []
@@ -36,15 +44,46 @@ def check_event_file(event_path: Path) -> list[str]:
         )
     if not isinstance(body, str):
         body = ""
+    body = _visible_markdown(body)
     for section in REQUIRED_SECTIONS:
         if not has_section(body, section):
-            errors.append(f"PR body missing required section: {section}")
+            errors.append(f"PR body missing required section or content: {section}")
+    if not ISSUE_RE.search(body):
+        errors.append("PR body must reference a task issue with Closes/Refs #<number> or a GitHub issue URL")
     return errors
 
 
 def has_section(body: str, section: str) -> bool:
-    pattern = re.compile(rf"^\s*#+\s*{re.escape(section)}\s*$", re.MULTILINE)
-    return bool(pattern.search(body))
+    headings = list(re.finditer(r"(?m)^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$", body))
+    for index, heading in enumerate(headings):
+        if heading.group(2) != section:
+            continue
+        end = next((other.start() for other in headings[index + 1:]
+                    if len(other.group(1)) <= len(heading.group(1))), len(body))
+        content = re.sub(r"(?m)^ {0,3}#{1,6}[ \t]+.*$", "", body[heading.end():end])
+        if content.replace(MARKUP_SENTINEL, "").strip():
+            return True
+    return False
+
+
+def _visible_markdown(body: str) -> str:
+    # Preserve token/line boundaries so removing code/comments cannot manufacture headings.
+    def mask(match: re.Match[str]) -> str:
+        return "\n".join(MARKUP_SENTINEL for _ in range(match.group().count("\n") + 1))
+
+    body = re.sub(r"<!--.*?(?:-->|\Z)", mask, body, flags=re.DOTALL)
+    visible: list[str] = []
+    fence: str | None = None
+    for line in body.splitlines():
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if fence is None and marker:
+            fence = marker.group(1)
+        elif fence is not None:
+            if marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence) and not marker.group(2).strip():
+                fence = None
+        elif not line.startswith(("    ", "\t")):
+            visible.append(line)
+    return re.sub(r"(`+).*?\1", mask, "\n".join(visible), flags=re.DOTALL)
 
 
 def main() -> int:

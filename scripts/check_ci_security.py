@@ -28,18 +28,22 @@ FORBIDDEN_WORKFLOW_PATTERNS = (
     (re.compile(r"\bself-hosted\b", re.IGNORECASE), "self-hosted runners are forbidden"),
     (re.compile(r"\b(deploy|publish|migration)\b", re.IGNORECASE), "deploy/publish/migration terms are forbidden"),
 )
-SENSITIVE_PREFIXES = (".github/workflows/", ".github/actions/", ".harness/", ".codex/", "evals/")
+SENSITIVE_PREFIXES = (".github/workflows/", ".github/actions/", ".agents/", ".harness/", ".codex/")
 SENSITIVE_DIRECTORY_PATHS = frozenset(
-    {".github", ".github/workflows", ".github/actions", ".harness", ".codex", "evals"}
+    {".github", ".github/workflows", ".github/actions", ".agents", ".harness", ".codex"}
 )
 SENSITIVE_SCRIPT_PATTERNS = ("*validation*.py", "validate*.py", "check_*.py")
-SENSITIVE_SCRIPT_PATHS = frozenset(
+SENSITIVE_FILE_PATHS = frozenset(
     {
+        "AGENTS.md",
+        ".agents/skills/harness/SKILL.md",
+        ".agents/skills/pr-workflow/SKILL.md",
         "scripts/harness.py",
         "scripts/harness_common.py",
         "scripts/harness_risk.py",
         "scripts/command_runner.py",
-        "scripts/eval_harness.py",
+        "scripts/github_expression_scanner.py",
+        "scripts/harness_evidence.py",
     }
 )
 TRUSTED_MAINTENANCE_LABEL = "harness-trusted-maintenance"
@@ -726,7 +730,9 @@ def is_safe_changed_path(filename: str) -> bool:
 
 
 def is_sensitive_path(filename: str) -> bool:
-    if filename in SENSITIVE_DIRECTORY_PATHS or filename in SENSITIVE_SCRIPT_PATHS:
+    if filename.rsplit("/", 1)[-1] == "AGENTS.md":
+        return True
+    if filename in SENSITIVE_DIRECTORY_PATHS or filename in SENSITIVE_FILE_PATHS:
         return True
     if filename.startswith(SENSITIVE_PREFIXES):
         return True

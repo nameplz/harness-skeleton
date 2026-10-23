@@ -12,7 +12,7 @@ Add durable choices for the concrete project here. Record the decision, the reas
 **Trade-off:** Progress lives in `/goal`, Git, or one optional task artifact rather than a centrally managed runtime state machine. The harness has no Python worker pipeline, heartbeat, or stuck-state runtime.
 
 ### ADR-011: Risk-based review routing
-**Decision:** Risk output is a deterministic minimum tier. Hard paths, high-confidence security behavior, and explicit complexity signals set T3/T2; hard signals cannot be lowered. Broad keywords and implementation-file count are hints, so two source files alone do not force T2. T0/T1 use deterministic checks and self-review; T2 adds one independent read-only reviewer; T3 adds an independent read-only reviewer and security reviewer after full validation. Harness changes include deterministic risk-policy eval cases.
+**Decision:** Risk output is a deterministic minimum tier. Hard paths, high-confidence security behavior, and explicit complexity signals set T3/T2; hard signals cannot be lowered. Broad keywords and implementation-file count are hints, so two source files alone do not force T2. T0/T1 use deterministic checks and self-review; T2 adds one independent read-only reviewer; T3 adds an independent read-only reviewer and security reviewer after full validation.
 **Reason:** Deterministic signals should catch clear trust-boundary and complexity changes without forcing review for ordinary multi-file fixes or documentation vocabulary. Test status is deterministic; independent reasoning is most useful for complex changes and trust boundaries.
 **Trade-off:** The diff detector gives a minimum tier, not full task understanding; Codex uses hints and task context to escalate ambiguous or unseen risks. Project config enables the required multi-agent roles and hooks but leaves concurrency and reviewer model selection to user/runtime defaults.
 
@@ -30,3 +30,8 @@ Add durable choices for the concrete project here. Record the decision, the reas
 **Decision:** Keep local hooks small and focused on command policy and project-defined validation. Treat Codex sandbox/permissions and trusted CI as enforcement boundaries.
 **Reason:** A regex hook is not a complete sandbox and must not be presented as one.
 **Trade-off:** Local checks improve feedback but do not replace repository protection or CI.
+
+### ADR-015: Protect the control plane and bind its evidence
+**Decision:** Protect the core agent/PR instructions, validator dependencies, and evidence helper in both trusted CI maintenance policy and local hard-risk routing. Keep ordinary documentation T0. Bind checks to HEAD, dirty-content and applied-config digests; expose execution-limit metadata and invalidate results when source/config changes during validation. Align the PR template, workflow instructions, non-empty section checker, and issue-reference requirement.
+**Reason:** A trusted policy is only complete when its dependencies are protected; results cannot be reused safely for a different revision or empty delivery evidence.
+**Trade-off:** Core instruction edits need trusted maintenance. Fingerprints are bounded, non-atomic change evidence with explicit unknown values, not execution attestations. Syntactic PR references still need remote existence checks during authorized publication.

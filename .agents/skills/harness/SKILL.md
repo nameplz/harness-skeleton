@@ -18,19 +18,21 @@ Use `python scripts/harness.py risk` for a deterministic minimum tier. Hard T2/T
 
 Main Codex is the implementation writer. T2/T3 do not imply an implementation subagent. There is no separate test-review worker. Test commands and their exit status are deterministic; reviewers may assess test adequacy but must not re-judge test results.
 
-Keep reviewers read-only. Ask each reviewer to return `status`, `summary`, `findings`, `evidence`, and `recommendation`; findings include a cause, a repository `path:line` citation, and a concrete fix. An explicit no-findings result is required when the review passes.
+Keep reviewers read-only, including external tool write permissions. Ask each reviewer to return `status`, `summary`, `findings`, `evidence`, and `recommendation`; findings include a cause, a repository `path:line` citation, and a concrete fix. Identify the reviewed HEAD and dirty diff fingerprint in `evidence`. An explicit no-findings result is required when the review passes. After implementation changes, revalidate and obtain review of the affected final diff; never attach an old review as evidence for new code.
 
 ## Issue-first delivery
 
 - Each task starts from a published GitHub issue. Before implementation, confirm its link and acceptance criteria, then work on an issue-specific branch from the intended PR base. If no issue exists, use the currently configured issue-creation workflow and follow its approval steps; do not bind this policy to a skill name or begin implementation before the issue is published.
+- An explicit local-only user request is an exception to external delivery: implement and validate locally without creating an issue, committing, pushing, or publishing unless those actions are also authorized. Report the local diff and validation; do not describe it as completed issue-to-PR delivery.
 - Keep one issue as the task boundary. Complete and verify its work using the task-unit commit policy below.
 - After the issue's work and commits are complete, follow `.agents/skills/pr-workflow/SKILL.md` to publish one PR and wait until all required CI checks pass. Fix task-caused failures. Report external or permission-blocked checks as incomplete. Never merge unless asked.
 
 ## State and artifacts
 
 - Use `/goal` for a long-running objective that spans phases or needs durable completion tracking.
-- For a complex task that must survive a new session, keep one concise `.harness/tasks/<slug>.md` file with Goal, Acceptance, Constraints, Decisions, Current state, and Next. Validate the slug as a relative path under `.harness/tasks/`.
+- For a complex task that must survive a new session or pause for external approval/CI, keep one concise `.harness/tasks/<slug>.md` file with Goal, Acceptance, Constraints, Decisions, Current state, and Next. Use `.harness/task-template.md`; include issue/repository/branch/base/HEAD, the last completed unit, validation/review evidence, pending external actions, and granted approval scope. Validate the slug as a relative path under `.harness/tasks/`.
 - Do not create a task file for routine T0/T1 changes. Git records code state; CI records validation state.
+- On resume, compare the note with actual Git state and query existing PR/check status. Invalidate stale evidence. After a lost write response, look up the remote result before retrying; retain standing authorization and do not ask for it again unless scope changes.
 
 ## Task units and commits
 
@@ -49,6 +51,7 @@ Keep reviewers read-only. Ask each reviewer to return `status`, `summary`, `find
 
 - Read the project-specific command lists in `.harness/config.toml`; do not guess test, lint, typecheck, or build tools from the language.
 - Run `python scripts/harness.py check --quick` for T0/T1 and `--full` for T2/T3. Resolve failed checks before finishing.
+- Read `evidence`, `evidence_after`, and `evidence_unchanged` in check output. A source/config change during validation fails the overall check even if individual commands passed. A null identity is unavailable evidence, not an attestation.
 - Run the risk command on the final diff. When it reports `code_review`, obtain a read-only code review; when it reports `security_review`, obtain a read-only security review.
 - Hooks provide fast feedback only. Codex sandbox and permissions, trusted CI, and repository branch protection define enforcement boundaries.
 - Report changes, commands, results, and any review findings. Do not create phase indexes, heartbeat files, or worker output JSON.

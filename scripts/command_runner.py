@@ -29,6 +29,53 @@ class CommandResult:
     timed_out: bool = False
     output_limited: bool = False
     output_bytes: bytes | None = None
+    started: bool = True
+
+
+def _is_git_executable(value: str) -> bool:
+    return Path(value.replace("\\", "/")).name.casefold() in {"git", "git.exe"}
+
+
+def _git_subcommand_index(arguments: Sequence[str]) -> int | None:
+    options_with_values = {
+        "-C",
+        "-c",
+        "--config",
+        "--config-env",
+        "--git-dir",
+        "--work-tree",
+        "--namespace",
+        "--super-prefix",
+        "--exec-path",
+    }
+    options_without_values = {
+        "--bare", "--no-pager", "--no-replace-objects", "--no-lazy-fetch",
+        "--no-optional-locks", "--literal-pathspecs",
+    }
+    position = 0
+    while position < len(arguments):
+        argument = arguments[position]
+        if argument in options_with_values:
+            position += 2
+        elif argument in options_without_values or argument.startswith(
+            (
+                "--config=",
+                "--config-env=",
+                "--git-dir=",
+                "--work-tree=",
+                "--namespace=",
+                "--super-prefix=",
+                "--exec-path=",
+            )
+        ):
+            position += 1
+        elif argument.startswith(("-C", "-c")) and len(argument) > 2:
+            position += 1
+        elif argument.startswith("-"):
+            position += 1
+        else:
+            return position
+    return None
 
 
 def run_bounded_command(
@@ -44,6 +91,36 @@ def run_bounded_command(
 
     if timeout_seconds <= 0 or max_output_bytes < 1:
         raise ValueError("command limits must be positive")
+    deadline = time.monotonic() + timeout_seconds
+    if argv and not _is_git_executable(argv[0]) and any(_is_git_executable(arg) for arg in argv[1:]):
+        return CommandResult(125, "Wrapped Git inspection is unsupported; invoke Git directly", started=False)
+    if argv and _is_git_executable(argv[0]):
+        index = _git_subcommand_index(argv[1:])
+        if index is not None and argv[index + 1] in {"status", "diff"}:
+            # shortcut: preflight is not atomic against local config writes; host isolation must cover hostile concurrency.
+            probe = run_bounded_command(
+                [*argv[:index + 1], "config", "--includes", "--null", "--name-only",
+                 "--get-regexp", r"^filter\..*\.(clean|smudge|process)$"],
+                cwd=cwd, timeout_seconds=timeout_seconds,
+                max_output_bytes=max_output_bytes, env=env,
+            )
+            if probe.returncode != 1 or probe.output or probe.timed_out or probe.output_limited:
+                return CommandResult(124 if probe.timed_out and not probe.output_limited else 125,
+                                     "Git inspection blocked: callback configuration could not be excluded",
+                                     timed_out=probe.timed_out, output_limited=probe.output_limited, started=False)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return CommandResult(124, "Git inspection preflight timed out", timed_out=True, started=False)
+            # Dirty submodules run nested Git with separate callback configuration.
+            args = list(argv[index + 2:])
+            boundary = args.index("--") if "--" in args else len(args)
+            options = [arg for arg in args[:boundary]
+                       if arg != "--ignore-submodules" and not arg.startswith("--ignore-submodules=")]
+            if argv[index + 1] == "diff":
+                options = [arg for arg in options if arg not in {"--ext-diff", "--textconv"}]
+                options.extend(["--no-ext-diff", "--no-textconv"])
+            argv = [*argv[:index + 1], "-c", "core.fsmonitor=false", argv[index + 1],
+                    *options, "--ignore-submodules=dirty", *args[boundary:]]
     environment = _command_environment(env)
     kwargs: dict[str, object] = {
         "cwd": cwd,
@@ -79,7 +156,6 @@ def run_bounded_command(
 
     reader = threading.Thread(target=collect_output, name="harness-check-output", daemon=True)
     reader.start()
-    deadline = time.monotonic() + timeout_seconds
     timed_out = False
 
     while process.poll() is None:
@@ -164,6 +240,7 @@ def _command_environment(base: Mapping[str, str] | None = None) -> dict[str, str
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_SYSTEM": os.devnull,
             "GIT_TERMINAL_PROMPT": "0",
+            "GIT_OPTIONAL_LOCKS": "0",
         }
     )
     return environment
