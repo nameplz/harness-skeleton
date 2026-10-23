@@ -1,0 +1,276 @@
+diff --git a/src/orca_discord_bridge/bot.py b/src/orca_discord_bridge/bot.py
+index 18a9e6f..b66d94f 100644
+--- a/src/orca_discord_bridge/bot.py
++++ b/src/orca_discord_bridge/bot.py
+@@ -2,6 +2,7 @@ from __future__ import annotations
+ 
+ import asyncio
+ import logging
++import unicodedata
+ 
+ import discord
+ from discord import app_commands
+@@ -36,6 +37,20 @@ def _auth_error(bot: "BridgeBot", *, guild_id: int | None, user_id: int) -> str
+     return None
+ 
+ 
++def _safe_inline_identifier(value: str, *, limit: int = 80) -> str:
++    characters = []
++    for character in value[: limit * 4]:
++        category = unicodedata.category(character)
++        if category == "Cf":
++            continue
++        if category == "Cc" or character.isspace():
++            characters.append(" ")
++        else:
++            characters.append("'" if character == "`" else character)
++    cleaned = " ".join("".join(characters).split())
++    return cleaned[:limit] or "unknown"
++
++
+ @orca_group.command(name="terminals", description="현재 Orca 터미널 목록을 표시합니다.")
+ async def terminals_command(interaction: discord.Interaction) -> None:
+     bot = _bridge(interaction)
+@@ -146,6 +161,60 @@ async def status_command(interaction: discord.Interaction) -> None:
+     )
+ 
+ 
++@orca_group.command(name="doctor", description="저장된 Orca 연결을 안전하게 진단합니다.")
++async def doctor_command(interaction: discord.Interaction) -> None:
++    bot = _bridge(interaction)
++    error = _auth_error(bot, guild_id=interaction.guild_id, user_id=interaction.user.id)
++    if error:
++        await interaction.response.send_message(error, ephemeral=True)
++        return
++
++    state = bot.store.state
++    saved_identity = (
++        state.terminal_handle,
++        state.worktree_id,
++        state.pane_key,
++    )
++    if not all(isinstance(value, str) and value.strip() for value in saved_identity):
++        await interaction.response.send_message(
++            "Orca terminal 연결이 없습니다. `/orca connect`로 다시 연결하세요.",
++            ephemeral=True,
++        )
++        return
++
++    handle, worktree_id, pane_key = (value.strip() for value in saved_identity)
++    await interaction.response.defer(ephemeral=True, thinking=True)
++    try:
++        binding = await bot.orca.resolve_binding(handle)
++        if binding.worktree_id != worktree_id or binding.pane_key != pane_key:
++            await interaction.followup.send(
++                "저장된 Orca 연결 정보가 변경되었습니다. `/orca connect`로 다시 연결하세요.",
++                ephemeral=True,
++            )
++            return
++        snapshot = await bot.orca.get_agent_snapshot(binding)
++    except OrcaError:
++        await interaction.followup.send(
++            "Orca 상태를 확인할 수 없습니다. terminal 상태를 확인한 뒤 `/orca connect`로 다시 연결하세요.",
++            ephemeral=True,
++        )
++        return
++
++    agent_state = "unknown"
++    if snapshot and isinstance(snapshot.state, str):
++        candidate_state = snapshot.state[:32].strip().casefold()
++        if candidate_state in {"working", "waiting", "blocked", "done"}:
++            agent_state = candidate_state
++    await interaction.followup.send(
++        "상태: 연결됨 (structured agent status 사용)\n"
++        f"Terminal: `{_safe_inline_identifier(binding.handle)}`\n"
++        f"Worktree: `{_safe_inline_identifier(binding.worktree_id)}`\n"
++        f"Pane: `{_safe_inline_identifier(binding.pane_key)}`\n"
++        f"Agent state: `{agent_state}`",
++        ephemeral=True,
++    )
++
++
+ @orca_group.command(name="disconnect", description="현재 Orca terminal 연결을 해제합니다.")
+ async def disconnect_command(interaction: discord.Interaction) -> None:
+     bot = _bridge(interaction)
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..437d5dd 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -241,6 +241,177 @@ def interaction(bot, *, guild=1, user=2):
+               followup=NS(send=AsyncMock()))
+ 
+ 
++def test_orca_doctor_reports_identity_and_stale_guidance(tmp_path):
++    async def run():
++        live = orca.TerminalBinding('term', 'wt', 'tab', 'leaf')
++        sensitive_values = (
++            'OWNED_SYNTHETIC_TOKEN',
++            'OWNED_PRIVATE_PROMPT',
++            'OWNED_ASSISTANT_MESSAGE',
++            'OWNED_TOOL_NAME',
++            'OWNED_TOOL_INPUT',
++            'OWNED_RAW_ORCA_ERROR',
++        )
++
++        class FakeOrca:
++            def __init__(self, *, binding=live, snapshot=None, error_at=None):
++                self.binding = binding
++                self.snapshot = snapshot
++                self.error_at = error_at
++                self.calls = []
++
++            async def resolve_binding(self, handle):
++                self.calls.append(('resolve_binding', handle))
++                if self.error_at == 'resolve_binding':
++                    raise orca.OrcaError('OWNED_RAW_ORCA_ERROR')
++                return self.binding
++
++            async def get_agent_snapshot(self, binding):
++                self.calls.append(('get_agent_snapshot', binding))
++                if self.error_at == 'get_agent_snapshot':
++                    raise orca.OrcaError('OWNED_RAW_ORCA_ERROR')
++                return self.snapshot
++
++        all_messages = []
++
++        async def invoke(name, *, identity=('term', 'wt', 'tab:leaf'), binding=live,
++                         snapshot=None, error_at=None, guild=1, user=2):
++            bot = bot_module.BridgeBot(settings(tmp_path / f'{name}.json'))
++            fake = FakeOrca(binding=binding, snapshot=snapshot, error_at=error_at)
++            bot.orca = fake
++            (bot.store.state.terminal_handle,
++             bot.store.state.worktree_id,
++             bot.store.state.pane_key) = identity
++            request = interaction(bot, guild=guild, user=user)
++            await bot_module.doctor_command.callback(request)
++
++            responses = []
++            for response_mock in (request.response.send_message, request.followup.send):
++                for call in response_mock.await_args_list:
++                    responses.append((call.args[0], call.kwargs.get('ephemeral')))
++            assert len(responses) == 1
++            assert responses[0][1] is True
++            all_messages.append(responses[0][0])
++            if request.response.defer.await_count:
++                assert request.response.defer.await_args.kwargs['ephemeral'] is True
++            await bot.close()
++            return fake.calls, responses[0][0]
++
++        healthy_snapshot = orca.AgentSnapshot(
++            pane_key='tab:leaf', state='done', agent_type='codex',
++            prompt='OWNED_PRIVATE_PROMPT',
++            last_assistant_message='OWNED_ASSISTANT_MESSAGE',
++            tool_name='OWNED_TOOL_NAME', tool_input='OWNED_TOOL_INPUT',
++            interrupted=False, state_started_at=1, updated_at=2,
++        )
++        calls, message = await invoke('healthy', snapshot=healthy_snapshot)
++        assert calls == [
++            ('resolve_binding', 'term'),
++            ('get_agent_snapshot', live),
++        ]
++        assert all(value in message for value in (
++            'Terminal: `term`', 'Worktree: `wt`', 'Pane: `tab:leaf`',
++            'Agent state: `done`',
++        ))
++
++        unknown_snapshot = orca.AgentSnapshot(
++            pane_key='tab:leaf', state=' ', agent_type='codex',
++            prompt='OWNED_PRIVATE_PROMPT',
++            last_assistant_message='OWNED_ASSISTANT_MESSAGE',
++            tool_name='OWNED_TOOL_NAME', tool_input='OWNED_TOOL_INPUT',
++            interrupted=False, state_started_at=1, updated_at=2,
++        )
++        for name, snapshot in (
++            ('unknown-empty-state', unknown_snapshot),
++            ('unknown-missing-snapshot', None),
++        ):
++            calls, message = await invoke(name, snapshot=snapshot)
++            assert calls == [
++                ('resolve_binding', 'term'),
++                ('get_agent_snapshot', live),
++            ]
++            assert 'Agent state: `unknown`' in message
++
++        unsafe_handle = 'term\nFORGED_TERMINAL_LINE: `owned`'
++        unsafe_worktree = 'wt\r\n`FORGED_WORKTREE_LINE`'
++        unsafe_leaf = 'leaf\n`FORGED_PANE_LINE`'
++        unsafe_binding = orca.TerminalBinding(
++            unsafe_handle, unsafe_worktree, 'tab', unsafe_leaf,
++        )
++        unsafe_snapshot = orca.AgentSnapshot(
++            pane_key=unsafe_binding.pane_key,
++            state='done\nFORGED_STATE_LINE: `owned`',
++            agent_type='codex', prompt='', last_assistant_message='',
++            tool_name='', tool_input='', interrupted=False,
++            state_started_at=1, updated_at=2,
++        )
++        calls, message = await invoke(
++            'unsafe-display',
++            identity=(unsafe_handle, unsafe_worktree, unsafe_binding.pane_key),
++            binding=unsafe_binding,
++            snapshot=unsafe_snapshot,
++        )
++        assert calls == [
++            ('resolve_binding', unsafe_handle),
++            ('get_agent_snapshot', unsafe_binding),
++        ]
++        assert len(message.splitlines()) == 5
++        assert message.count('`') == 8
++        assert "Terminal: `term FORGED_TERMINAL_LINE: 'owned'`" in message
++        assert "Worktree: `wt 'FORGED_WORKTREE_LINE'`" in message
++        assert "Pane: `tab:leaf 'FORGED_PANE_LINE'`" in message
++        assert 'Agent state: `unknown`' in message
++        assert 'FORGED_STATE_LINE' not in message
++        assert len(bot_module._safe_inline_identifier('x' * 200)) == 80
++
++        changed_worktree = orca.TerminalBinding('term', 'new-wt', 'tab', 'leaf')
++        changed_pane = orca.TerminalBinding('term', 'wt', 'tab', 'new-leaf')
++        for name, binding in (
++            ('stale-worktree', changed_worktree),
++            ('stale-pane', changed_pane),
++        ):
++            calls, message = await invoke(name, binding=binding, snapshot=healthy_snapshot)
++            assert calls == [('resolve_binding', 'term')]
++            assert '/orca connect' in message
++            assert '변경' in message
++
++        for name, missing_index in (
++            ('missing-handle', 0),
++            ('missing-worktree', 1),
++            ('missing-pane', 2),
++        ):
++            identity = ['term', 'wt', 'tab:leaf']
++            identity[missing_index] = None
++            calls, message = await invoke(name, identity=tuple(identity))
++            assert calls == []
++            assert '/orca connect' in message
++            assert '연결이 없습니다' in message
++
++        for name, guild, user in (
++            ('unauthorized-guild', 7, 2),
++            ('unauthorized-user', 1, 7),
++        ):
++            calls, _ = await invoke(name, guild=guild, user=user)
++            assert calls == []
++
++        for name, error_at in (
++            ('resolve-error', 'resolve_binding'),
++            ('snapshot-error', 'get_agent_snapshot'),
++        ):
++            calls, message = await invoke(name, error_at=error_at)
++            assert '/orca connect' in message
++            assert '확인할 수 없습니다' in message
++            assert 'OWNED_RAW_ORCA_ERROR' not in message
++            assert ('get_agent_snapshot' in [call[0] for call in calls]) is (
++                error_at == 'get_agent_snapshot'
++            )
++
++        for value in sensitive_values:
++            assert value not in '\n'.join(all_messages)
++
++    asyncio.run(run())
++
++
+ @pytest.mark.parametrize('name', ['terminals_command','connect_command','status_command','disconnect_command'])
+ @pytest.mark.parametrize('allowed', [False,True])
+ def test_application_commands_auth_and_connected_paths(tmp_path,name,allowed):

@@ -5,25 +5,77 @@
   "codex_cli": "0.163.0",
   "model": "gpt-6-luna",
   "reasoning_effort": "max",
-  "started_at_utc_observation": "2026-10-23T00:51:49Z",
+  "tui_elapsed": "11m 24s",
   "main_prompt_count": 1,
   "followup_prompt_count": 0,
   "prompt_request_ids": [
     "5069ee43-ffd7-4159-8186-8a702ffa409b"
   ],
   "submission_receipt": "input_accepted; exact request replayed once with --retry-request and returned replayed=true",
-  "execution_observed": "Fresh TUI conversation in current isolated candidate worktree. Read the frozen workflow/task context and began the implementation phase.",
+  "execution_observed": "Fresh TUI conversation in the isolated candidate worktree; v1 phase completed with two implementation attempts.",
   "setup_record": "v1-setup.json",
   "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
   "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
-  "workflow_progress": "running; code/test/security review stages and 3-attempt cap are frozen in AGENTS.md and the preserved v1 workflow.",
+  "reviews": {
+    "workflow": "orca-doctor phase completed; feature branch creation denied by sandbox; no candidate commit made",
+    "code_review": "passed after attempt 2; initial scope concern withdrawn after confirming phases/ was pre-existing workflow metadata",
+    "test_review": "passed after attempt 2; spoofed identifier and forged-state regression included",
+    "security_review": "initial finding fixed in attempt 2; re-review passed with no remaining findings"
+  },
+  "security_finding_and_fix": "Initial review found raw Orca identifiers/state embedded in Discord code spans could spoof diagnostics with backticks or newlines. Attempt 2 bounds/sanitizes identifiers to one line, allowlists agent states, and adds malicious-value tests.",
   "process_observations": {
     "hosted_ci": "not run",
     "network_or_service_calls": "none",
     "remote_writes": false,
     "pip_policy": "PIP_NO_INDEX=1 and PIP_DISABLE_PIP_VERSION_CHECK=1 used on every pip command",
     "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
-    "hook_observation": "SessionStart hook reported exit code 125 immediately after prompt submission; cause and effect not yet determined."
+    "hook_observation": "TUI displayed startup hook exit code 125; cause was not captured. The model reported no project hooks invoked; protected hashes remained unchanged.",
+    "harness_risk_and_full_check": "unavailable: pinned checkout lacks scripts/harness.py and .harness/config.toml"
   },
-  "status": "running"
+  "status": "frozen_host_grade_fail",
+  "tui_candidate_suite": "Offline wheel build/reinstall and full suite passed: 59 passed with two pytest temporary-directory cleanup warnings. Focused review suite passed 11 checks; final git diff --check passed and only two product files changed.",
+  "host_grade": {
+    "status": "fail",
+    "fresh_wheel_build": "pass",
+    "offline_install": "pass",
+    "full_project_suite": "59 passed",
+    "focused_test": "1 passed",
+    "semantic": "8 of 9 frozen checks passed; healthy_status_and_identity failed",
+    "scope": true,
+    "wheel_sha256": "d438cc56fa1cc27dbb45197f031a0070113c75e91fc4c4f1591749372c35cd9f",
+    "failed_semantic_checks": [
+      "healthy_status_and_identity"
+    ]
+  },
+  "grading_note": "The emitted healthy label is Korean “연결됨” (connected); the frozen semantic check accepts “정상”, “healthy”, or English “connected”, but not “연결됨”. The frozen grader was not changed and the raw failure is retained; no post-run candidate edits were made.",
+  "product_diff": {
+    "files": [
+      "src/orca_discord_bridge/bot.py",
+      "tests/test_harness_compatibility.py"
+    ],
+    "insertions": 240,
+    "deletions": 0,
+    "patch_sha256": "abd27a90057232e3738ed044859145a2ed490f293c11bb172c38b00622173d4d"
+  },
+  "host_grade_attempts": [
+    {
+      "patch": "v1-final.patch",
+      "patch_sha256": "abd27a90057232e3738ed044859145a2ed490f293c11bb172c38b00622173d4d",
+      "raw_status": "fail",
+      "failure": "healthy_status_and_identity"
+    }
+  ],
+  "protected_hashes_unchanged_from_pre_stage": true,
+  "metrics_limits": {
+    "model_turn_counts": "not captured",
+    "shell_command_counts": "not captured",
+    "token_usage": "unknown"
+  },
+  "limitations": [
+    "The frozen host semantic check reports one failure because its accepted healthy-status vocabulary omits the emitted Korean “연결됨”; this possible locale false negative was not manually overridden.",
+    "The candidate Harness risk/full checks were unavailable because scripts/harness.py and .harness/config.toml are absent.",
+    "The candidate suite emitted two pytest temporary-directory cleanup warnings; the independent host suite passed cleanly.",
+    "The terminal displayed startup hook exit code 125 with no captured cause; no project hook was invoked by the task run.",
+    "Feature branch creation was denied by the sandbox; no candidate commit or remote CI was used. No network, live services, push, publication, or merge occurred."
+  ]
 }

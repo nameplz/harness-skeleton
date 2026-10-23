@@ -1,0 +1,33 @@
+{
+  "condition": "candidate",
+  "changed_files": [
+    "src/orca_discord_bridge/bot.py",
+    "tests/test_harness_compatibility.py"
+  ],
+  "scope": true,
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "compatibility_test_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+  "host_grader_sha256": "a7003cf314526ebb1c3cf9540ad75335a6532d35bb1e4337bc1deea3231ea57d",
+  "wheel": {
+    "exit_code": 0,
+    "output": "Processing ./source\n  Preparing metadata (pyproject.toml): started\n  Preparing metadata (pyproject.toml): finished with status 'done'\nBuilding wheels for collected packages: orca-discord-bridge\n  Building wheel for orca-discord-bridge (pyproject.toml): started\n  Building wheel for orca-discord-bridge (pyproject.toml): finished with status 'done'\n  Created wheel for orca-discord-bridge: filename=orca_discord_bridge-0.2.0-py3-none-any.whl size=19675 sha256=d438cc56fa1cc27dbb45197f031a0070113c75e91fc4c4f1591749372c35cd9f\n  Stored in directory: /private/tmp/hook-delivery-confirm-n61qez_h/F24-host-v1/tmp/pip-ephem-wheel-cache-0xhmhk_3/wheels/2b/e8/af/4fbbc24099db75256ca9c6d05d98cf6b035cc640d1634eea63\nSuccessfully built orca-discord-bridge\n"
+  },
+  "wheel_sha256": "d438cc56fa1cc27dbb45197f031a0070113c75e91fc4c4f1591749372c35cd9f",
+  "install": {
+    "exit_code": 0,
+    "output": "Looking in links: /private/tmp/hook-delivery-confirm-n61qez_h/F24-host-v1/wheelhouse\nProcessing ./wheelhouse/orca_discord_bridge-0.2.0-py3-none-any.whl\nInstalling collected packages: orca-discord-bridge\nSuccessfully installed orca-discord-bridge-0.2.0\n"
+  },
+  "suite": {
+    "exit_code": 0,
+    "output": "...........................................................              [100%]\n59 passed in 5.19s\n"
+  },
+  "focused": {
+    "exit_code": 0,
+    "output": ".                                                                        [100%]\n1 passed in 0.11s\n"
+  },
+  "semantic": {
+    "exit_code": 1,
+    "output": "{'checks': {'registered_command': True, 'healthy_status_and_identity': False, 'healthy_private_and_no_sensitive_data': True, 'healthy_resolve_then_structured_snapshot': True, 'missing_or_blank_snapshot_state_is_explicit_unknown': True, 'stale_identity_stops_before_snapshot': True, 'missing_identity_stops_before_orca': True, 'authorization_precedes_orca': True, 'error_guidance_is_actionable_and_redacted': True}, 'failed': ['healthy_status_and_identity']}\n"
+  },
+  "status": "fail"
+}

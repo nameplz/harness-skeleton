@@ -1,0 +1,43 @@
+{
+  "pair_id": "F24",
+  "task_id": "T10",
+  "task_instance": "standard",
+  "batch": "full",
+  "condition_order": "v2_then_v1",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "task_sha256": "4afe9cd59ddfbfb98b547b4d03a0c135f2b908663059fc4a1ed82c052fa552f0",
+  "prompt_sha256": "9a5e9e4d7a7ab0fe27b67d21cda0b5561b048dd797679e6d95b79a1359812199",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "conditions": {
+    "v2": {
+      "run_record": "v2-run.json",
+      "patch": "v2-final.patch",
+      "patch_sha256": "329b28aace9c437aeffbb4015273c9fb1a14a414ce54b856d308468472a14c4f",
+      "host_grade": "v2-grade.json",
+      "raw_status": "pass",
+      "suite": "59 candidate and host tests passed; all 9 frozen semantic checks passed",
+      "reviews": "independent code and security reviews passed with no findings"
+    },
+    "v1": {
+      "run_record": "v1-run.json",
+      "patch": "v1-final.patch",
+      "patch_sha256": "abd27a90057232e3738ed044859145a2ed490f293c11bb172c38b00622173d4d",
+      "host_grade": "v1-grade.json",
+      "raw_status": "fail",
+      "suite": "59 candidate and host tests passed; 8 of 9 frozen semantic checks passed",
+      "reviews": "independent code, test, and security re-reviews passed after 2 implementation attempts"
+    }
+  },
+  "pair_decision": "not accepted under the frozen grader: v2 passed; v1 failed only healthy_status_and_identity. The v1 response says Korean “연결됨” (connected), which the frozen semantic synonym list omits; raw result retained without overriding.",
+  "limitations": [
+    "v1 emitted Korean “연결됨” for healthy status; the frozen semantic check omits this equivalent label, so the pair retains a v1 raw fail pending any later batch-level adjudication.",
+    "Pinned checkout lacks scripts/harness.py, .harness/config.toml, and .harness/validation.json; Harness risk/full checks were unavailable.",
+    "Both candidate suites emitted two pytest temporary-directory cleanup warnings; frozen host suites passed cleanly.",
+    "Candidate feature branch creation was blocked by filesystem permissions; no candidate commit or remote CI was used.",
+    "TUI parent was a host process and harness-eval applied to tool children only. Token and model-turn counts were not captured.",
+    "TUI showed startup hook exit code 125 with no captured cause; no project hook was invoked by the task run.",
+    "No network, live Orca/Discord services, push, publication, or merge occurred."
+  ],
+  "context_carryover_risk": "Both F24 conditions used fresh Codex conversations in the same isolated worktree and identical frozen baseline; no cross-condition implementation context was carried."
+}
