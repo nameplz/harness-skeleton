@@ -1,0 +1,29 @@
+{
+  "condition": "v1",
+  "candidate_branch": "eval-base",
+  "candidate_commits": 0,
+  "codex_cli": "0.163.0",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "started_at_utc_observation": "2026-10-23T00:51:49Z",
+  "main_prompt_count": 1,
+  "followup_prompt_count": 0,
+  "prompt_request_ids": [
+    "5069ee43-ffd7-4159-8186-8a702ffa409b"
+  ],
+  "submission_receipt": "input_accepted; exact request replayed once with --retry-request and returned replayed=true",
+  "execution_observed": "Fresh TUI conversation in current isolated candidate worktree. Read the frozen workflow/task context and began the implementation phase.",
+  "setup_record": "v1-setup.json",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "workflow_progress": "running; code/test/security review stages and 3-attempt cap are frozen in AGENTS.md and the preserved v1 workflow.",
+  "process_observations": {
+    "hosted_ci": "not run",
+    "network_or_service_calls": "none",
+    "remote_writes": false,
+    "pip_policy": "PIP_NO_INDEX=1 and PIP_DISABLE_PIP_VERSION_CHECK=1 used on every pip command",
+    "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+    "hook_observation": "SessionStart hook reported exit code 125 immediately after prompt submission; cause and effect not yet determined."
+  },
+  "status": "running"
+}
