@@ -1,7 +1,9 @@
 {
   "pair_id": "F28",
-  "status": "v2 in progress",
+  "status": "v1 in progress",
   "condition_order": "v2_then_v1",
-  "model_runs_completed": 0,
+  "model_runs_completed": 1,
+  "v2_host_grade": "pass",
+  "v2_patch_sha256": "7342adea2fcab34de4a660b6006f95552bcf93c2d84e9edfdf37a399c97d9f29",
   "pair_decision": "pending"
 }
