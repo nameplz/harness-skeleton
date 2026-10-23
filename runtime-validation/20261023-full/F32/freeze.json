@@ -1,0 +1,34 @@
+{
+  "pair_id": "F32",
+  "task_id": "T16",
+  "task_instance": "standard",
+  "condition_order": "v1_then_v2",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "budget_seconds_per_condition": 1800,
+  "frozen_sha256": {
+    "task.md": "b76e437f64be541e150f1514c53b58f451ecf3d9f13a70031138a73b2745d2eb",
+    "task-prompt.txt": "40972d961a695789b219be7be27f6d5e81862c236cfa9c992cf4bda412dc04d2",
+    "acceptance.json": "8a0364228ff7bc117d51c3cd24cce001fe13e03a2e7cb53ba7c838870530d0a4",
+    "host-grader.py": "ae726d08cfb28651ef08e283fe2cd3fb1cae775bb2d4f5286e343a92ec0c9cc3",
+    "semantic.py": "32b62bae1d8fee2e6c03a0249f671ba88568668e113917c4190e900f26f8e7be",
+    "positive-control.patch": "6acf60ea7b22262c981851cdce5d7ee1a4f6aed5dcbc92444e7dadf3ef93dcd9",
+    "baseline-grade.json": "5b9eba3781dc671f02e5c40b57ed38072ea8767f4872a045a7a7f0546648f832",
+    "positive-control-grade.json": "287cd393d5aee4feef64f3483fc6c9956ed852bc97af0d92eb8ce202b9646503"
+  },
+  "baseline_calibration": "expected_fail: offline wheel build/install pass; bounded 2.7.x dependency and README validation statement are absent",
+  "positive_control_calibration": "pass: exact bounded dependency, README statement, supported Python metadata, offline wheel build/install, and two-file scope",
+  "frozen_before_model_conditions": true,
+  "protected_candidate_hashes": {
+    ".codex/config.toml": "07f9bf088b6792cbee5f137d04212e5899fd1109bd3827362372848293a76107",
+    ".codex/hooks/capture_event.py": "07a8aad717ca04a59d7f4b76f21148f7ff6d0bb59e8b4299b7492f297bdc837a",
+    ".harness/delivery.json": "2f0527b3812cee1e39a2114965a5bbeab2497a8fec34d5ba49198d36252f9431"
+  },
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "network": "Offline pip only; no live services",
+  "external_effects": "No publication, push, or merge"
+}

@@ -1,0 +1,27 @@
+{
+  "task_id": "T16",
+  "task_name": "Pin a tested Discord dependency range",
+  "task_instance": "standard",
+  "batch": "full",
+  "pair_id": "F32",
+  "condition_order": "v1_then_v2",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "budget_seconds_per_condition": 1800,
+  "allowed_files": ["pyproject.toml", "README.md"],
+  "tested_discord_version": "2.7.1",
+  "criteria": [
+    {"id": "bounded_discord_range", "check": "Project metadata declares discord.py>=2.7,<2.8."},
+    {"id": "readme_dependency", "check": "README identifies discord.py 2.7.x and records 2.7.1 as the validated version."},
+    {"id": "python_metadata", "check": "requires-python remains >=3.11 and README says Python 3.11+."},
+    {"id": "wheel_build", "check": "A clean wheel builds from the frozen project snapshot with pip offline and without dependency resolution."},
+    {"id": "offline_install", "check": "The built wheel installs offline into a fresh target directory; installed metadata matches the declared ranges."},
+    {"id": "scope", "check": "Only pyproject.toml and README.md are changed."},
+    {"id": "external_effects", "check": "No network, live service calls, publication, push, or merge."}
+  ],
+  "baseline_calibration": "Expected fail: current discord.py>=2.6,<3 range does not pin the tested 2.7.x series and README does not record the validated discord.py version; baseline wheel build/install must succeed offline.",
+  "positive_control_calibration": "Required before model runs: exact bounded metadata and README update must pass every semantic, build, install, and scope check.",
+  "network": "Offline pip; clean temporary source, wheelhouse, and install target only.",
+  "external_effects": "No network, live services, publication, push, or merge."
+}

@@ -1,0 +1,12 @@
+{
+  "pair_id": "F32",
+  "status": "frozen",
+  "task_id": "T16",
+  "task_instance": "standard",
+  "condition_order": "v1_then_v2",
+  "model_runs_completed": 0,
+  "baseline_grade": "expected_fail",
+  "baseline_build_install": "passed offline",
+  "positive_control_grade": "pass",
+  "next_condition": "v1"
+}
