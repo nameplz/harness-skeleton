@@ -1,0 +1,115 @@
+diff --git a/src/orca_discord_bridge/bot.py b/src/orca_discord_bridge/bot.py
+index 18a9e6f..d84c7c2 100644
+--- a/src/orca_discord_bridge/bot.py
++++ b/src/orca_discord_bridge/bot.py
+@@ -286,23 +286,19 @@ class BridgeBot(commands.Bot):
+             await message.reply(f"Orca 오류: {exc}", mention_author=False)
+ 
+     async def forward_to_codex(self, prompt: str, *, origin: str) -> None:
+-        handle = self.store.state.terminal_handle
++        saved_binding = self.store.state
++        handle = saved_binding.terminal_handle
+         if not handle:
+             raise OrcaError("No Orca terminal is connected")
+ 
+-        if not self.store.state.worktree_id or not self.store.state.pane_key:
++        # Snapshot the saved identity before awaiting Orca so this comparison is against
++        # the binding that was selected for this message.
++        worktree_id = saved_binding.worktree_id
++        pane_key = saved_binding.pane_key
++        binding = await self.orca.resolve_binding(handle)
++        if binding.worktree_id != worktree_id or binding.pane_key != pane_key:
+             binding = await self.orca.validate_codex_binding(handle)
+             self.store.connect(binding.handle, binding.worktree_id, binding.pane_key)
+-        else:
+-            # Re-resolve the live terminal identity each turn so an Orca layout change cannot
+-            # silently route status from a stale pane mapping.
+-            binding = await self.orca.resolve_binding(handle)
+-            if (
+-                binding.worktree_id != self.store.state.worktree_id
+-                or binding.pane_key != self.store.state.pane_key
+-            ):
+-                binding = await self.orca.validate_codex_binding(handle)
+-                self.store.connect(binding.handle, binding.worktree_id, binding.pane_key)
+ 
+         result = await self.orca.exchange(binding, prompt)
+         output = clean_terminal_output(result.text)
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..9a34df4 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -211,6 +211,74 @@ def test_forward_output_routing_and_chunks(tmp_path, output, interrupted):
+     asyncio.run(run())
+ 
+ 
++def test_forward_revalidates_stale_binding_before_exchange(tmp_path):
++    class Channel(bot_module.discord.TextChannel):
++        def __init__(self): self.sent=[]
++        async def send(self, value): self.sent.append(value)
++
++    async def run():
++        cases = ('pane-drift', 'worktree-drift', 'incomplete-binding', 'unchanged', 'validation-fails')
++        for case in cases:
++            path = tmp_path / f'{case}.json'
++            bot = bot_module.BridgeBot(settings(path))
++            bot.store.connect('saved-term', 'saved-wt', 'saved-tab:saved-leaf')
++            saved = ('saved-term', 'saved-wt', 'saved-tab:saved-leaf')
++            if case == 'incomplete-binding':
++                bot.store.state.pane_key = None
++                bot.store.save()
++                saved = ('saved-term', 'saved-wt', None)
++            if case in ('pane-drift', 'validation-fails'):
++                live = orca.TerminalBinding('saved-term', 'saved-wt', 'live-tab', 'live-leaf')
++            elif case == 'worktree-drift':
++                live = orca.TerminalBinding('saved-term', 'live-wt', 'saved-tab', 'saved-leaf')
++            else:
++                live = orca.TerminalBinding('saved-term', 'saved-wt', 'saved-tab', 'saved-leaf')
++            validated = orca.TerminalBinding('validated-term', 'validated-wt', 'validated-tab', 'validated-leaf')
++            validate = AsyncMock(return_value=validated)
++            if case == 'validation-fails':
++                validate.side_effect = orca.OrcaError('stale binding rejected')
++            bot.orca = NS(
++                resolve_binding=AsyncMock(return_value=live),
++                validate_codex_binding=validate,
++                exchange=AsyncMock(return_value=orca.ExchangeResult('owned result', 'done')),
++            )
++            channel = Channel()
++            bot.get_channel = lambda _: channel
++            saved_file = json.loads(path.read_text())
++
++            if case == 'validation-fails':
++                with pytest.raises(orca.OrcaError, match='stale binding rejected'):
++                    await bot.forward_to_codex('owned prompt', origin='owned')
++                assert bot.orca.exchange.await_count == 0
++                assert (bot.store.state.terminal_handle, bot.store.state.worktree_id, bot.store.state.pane_key) == saved
++                assert json.loads(path.read_text()) == saved_file
++                validate.assert_awaited_once_with('saved-term')
++            else:
++                await bot.forward_to_codex('owned prompt', origin='owned')
++                if case == 'unchanged':
++                    validate.assert_not_awaited()
++                    assert bot.orca.exchange.await_args.args == (live, 'owned prompt')
++                    assert (bot.store.state.terminal_handle, bot.store.state.worktree_id, bot.store.state.pane_key) == saved
++                    assert json.loads(path.read_text()) == saved_file
++                else:
++                    validate.assert_awaited_once_with('saved-term')
++                    persisted = json.loads(path.read_text())
++                    assert persisted == {
++                        'terminal_handle': validated.handle,
++                        'worktree_id': validated.worktree_id,
++                        'pane_key': validated.pane_key,
++                    }
++                    assert (bot.store.state.terminal_handle, bot.store.state.worktree_id, bot.store.state.pane_key) == (
++                        validated.handle, validated.worktree_id, validated.pane_key
++                    )
++                    assert bot.orca.exchange.await_args.args == (validated, 'owned prompt')
++
++            bot.orca.resolve_binding.assert_awaited_once_with('saved-term')
++            await bot.close()
++
++    asyncio.run(run())
++
++
+ def test_state_roundtrip_and_malformed_json(tmp_path):
+     path=tmp_path/'owned/state.json';store=StateStore(path)
+     assert store.state.terminal_handle is None
