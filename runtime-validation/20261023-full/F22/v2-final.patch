@@ -1,0 +1,303 @@
+diff --git a/src/orca_discord_bridge/orca.py b/src/orca_discord_bridge/orca.py
+index 2707fab..7bc7a2c 100644
+--- a/src/orca_discord_bridge/orca.py
++++ b/src/orca_discord_bridge/orca.py
+@@ -221,16 +221,27 @@ def _normalize_assistant_markdown(text: str, worktree_path: str = "") -> str:
+     from pathlib import Path
+     from urllib.parse import unquote, urlparse
+ 
+-    link_re = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
++    link_re = re.compile(r"\[([^\]]+)\]\((<[^>]+>|(?:\\.|[^)])+)\)")
+     root = Path(worktree_path).expanduser() if worktree_path else None
++    try:
++        resolved_root = root.resolve() if root else None
++    except (OSError, RuntimeError, ValueError):
++        resolved_root = None
+ 
+     def replace(match: re.Match[str]) -> str:
+         label = match.group(1).replace(r"\_", "_")
+         target = match.group(2).strip().replace(r"\_", "_")
+-        parsed = urlparse(target)
++        if target.startswith("<") and target.endswith(">"):
++            target = target[1:-1]
++        try:
++            parsed = urlparse(target)
++        except ValueError:
++            return match.group(0)
+ 
+         local_target = ""
+-        if target.startswith("file://"):
++        if parsed.scheme.casefold() == "file":
++            if parsed.netloc not in {"", "localhost"}:
++                return label
+             local_target = unquote(parsed.path)
+         elif target.startswith(("/", "~/")):
+             local_target = str(Path(target).expanduser())
+@@ -246,17 +257,102 @@ def _normalize_assistant_markdown(text: str, worktree_path: str = "") -> str:
+         else:
+             return match.group(0)
+ 
+-        shown = local_target
+-        if local_target and root:
+-            try:
+-                shown = str(Path(local_target).resolve().relative_to(root.resolve()))
+-            except (OSError, ValueError):
+-                pass
++        if not local_target or resolved_root is None:
++            return label
++
++        line_suffix = ""
++        line_match = re.match(r"^(.*?)(:\d+(?::\d+)?)$", local_target)
++        if line_match:
++            local_target, line_suffix = line_match.groups()
++        try:
++            shown = str(Path(local_target).expanduser().resolve().relative_to(resolved_root))
++        except (OSError, RuntimeError, ValueError):
++            # Never expose an absolute path that is outside the bound worktree.
++            return label
++        shown += line_suffix
+         if not shown or shown == label or shown.endswith('/' + label):
+             return label
+         return f"{label} (`{shown}`)"
+ 
+-    return link_re.sub(replace, text)
++    def normalize_non_code(segment: str) -> str:
++        normalized: list[str] = []
++        index = 0
++
++        def is_escaped(position: int) -> bool:
++            cursor = position - 1
++            while cursor >= 0 and segment[cursor] == "\\":
++                cursor -= 1
++            return (position - cursor - 1) % 2 == 1
++
++        while index < len(segment):
++            char = segment[index]
++            escaped = is_escaped(index)
++            if char == "`" and not escaped:
++                end = index
++                while end < len(segment) and segment[end] == "`":
++                    end += 1
++                marker = segment[index:end]
++                cursor = end
++                closing = -1
++                while cursor < len(segment):
++                    next_tick = segment.find("`", cursor)
++                    if next_tick < 0:
++                        break
++                    run_end = next_tick
++                    while run_end < len(segment) and segment[run_end] == "`":
++                        run_end += 1
++                    if segment[next_tick:run_end] == marker:
++                        closing = run_end
++                        break
++                    cursor = run_end
++                if closing >= 0:
++                    normalized.append(segment[index:closing])
++                    index = closing
++                else:
++                    normalized.append(marker)
++                    index = end
++                continue
++
++            if char == "[" and not escaped:
++                match = link_re.match(segment, index)
++                if match:
++                    normalized.append(replace(match))
++                    index = match.end()
++                    continue
++
++            normalized.append(char)
++            index += 1
++        return "".join(normalized)
++
++    normalized: list[str] = []
++    plain_text: list[str] = []
++    fence: tuple[str, int] | None = None
++    for line in text.splitlines(keepends=True):
++        without_newline = line.rstrip("\r\n")
++        if fence is not None:
++            normalized.append(line)
++            close = re.match(r"^ {0,3}(`+|~+)[ \t]*$", without_newline)
++            if (
++                close
++                and close.group(1)[0] == fence[0]
++                and len(close.group(1)) >= fence[1]
++            ):
++                fence = None
++            continue
++
++        opening = re.match(r"^ {0,3}(`{3,}|~{3,})", without_newline)
++        if opening:
++            if plain_text:
++                normalized.append(normalize_non_code("".join(plain_text)))
++                plain_text = []
++            normalized.append(line)
++            fence = (opening.group(1)[0], len(opening.group(1)))
++            continue
++        plain_text.append(line)
++
++    if plain_text:
++        normalized.append(normalize_non_code("".join(plain_text)))
++    return "".join(normalized)
+ 
+ 
+ def _filter_assistant_output(text: str, worktree_path: str = "") -> str:
+@@ -283,12 +379,13 @@ def _filter_assistant_output(text: str, worktree_path: str = "") -> str:
+         nonlocal fence_lines, fence_info, fence_marker
+         body = "\n".join(fence_lines)
+         info = fence_info.casefold()
+-        looks_diff = info in diff_infos or any(
++        language = info.split(maxsplit=1)[0] if info else ""
++        looks_diff = language in diff_infos or any(
+             _DIFF_HEADER_RE.match(line.strip()) or line.strip().startswith("*** Begin Patch")
+             for line in fence_lines[:8]
+         )
+         # Shell commands are operational instructions, not code-change detail: always preserve.
+-        is_shell = info in shell_infos
++        is_shell = language in shell_infos
+         is_large = len(body) > 2_400 or len(fence_lines) > 45
+         if looks_diff:
+             kept.append("_(diff/patch 상세 생략)_")
+@@ -305,21 +402,23 @@ def _filter_assistant_output(text: str, worktree_path: str = "") -> str:
+ 
+     for raw in lines:
+         stripped = raw.strip()
+-        fence_match = re.match(r"^(```|~~~)(.*)$", stripped)
+-        if fence_match:
+-            marker = fence_match.group(1)
+-            if not in_fence:
+-                in_fence = True
+-                fence_marker = marker
+-                fence_info = fence_match.group(2).strip()
+-                fence_lines = []
+-            elif marker == fence_marker:
+-                in_fence = False
+-                flush_fence()
+-            else:
+-                fence_lines.append(raw)
++        fence_match = re.match(r"^(`{3,}|~{3,})(.*)$", stripped)
++        if not in_fence and fence_match:
++            in_fence = True
++            fence_marker = fence_match.group(1)
++            fence_info = fence_match.group(2).strip()
++            fence_lines = []
+             continue
+         if in_fence:
++            close_match = re.match(r"^(`+|~+)[ \t]*$", stripped)
++            if (
++                close_match
++                and close_match.group(1)[0] == fence_marker[0]
++                and len(close_match.group(1)) >= len(fence_marker)
++            ):
++                in_fence = False
++                flush_fence()
++                continue
+             fence_lines.append(raw)
+             continue
+ 
+diff --git a/tests/test_orca_parsing.py b/tests/test_orca_parsing.py
+index 03badf8..ec8dae3 100644
+--- a/tests/test_orca_parsing.py
++++ b/tests/test_orca_parsing.py
+@@ -147,6 +147,100 @@ def test_local_markdown_links_become_readable_relative_paths():
+     assert result == "phase 6 metadata (`phases/6/index.json:20`) 갱신"
+ 
+ 
++def test_local_markdown_link_preserves_spaces_and_line_suffix():
++    text = "[API guide](/work tree/project/docs/API Guide.md:12:3) 확인"
++
++    result = _filter_assistant_output(text, "/work tree/project")
++
++    assert result == "API guide (`docs/API Guide.md:12:3`) 확인"
++
++
++def test_file_uri_link_decodes_spaces_and_hides_external_locations():
++    local = _filter_assistant_output(
++        "[API guide](file:///work%20tree/project/docs/API%20Guide.md:12)",
++        "/work tree/project",
++    )
++    external = _filter_assistant_output(
++        "[private](file:///Users/alice/private%20area/token.txt:9)",
++        "/Users/alice/project",
++    )
++
++    assert local == "API guide (`docs/API Guide.md:12`)"
++    assert external == "private"
++
++
++def test_markdown_links_hide_paths_outside_bound_worktree():
++    text = "[private file](/Users/alice/private area/token.txt:9)"
++
++    result = _filter_assistant_output(text, "/Users/alice/project")
++
++    assert result == "private file"
++    assert "/Users/alice/private area" not in result
++
++
++def test_markdown_like_text_inside_inline_code_is_not_rewritten():
++    text = (
++        "Use `[literal](/worktree/src/source file.py:3)` as the example; "
++        "see [source](/worktree/src/source file.py:3)."
++    )
++
++    result = _filter_assistant_output(text, "/worktree")
++
++    assert result == (
++        "Use `[literal](/worktree/src/source file.py:3)` as the example; "
++        "see source (`src/source file.py:3`)."
++    )
++
++
++def test_absolute_markdown_link_is_hidden_without_a_bound_worktree():
++    result = _filter_assistant_output("[private](/Users/alice/private.txt:4)")
++
++    assert result == "private"
++
++
++def test_shell_fence_with_options_is_preserved_when_large():
++    commands = "\n".join(f"echo {index}" for index in range(50))
++    text = f"Run these commands:\n```bash -lc\n{commands}\n```\nDone."
++
++    result = _filter_assistant_output(text)
++
++    assert "```bash -lc" in result
++    assert "echo 49" in result
++    assert "긴 코드 블록 생략" not in result
++    assert "Run these commands:" in result and result.endswith("Done.")
++
++
++def test_long_backtick_diff_fence_is_abbreviated_with_surrounding_prose():
++    text = (
++        "Before the changes.\n"
++        "````diff\n"
++        "diff --git a/app.py b/app.py\n"
++        "--- a/app.py\n"
++        "+++ b/app.py\n"
++        "@@ -1 +1 @@\n"
++        "-old = False\n"
++        "+new = True\n"
++        "````\n"
++        "After the changes."
++    )
++
++    result = _filter_assistant_output(text)
++
++    assert "Before the changes." in result
++    assert "After the changes." in result
++    assert "diff/patch 상세 생략" in result
++    assert "old = False" not in result and "new = True" not in result
++
++
++def test_oversized_non_shell_fence_is_abbreviated():
++    body = "\n".join(f"setting_{index} = true" for index in range(46))
++    result = _filter_assistant_output(f"Config:\n```toml\n{body}\n```\nComplete.")
++
++    assert "긴 코드 블록 생략" in result
++    assert "setting_0" not in result
++    assert "Complete." in result
++
++
+ def snap(
+     state: str,
+     *,

@@ -1,0 +1,40 @@
+{
+  "pair_id": "F22",
+  "task_id": "T05",
+  "task_instance": "tilde_local_link_output",
+  "batch": "full",
+  "condition_order": "v2_then_v1",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "task_sha256": "e77b80ae4700fcea6082d2f31c417eb298e0b8fd508b332169f670db073a10da",
+  "prompt_sha256": "f0a46ae9133b138afdefe78188e8cf5fe9e6b130fc84691a62b6010d52747803",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "conditions": {
+    "v2": {
+      "run_record": "v2-run.json",
+      "patch": "v2-final.patch",
+      "patch_sha256": "4fcc7bb41709a1ca56d4b49ef1dfcded41fb0a11f6a0410a040694b08b421a0a",
+      "host_grade": "v2-grade.json",
+      "raw_status": "pass",
+      "suite": "66 candidate tests passed (2 cleanup warnings); 19 host tests and all 16 semantics passed",
+      "reviews": "T5 implementation and self-review"
+    },
+    "v1": {
+      "run_record": "v1-run.json",
+      "patch": "v1-final.patch",
+      "patch_sha256": "b4079cb5f437f4750a4a59a6019e355807020878f12b348488e461699a8878cc",
+      "host_grade": "v1-grade.json",
+      "raw_status": "functional host pass; code-review workflow failed",
+      "suite": "63 candidate tests passed (2 cleanup warnings); 18 host tests and all frozen semantics passed",
+      "reviews": "test review passed; code review failed after 3 attempts due path leakage for destinations containing parentheses; security review not run"
+    }
+  },
+  "pair_decision": "blocked: v2 passed; v1 passes the frozen functional grader but is not accepted because code review found an uncovered outside-path disclosure and the three-attempt workflow limit was reached.",
+  "limitations": [
+    "The frozen semantic grader did not test outside-worktree Markdown destinations containing parentheses; independent code review caught this after the final patch.",
+    "The v1 three-attempt workflow stopped before security review.",
+    "SessionStart hook exited 125 during v1; no bypass was used and protected hashes remained unchanged.",
+    "Candidate branch/commits were sandbox-blocked; no workaround, network, live services, hosted CI, push, publication, or merge.",
+    "TUI parent was a host process; harness-eval applied to tool children only. Token and internal agent-turn counts are unknown."
+  ]
+}

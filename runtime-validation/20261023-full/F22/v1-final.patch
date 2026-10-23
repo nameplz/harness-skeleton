@@ -1,0 +1,287 @@
+diff --git a/src/orca_discord_bridge/orca.py b/src/orca_discord_bridge/orca.py
+index 2707fab..bd33cb8 100644
+--- a/src/orca_discord_bridge/orca.py
++++ b/src/orca_discord_bridge/orca.py
+@@ -222,15 +222,22 @@ def _normalize_assistant_markdown(text: str, worktree_path: str = "") -> str:
+     from urllib.parse import unquote, urlparse
+ 
+     link_re = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+-    root = Path(worktree_path).expanduser() if worktree_path else None
++    try:
++        root = Path(worktree_path).expanduser().resolve() if worktree_path else None
++    except (OSError, RuntimeError):
++        root = None
+ 
+     def replace(match: re.Match[str]) -> str:
+         label = match.group(1).replace(r"\_", "_")
+         target = match.group(2).strip().replace(r"\_", "_")
++        if target.startswith("<") and target.endswith(">"):  # Markdown angle destination
++            target = target[1:-1].strip()
+         parsed = urlparse(target)
+ 
+         local_target = ""
+-        if target.startswith("file://"):
++        if parsed.scheme.casefold() == "file":
++            if parsed.netloc not in {"", "localhost"}:
++                return label
+             local_target = unquote(parsed.path)
+         elif target.startswith(("/", "~/")):
+             local_target = str(Path(target).expanduser())
+@@ -246,17 +253,90 @@ def _normalize_assistant_markdown(text: str, worktree_path: str = "") -> str:
+         else:
+             return match.group(0)
+ 
+-        shown = local_target
+-        if local_target and root:
+-            try:
+-                shown = str(Path(local_target).resolve().relative_to(root.resolve()))
+-            except (OSError, ValueError):
+-                pass
++        if not local_target or root is None:
++            # Without a bound worktree there is no safe basis for exposing a local path.
++            return label
++
++        # Codex commonly appends source coordinates to the path. Resolve only the path
++        # itself so a missing ``file.py:12`` target still maps to ``file.py`` in the tree.
++        suffix_match = re.search(r"(?P<suffix>:\d+(?::\d+)?)$", local_target)
++        suffix = suffix_match.group("suffix") if suffix_match else ""
++        path_part = local_target[: -len(suffix)] if suffix else local_target
++        try:
++            shown = str(Path(path_part).resolve().relative_to(root)) + suffix
++        except (OSError, ValueError):
++            # In particular, never echo an absolute target outside the selected worktree.
++            return label
+         if not shown or shown == label or shown.endswith('/' + label):
+             return label
+         return f"{label} (`{shown}`)"
+ 
+-    return link_re.sub(replace, text)
++    def normalize_inline(segment: str) -> str:
++        """Rewrite prose links while leaving Markdown inline-code spans byte-for-byte."""
++        pieces: list[str] = []
++        cursor = 0
++        index = 0
++        while index < len(segment):
++            if segment[index] != "`":
++                index += 1
++                continue
++
++            end = index + 1
++            while end < len(segment) and segment[end] == "`":
++                end += 1
++            marker = segment[index:end]
++            closing = re.search(rf"(?<!`){re.escape(marker)}(?!`)", segment[end:])
++            if closing is None:
++                index = end
++                continue
++
++            close_start = end + closing.start()
++            close_end = end + closing.end()
++            pieces.append(link_re.sub(replace, segment[cursor:index]))
++            pieces.append(segment[index:close_end])
++            cursor = close_end
++            index = close_end
++
++        pieces.append(link_re.sub(replace, segment[cursor:]))
++        return "".join(pieces)
++
++    # A local link inside a fenced example is code, too. Keep those lines intact while
++    # normalizing ordinary Markdown, including multiline inline-code spans.
++    output: list[str] = []
++    prose: list[str] = []
++    fence_char = ""
++    fence_size = 0
++
++    def flush_prose() -> None:
++        if prose:
++            output.append(normalize_inline("".join(prose)))
++            prose.clear()
++
++    for line in text.splitlines(keepends=True):
++        stripped = line.rstrip("\r\n")
++        if fence_char:
++            output.append(line)
++            closing = re.match(r"^[ \t]{0,3}(`+|~+)[ \t]*$", stripped)
++            if (
++                closing
++                and closing.group(1)[0] == fence_char
++                and len(closing.group(1)) >= fence_size
++            ):
++                fence_char = ""
++                fence_size = 0
++            continue
++
++        opening = re.match(r"^[ \t]{0,3}(`{3,}|~{3,})(.*)$", stripped)
++        if opening:
++            flush_prose()
++            output.append(line)
++            fence_char = opening.group(1)[0]
++            fence_size = len(opening.group(1))
++        else:
++            prose.append(line)
++
++    flush_prose()
++    return "".join(output)
+ 
+ 
+ def _filter_assistant_output(text: str, worktree_path: str = "") -> str:
+@@ -283,12 +363,13 @@ def _filter_assistant_output(text: str, worktree_path: str = "") -> str:
+         nonlocal fence_lines, fence_info, fence_marker
+         body = "\n".join(fence_lines)
+         info = fence_info.casefold()
+-        looks_diff = info in diff_infos or any(
++        language = info.split(maxsplit=1)[0] if info else ""
++        looks_diff = language in diff_infos or any(
+             _DIFF_HEADER_RE.match(line.strip()) or line.strip().startswith("*** Begin Patch")
+             for line in fence_lines[:8]
+         )
+         # Shell commands are operational instructions, not code-change detail: always preserve.
+-        is_shell = info in shell_infos
++        is_shell = language in shell_infos
+         is_large = len(body) > 2_400 or len(fence_lines) > 45
+         if looks_diff:
+             kept.append("_(diff/patch 상세 생략)_")
+@@ -305,7 +386,7 @@ def _filter_assistant_output(text: str, worktree_path: str = "") -> str:
+ 
+     for raw in lines:
+         stripped = raw.strip()
+-        fence_match = re.match(r"^(```|~~~)(.*)$", stripped)
++        fence_match = re.match(r"^(`{3,}|~{3,})(.*)$", stripped)
+         if fence_match:
+             marker = fence_match.group(1)
+             if not in_fence:
+@@ -313,7 +394,11 @@ def _filter_assistant_output(text: str, worktree_path: str = "") -> str:
+                 fence_marker = marker
+                 fence_info = fence_match.group(2).strip()
+                 fence_lines = []
+-            elif marker == fence_marker:
++            elif (
++                marker[0] == fence_marker[0]
++                and len(marker) >= len(fence_marker)
++                and not fence_match.group(2).strip()
++            ):
+                 in_fence = False
+                 flush_fence()
+             else:
+diff --git a/tests/test_orca_parsing.py b/tests/test_orca_parsing.py
+index 03badf8..e992371 100644
+--- a/tests/test_orca_parsing.py
++++ b/tests/test_orca_parsing.py
+@@ -107,6 +107,51 @@ diff --git a/a.py b/a.py
+     assert "+new = true" not in result
+ 
+ 
++def test_filter_preserves_prose_short_code_and_shell_fence_options():
++    shell_body = "\n".join(f"echo command-{index}" for index in range(50))
++    text = (
++        "설명은 그대로 남습니다.\n\n"
++        "```toml\nsetting = true\n```\n\n"
++        "```bash -lc\n"
++        f"{shell_body}\n"
++        "```\n\n"
++        "마지막 설명도 남습니다."
++    )
++
++    result = _filter_assistant_output(text)
++
++    assert "설명은 그대로 남습니다." in result
++    assert "setting = true" in result
++    assert "```bash -lc" in result
++    assert "echo command-49" in result
++    assert "마지막 설명도 남습니다." in result
++
++
++def test_filter_abbreviates_long_marker_diff_and_oversized_code():
++    code_body = "\n".join(f"value_{index} = {index}" for index in range(46))
++    text = (
++        "Before the changes.\n\n"
++        "````diff\n"
++        "diff --git a/example.py b/example.py\n"
++        "--- a/example.py\n+++ b/example.py\n"
++        "@@ -1 +1 @@\n-old\n+new\n"
++        "````\n\n"
++        "After the diff.\n\n"
++        f"```python\n{code_body}\n```\n\n"
++        "After the code."
++    )
++
++    result = _filter_assistant_output(text)
++
++    assert "Before the changes." in result
++    assert "After the diff." in result
++    assert "After the code." in result
++    assert result.count("_(diff/patch 상세 생략)_") == 1
++    assert "_(긴 코드 블록 생략)_" in result
++    assert "diff --git" not in result
++    assert "value_45" not in result
++
++
+ def test_messages_to_discord_text_preserves_short_useful_code():
+     result = _messages_to_discord_text(
+         [
+@@ -147,6 +192,65 @@ def test_local_markdown_links_become_readable_relative_paths():
+     assert result == "phase 6 metadata (`phases/6/index.json:20`) 갱신"
+ 
+ 
++def test_local_links_preserve_spaces_and_line_suffixes_and_hide_external_paths(tmp_path):
++    worktree = tmp_path / "work tree"
++    text = (
++        f"[source]({worktree}/src/my file.py:27:4) and "
++        "[private](/Users/me/private notes/secret.txt:9)"
++    )
++
++    result = _filter_assistant_output(text, str(worktree))
++
++    assert "source (`src/my file.py:27:4`)" in result
++    assert "private" in result
++    assert "/Users/me/private notes/secret.txt" not in result
++
++
++def test_angle_bracket_external_markdown_destination_is_hidden(tmp_path):
++    text = "[private](</outside/path with spaces/file.txt:9>)"
++
++    result = _filter_assistant_output(text, str(tmp_path / "worktree"))
++
++    assert result == "private"
++    assert "/outside/path with spaces/file.txt:9" not in result
++
++
++def test_file_uri_variants_hide_external_absolute_paths(tmp_path):
++    worktree = tmp_path / "worktree"
++    text = (
++        "[upper](<FILE:///outside/secret.txt:9>) and "
++        "[standard](file:/outside/secret.txt:10)"
++    )
++
++    result = _filter_assistant_output(text, str(worktree))
++
++    assert result == "upper and standard"
++    assert "/outside/secret.txt" not in result
++
++
++def test_markdown_like_local_links_inside_inline_code_are_unchanged(tmp_path):
++    worktree = tmp_path / "repo"
++    text = (
++        f"Use [source]({worktree}/src/file.py:12), but literally "
++        f"`[example]({worktree}/src/file.py:13)` here."
++    )
++
++    result = _filter_assistant_output(text, str(worktree))
++
++    assert "source (`src/file.py:12`)" in result
++    assert f"`[example]({worktree}/src/file.py:13)`" in result
++
++
++def test_markdown_like_links_inside_fenced_code_remain_unchanged(tmp_path):
++    worktree = tmp_path / "repo"
++    path = worktree / "src" / "file with spaces.py"
++    text = f"Example:\n\n```text\n[code]({path}:12)\n```"
++
++    result = _filter_assistant_output(text, str(worktree))
++
++    assert f"[code]({path}:12)" in result
++
++
+ def snap(
+     state: str,
+     *,
