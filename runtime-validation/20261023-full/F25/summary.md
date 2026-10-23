@@ -1,0 +1,9 @@
+# F25 — T07 reply and embed context
+
+F25 followed the frozen v2-then-v1 order, using a fresh Codex conversation for each condition. Both conditions passed the offline wheel build/install, 59-test project suite, focused unresolved-reply test, product scope, and required reviews. v1 used two workflow attempts after the test reviewer required a delimiter-shaped forged marker on its own line; the added test and re-reviews passed.
+
+Both frozen host grades raw-fail at the first semantic delimiter check. The frozen checker accepts only two hard-coded marker pairs; v2 emits a collision-safe `===` pair and v1 emits source-unique `<<<ORCA_DISCORD_REFERENCE_n:START/END>>>` markers. The task requires explicit safe delimiters but does not prescribe those strings. Separate supplemental diagnostics recognized each candidate’s exact marker and passed all embed, cap, fetch, and delimiter-forgery semantics. The frozen grader and raw failures remain unchanged, so the pair is not accepted under the frozen results.
+
+Harness risk/full checks were unavailable because the checkout lacks the Harness runner/config. Candidate suites emitted two pytest temporary-directory cleanup warnings; host suites passed cleanly. Candidate branch creation was denied by the sandbox. No candidate commits, network, live service calls, project hooks, push, publication, or merge occurred.
+
+See [frozen task](task.md), [acceptance](acceptance.json), [freeze record](freeze.json), [baseline grade](baseline-grade.json), [positive control](positive-control-grade.json), [v2 run](v2-run.json) / [patch](v2-final.patch) / [grade](v2-grade.json) / [supplemental semantic](supplemental-semantic-v2.json), [v1 run](v1-run.json) / [patch](v1-final.patch) / [grade](v1-grade.json) / [supplemental semantic](supplemental-semantic-v1.json), and [pair results](results.json).

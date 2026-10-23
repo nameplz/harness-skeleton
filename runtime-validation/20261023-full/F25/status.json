@@ -1,0 +1,17 @@
+{
+  "pair_id": "F25",
+  "status": "complete; both candidates passed tests/reviews but raw frozen semantic grade failed marker recognition",
+  "condition_order": "v2_then_v1",
+  "model_runs_completed": 2,
+  "pair_decision": "not_accepted_under_frozen_grader",
+  "v1_host_grade": "fail (supplemental semantics pass)",
+  "v1_code_review": "pass after 2 attempts",
+  "v1_test_review": "pass after 2 attempts",
+  "v1_security_review": "pass",
+  "v2_host_grade": "fail (supplemental semantics pass)",
+  "v2_code_review": "pass",
+  "v2_security_review": "pass",
+  "v1_patch_sha256": "dd789126f5bc7a30e258a9ed86bd2258e10c4d9968a1a094b729e6852cfef044",
+  "v2_patch_sha256": "a63f483fb4ef7c6579d831de48c832ca48e9d52f0861444185ec915a245c930b",
+  "failed_frozen_check": "semantic boundary_pair does not recognize either candidate’s explicit source-unique marker style"
+}
