@@ -1,9 +1,16 @@
 {
   "pair_id": "F30",
-  "status": "frozen; no model conditions started",
+  "status": "v2 complete; v1 not started",
   "condition_order": "v2_then_v1",
-  "model_runs_completed": 0,
+  "model_runs_completed": 1,
   "baseline_grade": "expected_fail",
   "positive_control_grade": "pass",
-  "v2_setup_baseline_suite": "58 passed, 2 warnings"
+  "v2_setup_baseline_suite": "58 passed, 2 warnings",
+  "v2_host_grade": "pass",
+  "v2_patch_sha256": "88b64a0364dfaeb31a56565f2c77477ae0376f682db88a5d91a0aca0983b7ec8",
+  "v2_wheel_sha256": "86634e6bb915083bde59ae69a563b215eda30fe6a4e6513481b0c99a93804fae",
+  "v2_full_suite": "107 passed; 2 pytest temporary-directory cleanup warnings",
+  "v2_reviews": "independent code and security reviews passed with no findings",
+  "product_scope": "v2 changes only config.py, bot.py, and tests/test_harness_compatibility.py",
+  "workflow_limits": "Harness scripts/harness.py was absent; candidate remains uncommitted because Git metadata is not part of the usable candidate interface."
 }
