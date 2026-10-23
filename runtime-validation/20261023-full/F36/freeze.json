@@ -1,0 +1,31 @@
+{
+  "pair_id": "F36",
+  "task_id": "T17",
+  "task_instance": "standard",
+  "condition_order": "v2_then_v1",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550bca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "budget_seconds_per_condition": 1800,
+  "frozen_before_model_conditions": true,
+  "frozen_sha256": {
+    "task.md": "284cf8ac97aba1734170adce534e6e686454837449abe11b7c1d6d503b40a8c3",
+    "task-prompt.txt": "c885fcdeabcd25a705daa144b30d5abecbface223de8dc70290d943bba548fea",
+    "acceptance.json": "ed54d6a2c58b677dcd63032d7772329403a44f00072c7ac6c309e2f3cd14536f",
+    "host-grader.py": "a10c41b13c4e5b7e0762957b3489fbe452536217165c4e7a25f8725c47ce0802",
+    "semantic.py": "66eaa888790cb58d9e3034f9cf537484b68498a391132b199bf6ccb665922737",
+    "baseline-grade.json": "5718ce6303aaba936ab23d957648711b3ad607c5ee21bbc120fbc45bfe1b5395",
+    "baseline_test_harness_compatibility.py": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+    "positive-control-v1.patch": "1ba263ab733083a9d955b7adb1111b726ed47081ded726262e588e0582045e95",
+    "positive-control-v2.patch": "172b0a41a63e5d35c7ffa9093b6ed631cbc003a476bf941a5a22e6dc6e7a820c",
+    "positive-control-host-grade-v1.json": "16d7718dc9397e28474567012f4e243820a6775127a10949b3ac5f6d906ee0a6",
+    "positive-control-host-grade-v2.json": "6328b4b58698358997d655364af0b5583fc301fe46385e842913ef304809cf3e"
+  },
+  "calibration_reuse": "Exact T17 standard pilot materials and accepted positive-control patches/grades; only full pair metadata/order differ.",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "network": "Offline pip only; GitHub workflow not dispatched",
+  "external_effects": "No live services, workflow dispatch, publication, push, or merge"
+}

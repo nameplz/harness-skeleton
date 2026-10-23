@@ -1,0 +1,11 @@
+{
+  "pair_id": "F36",
+  "status": "frozen; awaiting v2",
+  "task_id": "T17",
+  "task_instance": "standard",
+  "condition_order": "v2_then_v1",
+  "baseline_grade": "expected_fail",
+  "positive_control_grade": "pass",
+  "model_runs_completed": 0,
+  "next_condition": "v2"
+}
