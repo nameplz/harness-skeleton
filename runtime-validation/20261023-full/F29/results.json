@@ -1,0 +1,45 @@
+{
+  "pair_id": "F29",
+  "task_id": "T01",
+  "task_instance": "standard",
+  "batch": "full",
+  "condition_order": "v2_then_v1",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "task_sha256": "8844901ba904c0a68e40dcc7eea02dae4089c92dca83def1247593f5aadff358",
+  "prompt_sha256": "64305ecadad8bd575d15a3ea98aa2b495a6efb857a2a9859db106be5e18d8000",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "conditions": {
+    "v1": {
+      "run_record": "v1-run.json",
+      "patch": "v1-final.patch",
+      "patch_sha256": "6c6a114ec8646ca29b88381a0f13644318032bed70d32eea4d7266288b0b92bf",
+      "host_grade": "v1-grade.json",
+      "raw_status": "pass",
+      "suite": "65 passed; two temporary-directory cleanup warnings",
+      "focused": "54 passed; same warnings",
+      "reviews": "code, test, and security passed with no findings"
+    },
+    "v2": {
+      "run_record": "v2-run.json",
+      "patch": "v2-final.patch",
+      "patch_sha256": "439149679748d7a1d8067f9eccb87c068bc5cd5406f0e510906a2a40eb05a191",
+      "host_grade": "v2-grade.json",
+      "raw_status": "pass",
+      "suite": "65 passed; two temporary-directory cleanup warnings",
+      "focused": "54 passed; same warnings",
+      "reviews": "T1 self-review passed per frozen workflow"
+    }
+  },
+  "pair_decision": "Both frozen host grades passed all seven non-object-root semantics, missing/object/connect-disconnect behavior, exact two-file scope, offline wheel/install, and full/focused suites. The pair is accepted under the frozen grader.",
+  "limitations": [
+    "The candidate Harness quick/risk commands could not run because scripts/harness.py and .harness/config.toml are absent; v1 also found .harness/validation.json and docs/ absent.",
+    "Candidate Git status/branch/commit operations were blocked by system Git config read denial; no workaround or candidate commit was attempted. Host patch scope checks passed.",
+    "Both candidate suites emitted two pytest temporary-directory cleanup warnings.",
+    "The v1 candidate wheelhouse remained because cleanup was rejected by tool policy; it is removed by the next baseline staging step.",
+    "The positive control was the passing F19 T01 patch, which includes extra support for the predeclared alternate invalid-byte variant; F29’s frozen semantic checks remained limited to the standard T01 behavior.",
+    "The initial pilot patch positive-control attempt had stale test-file context and was discarded before freeze; the substituted control passed. Token usage/model-turn counts were not captured."
+  ],
+  "context_carryover_risk": "Both conditions used fresh Codex conversations from the same pinned baseline; no cross-condition context was carried.",
+  "external_effects": "None: no network, live Discord/Orca calls, push, publication, or merge."
+}

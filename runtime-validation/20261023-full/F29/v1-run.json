@@ -1,0 +1,47 @@
+{
+  "pair_id": "F29",
+  "condition": "v1",
+  "condition_order": "v2_then_v1",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "codex_cli": "0.163.0",
+  "execution_path": "interactive native Codex TUI via Orca-managed terminal",
+  "prompt_request_id": "1fcc7ea5-2024-4c55-8a5e-6251d85a9ed7",
+  "reported_duration": "4m 22s",
+  "fresh_conversation": true,
+  "same_candidate_baseline": true,
+  "implementation_attempts": 1,
+  "reviews": {
+    "code": "pass, no findings",
+    "test": "pass, no findings; independently reran focused compatibility module",
+    "security": "pass, no findings"
+  },
+  "candidate_checks": {
+    "offline_wheel": "pass",
+    "offline_install": "pass",
+    "full_suite": "65 passed; two pytest temporary-directory cleanup warnings",
+    "focused_suite": "54 passed; same two warnings",
+    "diff_check": "candidate git diff/status unavailable due system Git config read denial; host patch/scope validation passed"
+  },
+  "host_grade": {
+    "status": "pass",
+    "grade": "v1-grade.json",
+    "suite": "65 passed",
+    "focused": "54 passed",
+    "semantic": "all F29 standard checks passed",
+    "scope": "exactly the two allowed files"
+  },
+  "patch": "v1-final.patch",
+  "patch_sha256": "6c6a114ec8646ca29b88381a0f13644318032bed70d32eea4d7266288b0b92bf",
+  "changed_product_files": [
+    "src/orca_discord_bridge/state.py",
+    "tests/test_harness_compatibility.py"
+  ],
+  "branch": "eval-base",
+  "candidate_commit": null,
+  "staging_and_commit": "not attempted: candidate Git status was unavailable due system Git config read denial; no workaround was attempted",
+  "harness_cli": "unavailable: .harness/validation.json, scripts/, and docs/ are absent",
+  "protected_hashes_verified": true,
+  "candidate_artifact": "The candidate wheelhouse remained after cleanup was rejected by tool policy; next candidate staging removes it before use.",
+  "external_effects": "None"
+}
