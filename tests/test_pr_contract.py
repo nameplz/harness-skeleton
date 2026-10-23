@@ -51,6 +51,15 @@ class PrContractTests(unittest.TestCase):
 
             self.assertEqual([], errors)
 
+    def test_non_object_event_payload_fails_closed(self) -> None:
+        with TemporaryDirectory() as temp:
+            event = Path(temp) / "event.json"
+            event.write_text("[]", encoding="utf-8")
+
+            errors = check_event_file(event)
+
+            self.assertEqual(["event payload must be a JSON object"], errors)
+
     def test_missing_required_body_section_fails(self) -> None:
         with TemporaryDirectory() as temp:
             event = self.write_event(Path(temp), "fix: PR 검증 수정", "## 작업 목적\n목적\n")

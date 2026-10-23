@@ -1,9 +1,0 @@
-# F18 — T15 alternate Orca JSON wrappers
-
-F18 used the frozen v1-then-v2 order. Both final patches pass the unchanged frozen host grader, including offline wheel build/install, full and focused suites, the six terminal/worktree wrapper shapes, aliases, required identity, exact worktree/pane selection, literal argv, non-Codex rejection, and exact scope. v1 passed with 75 tests; v2 passed with 92.
-
-The first v1 host patch and the first v2 patch failed because they added the F18 wrappers but omitted F08 standard `data`/`result.data` wrappers; the next v1 patch also missed snake_case timestamps. Those patches and raw failure grades remain recorded. The final v1 patch restored all F08 behavior and passed all three independent reviews. v2 required one follow-up to restore the standard wrappers and timestamp aliases; its configured T1 workflow self-review passed, with no independent reviewers launched. The task, prompt, semantic checks, and grader remained frozen.
-
-The candidate’s local commits were sandbox-blocked. The pinned snapshot lacks `scripts/harness.py` and `.harness/config.toml`, so Harness risk/quick checks were unavailable. A protected hook displayed exit 125 during a v1 follow-up and at v2 start; both tasks continued and the protected hook/delivery hashes stayed unchanged. No network, live service, hosted CI, publication, push, or merge occurred; token usage is unknown.
-
-See the [frozen task](task.md), [acceptance](acceptance.json), [freeze hashes and calibration](freeze.json), [v1 run](v1-run.json) / [patch](v1.patch) / [raw grade](host-grade-v1.json), [v2 run](v2-run.json) / [patch](v2.patch) / [raw grade](host-grade-v2.json), and the retained [initial v1](host-grade-v1-initial.json), [v1 retry](host-grade-v1-attempt2.json), and [initial v2](host-grade-v2-initial.json) failures.

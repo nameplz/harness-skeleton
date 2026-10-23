@@ -292,7 +292,6 @@ class CiSecurityTests(unittest.TestCase):
             ".harness",
             ".codex",
             ".codex/hooks",
-            "evals",
         ):
             with self.subTest(filename=filename), TemporaryDirectory() as temp:
                 root = Path(temp)
@@ -639,8 +638,6 @@ class CiSecurityTests(unittest.TestCase):
             ".agents/skills/pr-workflow/SKILL.md",
             "scripts/validate_project.py",
             "scripts/check_pr_contract.py",
-            "scripts/eval_harness.py",
-            "evals/risk-cases.json",
         ):
             with self.subTest(filename=filename), TemporaryDirectory() as temp:
                 root = Path(temp)

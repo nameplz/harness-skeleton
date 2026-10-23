@@ -1,9 +1,0 @@
-{
-  "status": "fail",
-  "method": "Post-run local fake interaction diagnostic against the patched v2 wheel; no frozen inputs changed.",
-  "scenario": "ForwardModal submission with a saved binding whose live pane/worktree changed and validate_codex_binding raising OrcaError.",
-  "exchange_calls": 0,
-  "modal_followup_calls": 1,
-  "binding_unchanged": true,
-  "finding": "The v2 _StaleBindingValidationError is caught by BridgeBot.on_message only. ForwardModal.on_submit catches it as generic OrcaError and sends an ephemeral failure follow-up, contrary to the frozen task requirement not to send a reply after failed revalidation."
-}

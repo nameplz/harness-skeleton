@@ -57,7 +57,7 @@ SCRIPT_EXECUTABLE_SUFFIXES = frozenset({".py", ".sh", ".bash", ".js", ".mjs", ".
 REQUIRED_PROJECT_FILES = (
     "AGENTS.md", "docs/ARCHITECTURE.md", "docs/ADR.md", ".agents/skills/harness/SKILL.md",
     ".agents/skills/pr-workflow/SKILL.md",
-    ".github/PULL_REQUEST_TEMPLATE.md", ".harness/task-template.md", "docs/AGENT_EVALUATION.md",
+    ".github/PULL_REQUEST_TEMPLATE.md", ".harness/task-template.md",
     ".codex/config.toml", ".codex/agents/reviewer.toml", ".codex/agents/security-reviewer.toml",
     ".codex/hooks/harness_hook.py", "scripts/command_runner.py",
     "scripts/harness.py", "scripts/harness_common.py", "scripts/harness_risk.py", "scripts/harness_evidence.py",

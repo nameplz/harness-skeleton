@@ -8,7 +8,6 @@
 - GitHub PR publication and CI completion: `.agents/skills/pr-workflow/SKILL.md`
 - Project validation and risk settings: `.harness/config.toml`
 - Product scope: `docs/PRD.md`; visual work: `docs/UI_GUIDE.md`
-- Agent evaluation and its limits: `docs/AGENT_EVALUATION.md`
 
 ## Core invariants
 

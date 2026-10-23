@@ -42,7 +42,7 @@ class HarnessRegressionTests(unittest.TestCase):
         self.assertFalse(is_sensitive_path("docs/guide.md"))
 
     def test_trusted_validators_and_their_local_imports_are_protected(self) -> None:
-        pending = ["harness.py", "check_ci_security.py", "check_pr_contract.py", "eval_harness.py"]
+        pending = ["harness.py", "check_ci_security.py", "check_pr_contract.py"]
         visited = set()
         while pending:
             name = pending.pop()

@@ -28,9 +28,9 @@ FORBIDDEN_WORKFLOW_PATTERNS = (
     (re.compile(r"\bself-hosted\b", re.IGNORECASE), "self-hosted runners are forbidden"),
     (re.compile(r"\b(deploy|publish|migration)\b", re.IGNORECASE), "deploy/publish/migration terms are forbidden"),
 )
-SENSITIVE_PREFIXES = (".github/workflows/", ".github/actions/", ".agents/", ".harness/", ".codex/", "evals/")
+SENSITIVE_PREFIXES = (".github/workflows/", ".github/actions/", ".agents/", ".harness/", ".codex/")
 SENSITIVE_DIRECTORY_PATHS = frozenset(
-    {".github", ".github/workflows", ".github/actions", ".agents", ".harness", ".codex", "evals"}
+    {".github", ".github/workflows", ".github/actions", ".agents", ".harness", ".codex"}
 )
 SENSITIVE_SCRIPT_PATTERNS = ("*validation*.py", "validate*.py", "check_*.py")
 SENSITIVE_FILE_PATHS = frozenset(
@@ -44,7 +44,6 @@ SENSITIVE_FILE_PATHS = frozenset(
         "scripts/command_runner.py",
         "scripts/github_expression_scanner.py",
         "scripts/harness_evidence.py",
-        "scripts/eval_harness.py",
     }
 )
 TRUSTED_MAINTENANCE_LABEL = "harness-trusted-maintenance"
@@ -186,47 +185,37 @@ def has_trusted_maintenance_label(event: dict[str, Any]) -> bool:
     )
 
 
-def _maintenance_event_error(event: dict[str, Any], repository: str | None) -> str | None:
-    if not isinstance(event, dict) or not has_trusted_maintenance_label(event):
-        return "label is absent"
+def trusted_maintenance_authorized(
+    *,
+    event: dict[str, Any],
+    github_token: str | None,
+    repository: str | None,
+) -> tuple[bool, str]:
+    """Authorize only a fresh label action made by an admin or maintainer."""
+
+    if not has_trusted_maintenance_label(event):
+        return False, "label is absent"
     if event.get("action") != "labeled":
-        return "the label must be applied in this workflow event"
+        return False, "the label must be applied in this workflow event"
     label = event.get("label")
     if not isinstance(label, dict) or label.get("name") != TRUSTED_MAINTENANCE_LABEL:
-        return "this event did not apply the trusted maintenance label"
+        return False, "this event did not apply the trusted maintenance label"
     sender = event.get("sender")
     username = sender.get("login") if isinstance(sender, dict) else None
     if not isinstance(username, str) or not re.fullmatch(r"[A-Za-z0-9-]+", username):
-        return "label actor is missing or invalid"
+        return False, "label actor is missing or invalid"
     if not isinstance(repository, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
-        return "trusted repository is missing or invalid"
-    return None
-
-
-def authorize_trusted_maintenance(*, event: dict[str, Any], repository: str | None,
-                                  permission: str | None) -> tuple[bool, str]:
-    """Apply policy to a permission already observed by the trusted caller."""
-    reason = _maintenance_event_error(event, repository)
-    if reason is not None:
-        return False, reason
-    if not isinstance(permission, str) or permission not in TRUSTED_LABEL_PERMISSIONS:
-        return False, "label actor is not an admin or maintainer"
-    return True, "authorized"
-
-
-def trusted_maintenance_authorized(*, event: dict[str, Any], github_token: str | None,
-                                  repository: str | None) -> tuple[bool, str]:
-    """Authorize only a fresh label action verified by the collaborator API."""
-    reason = _maintenance_event_error(event, repository)
-    if reason is not None:
-        return False, reason
+        return False, "trusted repository is missing or invalid"
     if not github_token:
         return False, "GitHub token is unavailable"
+
     try:
-        permission = collaborator_permission(repository, event["sender"]["login"], github_token)
+        permission = collaborator_permission(repository, username, github_token)
     except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError):
         return False, "GitHub could not verify the label actor's repository permission"
-    return authorize_trusted_maintenance(event=event, repository=repository, permission=permission)
+    if permission not in TRUSTED_LABEL_PERMISSIONS:
+        return False, "label actor is not an admin or maintainer"
+    return True, "authorized"
 
 
 def collaborator_permission(repository: str, username: str, token: str) -> str | None:

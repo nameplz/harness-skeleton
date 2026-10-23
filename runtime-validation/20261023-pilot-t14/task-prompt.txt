@@ -1,1 +1,0 @@
-Read TASK.md and follow the repository workflow in AGENTS.md. Keep changes focused, run the specified offline checks, and report actual outcomes. Do not use live services or network access. Do not use shell=True or bypass sandbox restrictions. Stop at the hard 30-minute condition cap.

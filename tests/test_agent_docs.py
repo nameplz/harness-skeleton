@@ -92,7 +92,6 @@ class AgentDocsTests(unittest.TestCase):
         for profile in ("quick", "full"):
             with self.subTest(profile=profile):
                 self.assertIn(expected, config["checks"][profile])
-        self.assertIn(["python", "scripts/eval_harness.py"], config["checks"]["full"])
 
 
 if __name__ == "__main__":

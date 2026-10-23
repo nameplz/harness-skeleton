@@ -6,11 +6,7 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 import signal
-import shutil
-import stat
 import subprocess
-import sys
-import tempfile
 import threading
 import time
 from collections.abc import Mapping, Sequence
@@ -34,28 +30,6 @@ class CommandResult:
     output_limited: bool = False
     output_bytes: bytes | None = None
     started: bool = True
-
-
-def _actor_binary(path: Path) -> str:
-    canonical = path.resolve(strict=True)
-    for item in (canonical, *canonical.parents):
-        metadata = item.lstat()
-        expected = stat.S_ISREG if item == canonical else stat.S_ISDIR
-        if not expected(metadata.st_mode) or metadata.st_uid != 0 or metadata.st_mode & 0o022:
-            raise ValueError('actor executable must have root-controlled ancestry')
-    if not canonical.lstat().st_mode & 0o111:
-        raise ValueError('actor executable is not executable')
-    return str(canonical)
-
-
-def _actor_command(argv: Sequence[str], environment: Mapping[str, str]) -> list[str]:
-    selected = shutil.which(argv[0], path=environment.get('PATH', '')) if argv else None
-    if selected is None:
-        raise ValueError('actor executable is unavailable')
-    dropper = _actor_binary(Path('/usr/bin/setpriv'))
-    executable = _actor_binary(Path(selected))
-    return [dropper, '--reuid=2000', '--regid=2000', '--clear-groups', '--no-new-privs',
-            '--inh-caps=-all', '--ambient-caps=-all', '--bounding-set=-all', '--', executable, *argv[1:]]
 
 
 def _is_git_executable(value: str) -> bool:
@@ -112,17 +86,11 @@ def run_bounded_command(
     max_output_bytes: int,
     env: Mapping[str, str] | None = None,
     binary_output: bool = False,
-    run_as_actor: bool = False,
-    input_bytes: bytes | None = None,
 ) -> CommandResult:
     """Capture at most max_output_bytes and stop a process group on timeout."""
 
     if timeout_seconds <= 0 or max_output_bytes < 1:
         raise ValueError("command limits must be positive")
-    if type(run_as_actor) is not bool or run_as_actor and (sys.platform != 'linux' or os.geteuid() != 0):
-        raise ValueError('actor mode requires an explicit boolean and the Linux root operator')
-    if input_bytes is not None and not isinstance(input_bytes, bytes):
-        raise ValueError('command stdin must be bytes')
     deadline = time.monotonic() + timeout_seconds
     if argv and not _is_git_executable(argv[0]) and any(_is_git_executable(arg) for arg in argv[1:]):
         return CommandResult(125, "Wrapped Git inspection is unsupported; invoke Git directly", started=False)
@@ -134,7 +102,7 @@ def run_bounded_command(
                 [*argv[:index + 1], "config", "--includes", "--null", "--name-only",
                  "--get-regexp", r"^filter\..*\.(clean|smudge|process)$"],
                 cwd=cwd, timeout_seconds=timeout_seconds,
-                max_output_bytes=max_output_bytes, env=env, run_as_actor=run_as_actor,
+                max_output_bytes=max_output_bytes, env=env,
             )
             if probe.returncode != 1 or probe.output or probe.timed_out or probe.output_limited:
                 return CommandResult(124 if probe.timed_out and not probe.output_limited else 125,
@@ -154,13 +122,9 @@ def run_bounded_command(
             argv = [*argv[:index + 1], "-c", "core.fsmonitor=false", argv[index + 1],
                     *options, "--ignore-submodules=dirty", *args[boundary:]]
     environment = _command_environment(env)
-    input_stream = tempfile.TemporaryFile() if input_bytes is not None else None
-    if input_stream is not None:
-        input_stream.write(input_bytes)
-        input_stream.seek(0)
     kwargs: dict[str, object] = {
         "cwd": cwd,
-        "stdin": input_stream if input_stream is not None else subprocess.DEVNULL,
+        "stdin": subprocess.DEVNULL,
         "stdout": subprocess.PIPE,
         "stderr": subprocess.STDOUT,
         "shell": False,
@@ -172,12 +136,7 @@ def run_bounded_command(
     elif os.name == "nt":
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
 
-    command = _actor_command(argv, environment) if run_as_actor else list(argv)
-    try:
-        process = subprocess.Popen(command, **kwargs)
-    finally:
-        if input_stream is not None:
-            input_stream.close()
+    process = subprocess.Popen(list(argv), **kwargs)
     if process.stdout is None:
         raise OSError("check command output could not be captured")
 

@@ -1,9 +1,0 @@
-{
-  "pair_id": "F12",
-  "status": "v1 and v2 complete; raw host grades pass; v2 modal caller violates no-reply acceptance",
-  "condition_order": "v1_then_v2",
-  "model_runs_completed": 2,
-  "v1_host_grade": "pass",
-  "v2_host_grade": "pass",
-  "supplemental_caller_path": "fail: modal follow-up sent after failed revalidation"
-}

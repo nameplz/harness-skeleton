@@ -1,7 +1,0 @@
-# F35 — T20 DM authorization policy
-
-The planned order was v1 then v2. v1 passed the frozen host grader: offline wheel build/install, 60 tests, explicit DM denied-route semantics, and exact two-file scope. Its code, test, and security reviews passed after two test-coverage revisions. v2 passed wheel/install, 59 tests, scope, and code/security reviews, but the frozen semantic check failed: its test creates `SyntheticMessage(guild_id=None)` whose `guild` property is `None`, while the grader regex only recognizes `guild=None` or a quoted `guild` key. The grader was frozen before either model run and was not changed afterward, so the formal pair decision is not accepted under the frozen grader.
-
-Both candidate conditions reported local full-suite success. The independent host grader reproduced v1 pass and v2 fail on that single semantic predicate. See [frozen task](task.md), [acceptance](acceptance.json), [v1 record](v1-run.json), [v2 record](v2-run.json), and [host grades](v1-host-grade.json) / [v2-host-grade.json).
-
-Limitations: the SessionStart hook exited 125 in both runs; task execution continued. The snapshot lacks `scripts/harness.py` and `.harness/config.toml`, hosted CI was not run, and candidate Git writes were denied. The v2 semantic miss appears to be a lexical false negative, but the frozen result is retained. Token usage was unavailable. A pre-existing startup log of `terminal_handle` noted in F34 remains outside this task's scope.

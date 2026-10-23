@@ -55,4 +55,3 @@ Keep reviewers read-only, including external tool write permissions. Ask each re
 - Run the risk command on the final diff. When it reports `code_review`, obtain a read-only code review; when it reports `security_review`, obtain a read-only security review.
 - Hooks provide fast feedback only. Codex sandbox and permissions, trusted CI, and repository branch protection define enforcement boundaries.
 - Report changes, commands, results, and any review findings. Do not create phase indexes, heartbeat files, or worker output JSON.
-- Risk fixtures prove classifier policy only. Use `docs/AGENT_EVALUATION.md` for opt-in actual Codex evaluation; the default plan/result checker never runs a model.

@@ -1,7 +1,0 @@
-{
-  "purpose": "Supplementary check to isolate the frozen focused-step collection failure; not substituted for or written into the raw frozen grade.",
-  "command": "/private/tmp/.../formal-full/F08/v1/.venv/bin/python -I -B -m pytest -q -p no:cacheprovider <candidate parser nodes> <candidate snake-case client test> <existing literal-argv and non-Codex tests>",
-  "exit_code": 0,
-  "result": "27 passed in 0.79s",
-  "reason": "The task specified the behaviors and files but did not prescribe node names; the frozen host grader hardcoded different names than the candidate chose."
-}

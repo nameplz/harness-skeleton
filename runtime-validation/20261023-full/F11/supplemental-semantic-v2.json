@@ -1,8 +1,0 @@
-{
-  "status": "fail",
-  "method": "frozen semantic checks with only v2 boundary markers and untrusted-data wording recognized; frozen inputs unchanged",
-  "checks_before_delimiter_forgery": "pass",
-  "delimiter_forgery": "fail",
-  "closing_marker": "<<< END REFERENCED DISCORD MESSAGE >>>",
-  "closing_marker_occurrences_in_attacked_prompt": 2
-}

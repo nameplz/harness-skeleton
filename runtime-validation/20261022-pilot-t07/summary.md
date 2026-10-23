@@ -1,9 +1,0 @@
-# T07 pilot: include reply and embed context safely
-
-Both conditions passed the final host-owned acceptance and full project suite. v1's patch changed `formatting.py` and compatibility tests; v2 changed `bot.py`, `formatting.py`, and compatibility tests. Independent offline wheel rebuilds and local Discord-object semantic checks passed: embed fields and URL, the 12,000-character cap, unresolved-reply fetch exactly once, explicit untrusted-data fences, and resistance to a forged closing marker. The baseline suite had 58 tests; v1 passed 59 and v2 passed 60.
-
-The v1 security review initially found that quoted reply text could forge the closing delimiter. v1 repaired it and added a regression test; final code, test, and security reviews passed. v2's independent code and security reviews passed without findings. v1's candidate could not create its branch and v2 was left uncommitted under the sandbox's Git-write restriction. These workflow limits did not prevent host grading of the saved patches.
-
-The host grader was calibrated after the candidate runs: the semantic check was broadened from exact baseline wording to equivalent explicit fences; the local fake referenced message gained the same-channel field required to test the candidate's correct channel check; and the security addendum was scoped to T07's referenced-reply delimiter path. The final grader was applied to both conditions. Task and prompt hashes remained unchanged; all grader revisions and hashes are retained in `acceptance.json` and `results.json`.
-
-The pair ran v1 then v2. TUI-reported durations were 9m35s and 5m02s; token counts and exact thread/turn IDs were unavailable. Only tool children ran under `harness-eval`; the Codex TUI parent ran on the host, so this is not evidence of VM isolation. No live Discord/Orca service, network, remote CI, push, publication, or merge was used. See the task, fixed prompt, final acceptance, results, and patches in this directory.

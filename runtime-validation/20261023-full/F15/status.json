@@ -1,9 +1,0 @@
-{
-  "condition_order": "v2_then_v1",
-  "model_runs_completed": 2,
-  "pair_decision": "pass",
-  "pair_id": "F15",
-  "status": "complete; both frozen host grades pass",
-  "v1_host_grade": "pass",
-  "v2_host_grade": "pass"
-}

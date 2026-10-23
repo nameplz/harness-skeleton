@@ -1,5 +1,0 @@
-{
-  "status": "not_run",
-  "reason": "No candidate patch exists: the v1 TUI refused the candidate path before edits. The frozen grader requires a non-empty patch, so no host patch-grade is applicable.",
-  "baseline_grade": "see baseline-grade.json"
-}
