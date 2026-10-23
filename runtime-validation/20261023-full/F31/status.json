@@ -1,8 +1,8 @@
 {
   "pair_id": "F31",
-  "status": "v2 complete; v1 not started",
+  "status": "complete",
   "condition_order": "v2_then_v1",
-  "model_runs_completed": 1,
+  "model_runs_completed": 2,
   "baseline_grade": "expected_fail",
   "positive_control_grade": "pass",
   "v2_baseline_project_suite": "58 passed, 2 warnings",
@@ -17,5 +17,20 @@
     "authorization_scope_and_limits"
   ],
   "v2_product_scope": "README.md only",
-  "workflow_limits": "Harness scripts/config absent from the representative project; no network or live service use"
+  "workflow_limits": "Harness scripts/config absent from representative project; no network or live service use",
+  "v1_baseline_project_suite": "58 passed, 2 warnings",
+  "v1_host_grade": "fail",
+  "v1_patch_sha256": "fef37fc337e3a81054bb6d09b976c91ee5776b85d4897b5e2b11dbf7d9d7297d",
+  "v1_reviews": "independent code, test, and security reviews passed with no findings",
+  "v1_validation": "GIT_CONFIG_NOSYSTEM=1 git diff --check -- README.md passed (exit 0); host gitattributes access warnings; no project tests, hooks, network commands, or live services run",
+  "v1_failed_frozen_checks": [
+    "supported_setup",
+    "environment_and_defaults",
+    "structured_agent_state",
+    "authorization_scope_and_limits",
+    "github_boundary",
+    "slash_semantics"
+  ],
+  "v1_product_scope": "README.md only",
+  "pair_decision": "not_accepted_under_frozen_grader"
 }

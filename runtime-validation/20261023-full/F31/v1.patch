@@ -1,0 +1,399 @@
+diff --git a/README.md b/README.md
+index ae05ebc..98c6b23 100644
+--- a/README.md
++++ b/README.md
+@@ -1,303 +1,178 @@
+ # Orca Discord Bridge v0.2
+ 
+-개인 Discord 서버에서 **Orca가 실행 중인 Codex terminal**과 텍스트로 대화하기 위한 macOS용 브리지입니다. Codex API를 별도로 호출하지 않습니다.
++개인 Discord 서버에서 **Orca가 관리하는 Codex terminal**과 텍스트로 대화하기 위한 브리지입니다. Codex API를 직접 호출하지 않습니다.
+ 
+-이번 v0.2의 핵심 변경은 **Codex TUI 화면을 파싱해서 답변을 추측하지 않는 것**입니다.
++일반 대화의 답변은 Codex TUI 화면을 읽어 추측하지 않습니다. Orca가 노출하는 structured agent 상태와 `lastAssistantMessage`를 사용합니다.
+ 
+ ```text
+ 입력
+-Discord → orca terminal send → 기존 Orca Codex
++Discord → Orca terminal send → 기존 Orca Codex
+ 
+ 출력
+-Codex → Orca agent hooks → orca worktree ps --json
+-                         ├─ state
+-                         ├─ lastAssistantMessage → Discord
+-                         ├─ toolName              → 표시 안 함
+-                         └─ toolInput             → 표시 안 함
++Codex hooks/status → orca worktree ps --json
++                    ├─ worktreeId + paneKey로 agent row 선택
++                    ├─ state / lastAssistantMessage 사용
++                    └─ toolName / toolInput은 Discord로 보내지 않음
+ ```
+ 
+-일반 대화에서는 `terminal read`, `terminal read --screen`, `tui-idle`, `Working (...)` 문자열 파싱을 사용하지 않습니다.
++`/status` Codex 명령을 처리할 때만 제한적으로 terminal 화면을 읽습니다. 일반 메시지 응답은 화면, PTY 출력, `Working (...)` 문구를 읽지 않습니다.
+ 
+ ## 지원 기능
+ 
+-- `#codex` 일반 메시지 → 현재 Orca/Codex terminal
+-- Codex의 자연어 assistant 메시지/최종 답변 → Discord
+-- tool call 이름/입력/결과는 Discord에 표시하지 않음
+-- assistant 답변 안의 fenced code block과 diff/patch 본문은 Discord에서 제외
+-- `/orca terminals`, `/orca connect`, `/orca status`, `/orca disconnect`
+-- `//clear`, `//compact` → Codex `/clear`, `/compact`
+-- Discord 메시지 우클릭 → **Apps → Send to Codex**
+-- GitHub Webhook embed를 일반 Discord 메시지처럼 선택해 Codex에 전달
+-- `#codex` 메시지 reply 시 원문을 함께 전달
+-- macOS `start.command` 원클릭 실행
++- 설정한 Discord 서버와 사용자, `CODEX_CHANNEL_ID` 채널의 일반 메시지를 연결된 Codex terminal에 전달
++- 설정한 서버와 사용자가 실행하는 `/orca terminals`, `/orca connect`, `/orca status`, `/orca disconnect`
++- structured agent row의 assistant text 변경을 수집해 `done`이 관찰된 뒤 Discord에 표시
++- `//clear`, `//compact`, `//new`, `//status`를 각각 Codex `/clear`, `/compact`, `/new`, `/status`로 전달
++- `#codex`에서 메시지에 답장하면 참조 메시지의 텍스트와 embed 내용을 함께 전달
++- Discord 메시지 우클릭 또는 모바일 길게 누르기의 **Apps → Send to Codex**로 선택한 메시지를 전달
++- Discord에 게시된 GitHub Webhook embed도 사용자가 직접 선택하면 참고 컨텍스트로 전달
+ 
+-의도적으로 제외:
++지원하지 않는 기능:
+ 
+-- GitHub API / 별도 GitHub Webhook 수신 서버
+-- 파일·이미지 첨부
+-- Discord에서 임의 shell 명령 실행
+-- Codex TUI 전체 복제
+-- tool call/diff/code 상세 출력
+-
+-## 왜 v0.2가 더 안정적인가
+-
+-초기 버전은 Codex TUI의 PTY stream/screen을 읽고 다음 항목을 문자열 필터로 제거했습니다.
+-
+-- `Ask Codex to do anything`
+-- 상태바
+-- 사용자 입력 echo
+-- `Working (... esc to interrupt)`
+-- tool 출력
+-- diff
+-
+-하지만 TUI는 화면을 계속 repaint하므로 이 방식은 새로운 UI 표현이 나올 때마다 오탐이 생길 수 있습니다.
+-
+-v0.2는 `/orca connect`할 때 선택한 terminal에서 다음 identity를 얻습니다.
+-
+-```text
+-worktreeId
+-tabId
+-leafId
+-paneKey = tabId:leafId
+-```
+-
+-그 뒤 `orca worktree ps --json`에서 **동일 worktree + 동일 paneKey**의 Codex agent row만 추적합니다. 여러 Codex terminal이 실행 중이어도 다른 pane의 상태를 섞지 않습니다.
++- GitHub API 연결 또는 GitHub Webhook을 받는 별도 서버
++- 파일·이미지 첨부 전달
++- Codex TUI 전체 복제 또는 일반 대화의 화면 읽기
+ 
+ ## 요구 조건
+ 
+-- macOS
+-- Python 3.11+
+-- Orca CLI가 PATH에 등록되어 있어야 함
+-- Orca에서 Codex가 실행 중이어야 함
+-- 현재 Orca가 `worktree ps --json`에 Codex agent 상태를 노출해야 함
+-- Discord Bot에서 Message Content Intent 활성화
++- Python 3.11 이상
++- Orca가 설치되어 있고 `orca` CLI를 실행할 수 있어야 합니다. CLI가 PATH에 없으면 `ORCA_BINARY`에 실행 파일 경로를 지정합니다.
++- Orca 안에서 Codex terminal을 실행해야 합니다.
++- Orca의 `terminal show --json`이 terminal identity를, `worktree ps --json`이 해당 pane의 structured agent row를 제공해야 합니다. Codex hook/status 연동이 `state`와 `lastAssistantMessage`를 갱신해야 합니다.
++- Discord 애플리케이션에 봇을 만들고 사용할 서버에 초대해야 합니다. 일반 메시지를 받으려면 Developer Portal에서 **Message Content Intent**를 켜야 합니다.
++- 봇이 지정한 채널 또는 thread에서 메시지를 읽고 보낼 수 있어야 합니다.
+ 
+-먼저 Mac Terminal에서 확인합니다.
++Orca CLI가 실행되는지 확인하고, 연결할 terminal의 handle을 찾습니다.
+ 
+ ```bash
+ command -v orca
+-orca status --json
+ orca terminal list --json
+-orca worktree ps --json
+-```
+-
+-`orca worktree ps --json`에서 사용하는 Codex pane에 대응하는 agent row가 보여야 합니다. 주요 필드는 다음과 같습니다.
+-
+-```json
+-{
+-  "paneKey": "...:...",
+-  "state": "done",
+-  "agentType": "codex",
+-  "lastAssistantMessage": "...",
+-  "toolName": null,
+-  "toolInput": null
+-}
+-```
+-
+-## Discord 설정
+-
+-`.env`:
+-
+-```dotenv
+-DISCORD_TOKEN=...
+-DISCORD_GUILD_ID=...
+-DISCORD_USER_ID=...
+-CODEX_CHANNEL_ID=...
+-ORCA_BINARY=orca
+-ORCA_WAIT_TIMEOUT_MS=300000
+-STATE_PATH=.state.json
++orca terminal show --terminal <handle> --json
++orca worktree ps --limit 500 --json
+ ```
+ 
+-`DISCORD_USER_ID` 사용자만 봇을 조작할 수 있고, 일반 Codex 대화는 `CODEX_CHANNEL_ID`에서만 처리합니다.
+-
+-## 실행
++`terminal show`의 `worktreeId`, `tabId`, `leafId`가 필요합니다. `worktree ps`에서 같은 worktree 아래 `paneKey`가 `tabId:leafId`와 일치하는 agent row가 있어야 합니다.
+ 
+-Finder에서 프로젝트 폴더의 `start.command`를 더블클릭합니다.
++## 설치 및 실행
+ 
+-터미널에서는:
++프로젝트 디렉터리에서 가상 환경을 만들고 프로젝트와 선언된 의존성을 설치합니다.
+ 
+ ```bash
+-./start.command
++python3 --version
++python3 -m venv .venv
++. .venv/bin/activate
++python -m pip install .
+ ```
+ 
+-첫 실행에는 자동으로 `.venv`를 만들고 의존성을 설치합니다. 이후에는 바로 봇을 실행합니다.
++프로젝트 루트에 `.env`를 만들고 아래 필수 값을 설정한 뒤, 같은 프로젝트 디렉터리에서 실행합니다.
+ 
+-종료는 실행된 Terminal 창에서 `Ctrl+C`입니다.
+-
+-## 처음 연결
+-
+-Orca에서 Codex를 먼저 실행한 뒤 Discord에서:
+-
+-```text
+-/orca terminals
+-/orca connect
++```bash
++.venv/bin/orca-discord-bridge
+ ```
+ 
+-`/orca connect`에서 Codex terminal을 선택합니다.
+-
+-연결 과정에서 봇은 해당 terminal의 structured agent row를 실제로 찾고 `agentType=codex`인지 검증합니다. 찾지 못하면 연결 자체를 거부하므로, 잘못된 terminal/TUI를 대화 대상으로 잡지 않습니다.
+-
+-연결 상태 확인:
++`pyproject.toml`의 `orca-discord-bridge` 실행 항목이 봇을 시작합니다. 실행 중인 터미널에서 `Ctrl+C`를 누르면 종료됩니다.
+ 
+-```text
+-/orca status
+-```
++## 환경 변수
+ 
+-정상이면 대략 다음 정보가 표시됩니다.
++`.env`는 선택 사항이며, 설정값은 환경 변수로 직접 전달해도 됩니다. `DISCORD_TOKEN`과 아래 ID 세 개는 필수입니다. ID는 Discord snowflake 정수여야 합니다.
+ 
+-```text
+-상태: 연결됨 (structured agent status 사용)
+-Terminal: ...
+-Worktree: ...
+-Pane: ...
+-Agent state: done
+-```
+-
+-## 일반 대화
+-
+-`#codex`에 그대로 입력합니다.
++```dotenv
++DISCORD_TOKEN=봇_토큰
++DISCORD_GUILD_ID=서버_ID
++DISCORD_USER_ID=허용할_사용자_ID
++CODEX_CHANNEL_ID=채널_ID
+ 
+-```text
+-현재 구현을 검토하고 문제를 찾아줘.
++# 선택 항목
++ORCA_BINARY=orca
++ORCA_WAIT_TIMEOUT_MS=300000
++STATE_PATH=.state.json
+ ```
+ 
+-봇은 먼저 현재 Codex가 `done`인지 확인합니다. 이미 `working`, `waiting`, `blocked` 상태라면 두 번째 prompt를 억지로 넣지 않고 오류를 반환합니다.
++- `ORCA_BINARY`: Orca 실행 파일 또는 명령 이름. 기본값은 `orca`이며 빈 값도 `orca`로 처리합니다.
++- `ORCA_WAIT_TIMEOUT_MS`: structured 응답을 기다리는 제한 시간(밀리초). 정수여야 하며 기본값은 `300000`(5분), 최소값은 `1000`입니다.
++- `STATE_PATH`: 연결된 terminal, worktree, pane 정보를 저장하는 파일 경로. 기본값은 `.state.json`입니다. `~`는 홈 디렉터리로 확장하고, 상대 경로는 브리지를 실행한 현재 작업 디렉터리를 기준으로 사용합니다.
+ 
+-새 turn에서는 다음 순서로 처리합니다.
++실행 시 `.env`의 설정을 읽습니다. 상태 파일은 연결을 저장하고 재시작 때 복원하는 데 사용되며, 파일이 없거나 읽을 수 없으면 미연결 상태로 시작합니다. Orca 재시작 등으로 저장된 terminal identity가 더 이상 맞지 않으면 `/orca connect`로 다시 연결하세요.
+ 
+-```text
+-1. 기존 agent 상태를 baseline으로 저장
+-2. terminal send로 prompt 전달
+-3. worktree ps에서 새 working 상태 감지
+-4. lastAssistantMessage 변화만 수집
+-5. toolName/toolInput은 무시
+-6. state=done이 안정적으로 관찰되면 Discord 전송
+-```
++## 처음 연결
+ 
+-따라서 다음 TUI 상태는 대화 출력으로 취급하지 않습니다.
++Orca 안에서 Codex를 먼저 실행한 다음, 설정한 서버에서 다음 명령을 사용합니다.
+ 
+ ```text
+-• Working (1s • esc to interrupt)
+-Context 5% used
+-Ask Codex to do anything
++/orca terminals
++/orca connect
+ ```
+ 
+-일반 대화 경로에서는 애초에 해당 화면을 읽지 않습니다.
+-
+-## Discord에 표시되는 내용
++`/orca terminals`는 최대 25개의 terminal을 표시합니다. `/orca connect`에서 terminal handle을 선택하면 브리지는 `terminal show`로 `worktreeId`, `tabId`, `leafId`를 확인한 뒤 `worktree ps --limit 500 --json`에서 같은 `worktreeId`와 `paneKey=tabId:leafId`를 가진 row를 찾습니다. 해당 row가 없으면 연결을 거부합니다. `agentType` 값이 비어 있으면 허용하고, 값이 있을 때 `codex`가 아니면 연결을 거부합니다.
+ 
+-표시:
++연결 상태는 파일에 저장되고 봇 시작 때 다시 확인됩니다. `/orca status`는 bridge 연결과 structured agent 상태를 보여주며 terminal 화면을 읽지 않습니다. `/orca disconnect`는 저장된 연결을 지웁니다.
+ 
+-- 자연어 진행 설명
+-- 분석/판단
+-- 최종 결과
+-- 경고/설명
++## 일반 대화 흐름과 제한
+ 
+-제외:
+-
+-- `toolName`
+-- `toolInput`
+-- tool result
+-- fenced code block
+-- unified diff / patch 본문
+-
+-예를 들어 Codex 내부에서:
++설정된 서버의 설정된 사용자만 `CODEX_CHANNEL_ID`에서 일반 메시지를 보낼 수 있습니다. 봇 메시지와 webhook 메시지는 이 일반 입력 경로에서 무시됩니다. 연결 후 메시지를 보내면 다음 순서로 처리합니다.
+ 
+ ```text
+-먼저 설정을 확인하겠습니다.
+-[Read tool 실행]
+-[긴 파일 내용]
+-둘 다 활성화되어 있습니다.
+-[diff]
+-추가 변경은 필요 없습니다.
++1. 저장된 worktreeId와 paneKey에 해당하는 agent row에서 현재 상태 확인
++2. 현재 상태가 working, waiting, blocked이면 새 prompt를 보내지 않고 오류 응답
++3. terminal send로 prompt 전달
++4. 약 450ms 간격으로 같은 structured agent row를 확인하고 lastAssistantMessage의 새 내용을 누적
++5. 같은 done revision이 연속 두 번 관찰되면 누적한 메시지를 Discord에 표시
+ ```
+ 
+-Discord에는 다음처럼 표시하는 것을 목표로 합니다.
+-
+-```text
+-먼저 설정을 확인하겠습니다.
++일반 대화는 Discord로 진행 상황을 실시간 스트리밍하지 않으며, TUI/PTY 화면이나 transcript를 읽지 않습니다. 표시할 내용은 Orca의 해당 structured row와 hook/status 연동이 제공하는 `lastAssistantMessage` 변경에 따라 달라집니다. `waiting` 상태가 제한 시간까지 계속되면 입력이나 승인이 필요하다는 오류를 표시합니다. 시작 상태를 감지하지 못하거나 제한 시간 안에 같은 `done` revision을 두 번 확인하지 못해도 오류가 납니다.
+ 
+-둘 다 활성화되어 있습니다.
++## Discord에 표시되는 응답
+ 
+-추가 변경은 필요 없습니다.
+-```
++structured agent row의 assistant 메시지를 바탕으로 표시합니다. `toolName`, `toolInput`과 tool 결과는 별도 대화 응답으로 보내지 않습니다. 짧은 코드 블록은 보존합니다. `sh`, `shell`, `bash`, `zsh`, `fish`, `powershell`, `ps1`, `cmd`, `bat`, `console` 태그가 붙은 shell 블록은 크기 기준으로 생략하지 않습니다. 이 태그가 없거나 다른 태그를 쓴 긴 블록은 non-shell로 처리되어 2,400자를 넘거나 45줄을 넘으면 생략 표시로 바뀔 수 있습니다. unified diff/patch 상세는 태그와 크기에 관계없이 생략합니다. 응답이 생략되는 내용만 포함하면 Discord에는 표시할 대화형 출력이 없다는 안내가 나올 수 있습니다.
+ 
+ ## Codex slash command
+ 
+-Discord의 `/`와 충돌하므로 앞에 `/`를 하나 더 붙입니다.
++Discord의 `/orca ...`는 브리지의 Discord slash command입니다. Codex slash command를 일반 메시지로 보내려면 앞에 `/`를 하나 더 붙입니다.
+ 
+ ```text
+-//clear    → /clear
+-//compact  → /compact
+-//status   → /status
++//clear    → Codex /clear
++//compact  → Codex /compact
++//new      → Codex /new
++//status   → Codex /status
+ ```
+ 
+-`/clear`, `/compact`, `/new`는 terminal에 전달한 뒤 전달 완료 메시지만 표시합니다. 이 명령들을 위해 일반 대화의 structured-state 로직을 TUI scraping으로 되돌리지 않습니다.
+-
+-`/status`는 assistant turn이 아니라 Codex TUI 자체의 상태 보고서이므로 **유일한 제한적 screen-read 예외**입니다.
+-
+-대화형 picker가 필요한 slash command는 Discord에서 조작하지 않는 것을 권장합니다.
++`//clear`, `//compact`, `//new`는 Codex에 전달하고 전달 완료 메시지를 표시합니다. `//status`만 Codex `/status` 화면을 읽는 제한된 예외입니다. 그 외 Codex slash command는 전달되지만, 대화형 picker를 Discord에서 조작할 수는 없습니다. `/orca status`는 bridge 상태 확인 명령이므로 Codex `/status`와 다릅니다.
+ 
+-## GitHub Webhook 메시지 전달
++## Discord 메시지 전달
+ 
+-기존 GitHub → Discord Webhook은 그대로 사용합니다.
+-
+-Webhook 메시지를 우클릭(모바일에서는 길게 누름):
++메시지를 우클릭(모바일에서는 길게 누름)하고 다음 메뉴를 선택합니다.
+ 
+ ```text
+ Apps → Send to Codex
+ ```
+ 
+-선택적으로 지시를 입력합니다.
++필요하면 전달 지시를 입력합니다. 선택한 메시지의 본문과 embed의 텍스트 항목을 현재 Codex 대화의 참고 컨텍스트로 보냅니다. GitHub Webhook embed도 직접 선택하면 전달할 수 있습니다. webhook 메시지는 일반 `#codex` 입력으로 처리되지 않습니다.
+ 
+-```text
+-이 PR 알림을 참고해서 변경 내용을 검토해줘.
+-```
++브리지는 GitHub API를 호출하지 않고, Discord webhook을 수신하는 별도 endpoint도 제공하지 않습니다. GitHub → Discord 게시 자체는 기존 설정을 사용하고, 전달할 메시지는 Discord에서 사용자가 직접 선택해야 합니다.
++
++## 권한 범위
+ 
+-GitHub와 봇은 직접 API 연결하지 않습니다. Discord에 이미 표시된 메시지/embed를 현재 Codex 대화에 참고 컨텍스트로 전달합니다.
++- 일반 메시지 입력은 설정된 guild, `DISCORD_USER_ID`, `CODEX_CHANNEL_ID`가 모두 일치해야 처리됩니다.
++- `/orca` 명령과 **Send to Codex** context menu는 설정된 guild와 `DISCORD_USER_ID`만 확인합니다. 일반 메시지 입력 채널에 묶여 있지 않으므로 해당 서버의 다른 채널에서도 실행할 수 있습니다.
++- Discord 텍스트는 연결된 Codex terminal에 prompt로 전달됩니다. 브리지는 직접 shell 명령 API를 제공하지 않지만, Codex/Orca의 tool 권한을 제한하지 않으며 OS/VM sandbox도 제공하지 않습니다.
+ 
+ ## 문제 해결
+ 
+-### `/orca connect`가 structured agent 상태를 찾지 못함
++### `/orca connect`가 agent row를 찾지 못함
+ 
+-Mac에서:
++Mac Terminal에서 다음 정보를 확인합니다.
+ 
+ ```bash
+ orca terminal show --terminal <handle> --json
+-orca worktree ps --json
++orca worktree ps --limit 500 --json
+ ```
+ 
+-첫 명령의 `worktreeId`, `tabId`, `leafId`를 확인하고, 두 번째 명령에서 다음 `paneKey`가 있는지 확인합니다.
+-
+-```text
+-paneKey = tabId:leafId
+-```
+-
+-해당 row의 `agentType`이 `codex`여야 합니다.
++첫 명령의 `worktreeId`, `tabId`, `leafId`와 두 번째 명령의 동일 worktree row를 비교합니다. 대상 agent의 `paneKey`가 `tabId:leafId`와 일치해야 합니다. `agentType`이 제공되면 `codex`인지 확인합니다.
+ 
+ ### 메시지는 Codex로 들어가지만 응답 상태가 갱신되지 않음
+ 
+-이 버전은 TUI screen을 fallback으로 사용하지 않습니다. `orca worktree ps --json`의 해당 agent row에서 `state`가 `working → done`으로 변하고 `lastAssistantMessage`가 갱신되는지 확인합니다.
+-
+-그 값이 Orca 자체에서 갱신되지 않는다면 Discord bridge가 아니라 Orca↔Codex hook/status 경로를 먼저 확인해야 합니다.
++일반 대화는 TUI 화면으로 fallback하지 않습니다. `orca worktree ps --limit 500 --json`에서 해당 row의 `state`와 `lastAssistantMessage`가 Codex hook/status 연동을 통해 갱신되는지 확인합니다. 값이 갱신되지 않으면 Orca와 Codex의 hook/status 경로를 확인하세요.
+ 
+ ### Orca를 재시작함
+ 
+-Terminal handle은 runtime-scoped일 수 있습니다. `/orca connect`를 다시 실행하세요.
+-
+-## 보안
+-
+-- Guild ID 고정
+-- User ID 고정
+-- Codex Channel ID 고정
+-- `shell=True` 사용 안 함
+-- Discord 입력으로 임의 shell command 실행 안 함
+-- Webhook 메시지는 자동 실행하지 않고 사용자가 `Send to Codex`를 눌러야만 전달
+-- Discord mention 비활성화
+-- `.env`, `.state.json` Git 제외
+-
+-## Discord output fidelity
+-
+-Assistant prose is preserved as the authoritative content. The bridge does **not** drop all fenced code blocks: short examples and operational shell commands are kept. Only unified diff/patch bodies and very large non-shell code blocks are abbreviated. Local filesystem Markdown links emitted by Codex are rendered as readable worktree-relative paths for Discord instead of unusable absolute local links.
+-
+-Note: `worktree ps.lastAssistantMessage` is populated by the Codex `Stop` hook, so this version still represents the completed-turn assistant message rather than every intermediate Codex TUI progress message. Intermediate message streaming requires transcript tailing and is a separate transport change.
++저장된 terminal identity가 더 이상 유효하지 않을 수 있습니다. `/orca connect`로 다시 연결하세요.

@@ -1,0 +1,14 @@
+{
+  "condition": "candidate",
+  "changed_files": [
+    "README.md"
+  ],
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "host_grader_sha256": "0cf37fc19ced6ef84ffa65576d718d8cc982d0d8ef0e3640ab8aaa29a9777696",
+  "semantic_sha256": "44b845c426c9566b2461de408bdfa4a26da93cac33e1d627a35906ebf6c264a6",
+  "semantic": {
+    "exit_code": 1,
+    "output": "python3: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead\n{'checks': {'supported_setup': False, 'environment_and_defaults': False, 'structured_agent_state': False, 'authorization_scope_and_limits': False, 'github_boundary': False, 'slash_semantics': False}, 'failed': ['supported_setup', 'environment_and_defaults', 'structured_agent_state', 'authorization_scope_and_limits', 'github_boundary', 'slash_semantics']}\n"
+  },
+  "status": "fail"
+}
