@@ -1,0 +1,24 @@
+{
+  "condition": "v1",
+  "candidate_branch": "eval-base",
+  "candidate_commits": 0,
+  "codex_cli": "0.163.0",
+  "model": "gpt-6-luna",
+  "reasoning_effort": "max",
+  "tui_elapsed": "in progress",
+  "main_prompt_count": 1,
+  "followup_prompt_count": 0,
+  "prompt_request_ids": [],
+  "setup_record": "v1-setup.json",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "starting_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "reviews": {"workflow": "v1 workflow: independent code and test reviews in parallel, then security review; three implementation attempts maximum"},
+  "process_observations": {
+    "network_or_service_calls": "none observed",
+    "pip_policy": "PIP_NO_INDEX=1 and PIP_DISABLE_PIP_VERSION_CHECK=1 set for every pip command",
+    "runtime_profile": "harness-eval applied to tool children only; TUI parent is a host process, not a VM",
+    "protected_hashes_before_run_unchanged": true
+  },
+  "status": "running",
+  "started_at_utc_observation": "2026-10-23T00:28:36Z"
+}
