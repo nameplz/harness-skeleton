@@ -4,12 +4,12 @@
   "plan_sha256": "82f8374b8fce0f5dd650a7550b0ca039bcd1caa5f6c40b50c4f78d788a90da92",
   "required_matched_pairs": 36,
   "required_model_runs": 72,
-  "completed_pairs": 31,
-  "completed_model_runs": 62,
-  "remaining_pairs": 5,
-  "remaining_model_runs": 10,
+  "completed_pairs": 32,
+  "completed_model_runs": 64,
+  "remaining_pairs": 4,
+  "remaining_model_runs": 8,
   "condition_order_counts": {
-    "v1_then_v2": 14,
+    "v1_then_v2": 15,
     "v2_then_v1": 17
   },
   "completed_pair_ids": [
@@ -43,11 +43,12 @@
     "F28",
     "F29",
     "F30",
-    "F31"
+    "F31",
+    "F32"
   ],
-  "next_pair_id": "F32",
-  "next_task": "T16",
+  "next_pair_id": "F33",
+  "next_task": "T04",
   "next_condition_order": "v1_then_v2",
   "updated": "2026-10-23",
-  "next_task_instance": "standard"
+  "next_task_instance": "second_pane_routing"
 }

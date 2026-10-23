@@ -1,12 +1,31 @@
 {
   "pair_id": "F32",
-  "status": "frozen",
+  "status": "complete",
   "task_id": "T16",
   "task_instance": "standard",
   "condition_order": "v1_then_v2",
-  "model_runs_completed": 0,
+  "model_runs_completed": 2,
   "baseline_grade": "expected_fail",
   "baseline_build_install": "passed offline",
   "positive_control_grade": "pass",
-  "next_condition": "v1"
+  "next_condition": "v2",
+  "v1_baseline_project_suite": "58 passed, 2 warnings in 6.67s",
+  "v1_host_grade": "fail",
+  "v1_patch_sha256": "999a0fae44805cd4c357d24aeb6b08b4d3fce1a8327041f4be20d911c1f7f383",
+  "v1_failed_frozen_checks": [
+    "readme_dependency"
+  ],
+  "v1_reviews": "code and security reviews passed; test review did not accept git diff --check because Git system-config access was denied",
+  "v1_validation": "offline wheel build and install passed; installed metadata matches >=3.11 and discord.py >=2.7,<2.8; README wording check failed",
+  "v1_product_scope": "README.md and pyproject.toml only",
+  "v2_host_grade": "fail",
+  "v2_patch_sha256": "3cacbf4217be985608d297781daf594b21c2616073efe546a21ff8a836475ed9",
+  "v2_failed_frozen_checks": [
+    "readme_dependency"
+  ],
+  "v2_reviews": "independent code and security reviews passed with no findings",
+  "v2_validation": "offline wheel build/install and installed metadata checks passed; git diff --check passed; local candidate commit was denied by sandbox",
+  "v2_product_scope": "README.md and pyproject.toml only",
+  "pair_decision": "not_accepted_under_frozen_grader",
+  "workflow_limits": "scripts/harness.py and .harness/config.toml absent in representative project; no network or live services"
 }
