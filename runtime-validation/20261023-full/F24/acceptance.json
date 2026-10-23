@@ -1,0 +1,83 @@
+{
+  "task_id": "T10",
+  "task_instance": "standard",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "grader_mode": "Host independently builds/installs each frozen candidate offline, runs the named test and complete pinned suite, and exercises the registered command with host-owned fake interactions and Orca clients.",
+  "budget_seconds": 1800,
+  "allowed_files": [
+    "src/orca_discord_bridge/bot.py",
+    "tests/test_harness_compatibility.py"
+  ],
+  "required_test_node": "tests/test_harness_compatibility.py::test_orca_doctor_reports_identity_and_stale_guidance",
+  "criteria": [
+    {
+      "id": "registered_command",
+      "check": "Register /orca doctor in the existing command group."
+    },
+    {
+      "id": "authorization",
+      "check": "Reject a wrong guild or owner before any Orca API call."
+    },
+    {
+      "id": "missing_binding",
+      "check": "Any missing saved handle/worktree/pane field reports disconnected with /orca connect guidance and makes no Orca call."
+    },
+    {
+      "id": "stale_binding",
+      "check": "Re-resolve the saved handle, compare worktree and pane, and do not fetch a snapshot if either identity changed."
+    },
+    {
+      "id": "structured_status",
+      "check": "For a matching binding, report healthy status, terminal, worktree, pane, and structured agent state; missing state is explicit unknown."
+    },
+    {
+      "id": "private_response",
+      "check": "Every response is ephemeral/private."
+    },
+    {
+      "id": "sensitive_data",
+      "check": "Never read terminal screen or disclose token, prompt, assistant message, raw error details, or tool input."
+    },
+    {
+      "id": "transport_error",
+      "check": "Orca errors produce actionable reconnect guidance without raw error details."
+    },
+    {
+      "id": "regression_test",
+      "check": "The named regression test and full suite pass."
+    },
+    {
+      "id": "build_install",
+      "check": "A fresh wheel builds and installs offline."
+    },
+    {
+      "id": "scope",
+      "check": "Only bot.py and test_harness_compatibility.py change."
+    },
+    {
+      "id": "external_effects",
+      "check": "No live services, network, publication, push, or merge."
+    }
+  ],
+  "baseline_calibration": {
+    "status": "expected_fail",
+    "wheel_sha256": "c841cf96bc25a0d04106b3a03f8b93278931a3e5ba071c95c1b0d62500168144",
+    "suite": "58 passed",
+    "expected_failures": "The named doctor test and registered command are absent; focused test lookup and semantic command checks fail.",
+    "grade_sha256": "025219d96edc887be7d409f7b5148e8aeb81dc77daa848c93adcfa0fd653d688"
+  },
+  "positive_control_calibration": {
+    "source": "F10 v2 patch reused without change as a known-valid implementation control",
+    "patch_sha256": "51bed95200c2fba6c2c076373a79fc45450071dea8b2695c587207dfdbbc0fa3",
+    "grade_status": "pass",
+    "suite": "59 passed",
+    "focused": "1 passed",
+    "semantic": "all 9 frozen checks passed",
+    "wheel_sha256": "247adb8993224752bd8d86fa08bec7f807c433c937ee6780be180b10eebb83ba",
+    "grade_sha256": "ae0136b3802b5e5cb4f8ad4fefb979ee92aee36f82b9abd8dea0eb9645384efd"
+  },
+  "snapshot_manifest_sha256": "1f889ed4c89ed91ab99c5515ad3bd070fd2cbabdd2bff193bccc1a2c2b18d400",
+  "compatibility_test_sha256": "ed0827c4e01a254ea109a1ea694f971911ec0485e51f80d4a026c2c2c0e291ae",
+  "host_semantic_fixture_notes": "Uses the project OrcaClient.resolve_binding and the private ephemeral defer/followup interaction path; stale identity is checked before structured snapshot retrieval."
+}
