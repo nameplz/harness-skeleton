@@ -1,0 +1,12 @@
+{
+  "pair_id": "F33",
+  "status": "frozen",
+  "task_id": "T04",
+  "task_instance": "second_pane_routing",
+  "condition_order": "v1_then_v2",
+  "model_runs_completed": 0,
+  "baseline_grade": "expected_fail",
+  "baseline_suite": "58 passed",
+  "positive_control_grade": "pass",
+  "next_condition": "v1"
+}
