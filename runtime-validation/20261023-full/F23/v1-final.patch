@@ -1,0 +1,349 @@
+diff --git a/src/orca_discord_bridge/bot.py b/src/orca_discord_bridge/bot.py
+index 18a9e6f..95a7a73 100644
+--- a/src/orca_discord_bridge/bot.py
++++ b/src/orca_discord_bridge/bot.py
+@@ -28,10 +28,17 @@ def _bridge(interaction: discord.Interaction) -> "BridgeBot":
+     return interaction.client
+ 
+ 
+-def _auth_error(bot: "BridgeBot", *, guild_id: int | None, user_id: int) -> str | None:
++def _auth_error(bot: "BridgeBot", *, guild_id: int | None, member: object) -> str | None:
+     if guild_id != bot.settings.guild_id:
+         return "이 서버에서는 사용할 수 없습니다."
+-    if user_id != bot.settings.user_id:
++    user_id = getattr(member, "id", None)
++    if user_id == bot.settings.user_id:
++        return None
++    member_role_ids = {
++        getattr(role, "id", role)
++        for role in getattr(member, "roles", ())
++    }
++    if not member_role_ids.intersection(bot.settings.role_ids):
+         return "허용된 사용자만 사용할 수 있습니다."
+     return None
+ 
+@@ -39,7 +46,7 @@ def _auth_error(bot: "BridgeBot", *, guild_id: int | None, user_id: int) -> str
+ @orca_group.command(name="terminals", description="현재 Orca 터미널 목록을 표시합니다.")
+ async def terminals_command(interaction: discord.Interaction) -> None:
+     bot = _bridge(interaction)
+-    error = _auth_error(bot, guild_id=interaction.guild_id, user_id=interaction.user.id)
++    error = _auth_error(bot, guild_id=interaction.guild_id, member=interaction.user)
+     if error:
+         await interaction.response.send_message(error, ephemeral=True)
+         return
+@@ -67,7 +74,7 @@ async def terminals_command(interaction: discord.Interaction) -> None:
+ @app_commands.describe(terminal="연결할 Orca terminal handle")
+ async def connect_command(interaction: discord.Interaction, terminal: str) -> None:
+     bot = _bridge(interaction)
+-    error = _auth_error(bot, guild_id=interaction.guild_id, user_id=interaction.user.id)
++    error = _auth_error(bot, guild_id=interaction.guild_id, member=interaction.user)
+     if error:
+         await interaction.response.send_message(error, ephemeral=True)
+         return
+@@ -95,7 +102,7 @@ async def terminal_autocomplete(
+     current: str,
+ ) -> list[app_commands.Choice[str]]:
+     bot = _bridge(interaction)
+-    if _auth_error(bot, guild_id=interaction.guild_id, user_id=interaction.user.id):
++    if _auth_error(bot, guild_id=interaction.guild_id, member=interaction.user):
+         return []
+     try:
+         terminals = await asyncio.wait_for(bot.orca.list_terminals(), timeout=2.5)
+@@ -117,7 +124,7 @@ async def terminal_autocomplete(
+ @orca_group.command(name="status", description="현재 bridge 연결 상태를 확인합니다.")
+ async def status_command(interaction: discord.Interaction) -> None:
+     bot = _bridge(interaction)
+-    error = _auth_error(bot, guild_id=interaction.guild_id, user_id=interaction.user.id)
++    error = _auth_error(bot, guild_id=interaction.guild_id, member=interaction.user)
+     if error:
+         await interaction.response.send_message(error, ephemeral=True)
+         return
+@@ -149,7 +156,7 @@ async def status_command(interaction: discord.Interaction) -> None:
+ @orca_group.command(name="disconnect", description="현재 Orca terminal 연결을 해제합니다.")
+ async def disconnect_command(interaction: discord.Interaction) -> None:
+     bot = _bridge(interaction)
+-    error = _auth_error(bot, guild_id=interaction.guild_id, user_id=interaction.user.id)
++    error = _auth_error(bot, guild_id=interaction.guild_id, member=interaction.user)
+     if error:
+         await interaction.response.send_message(error, ephemeral=True)
+         return
+@@ -175,7 +182,7 @@ class ForwardModal(discord.ui.Modal, title="Send to Codex"):
+         error = _auth_error(
+             self.bot,
+             guild_id=interaction.guild_id,
+-            user_id=interaction.user.id,
++            member=interaction.user,
+         )
+         if error:
+             await interaction.response.send_message(error, ephemeral=True)
+@@ -206,7 +213,7 @@ async def send_to_codex_context(
+     message: discord.Message,
+ ) -> None:
+     bot = _bridge(interaction)
+-    error = _auth_error(bot, guild_id=interaction.guild_id, user_id=interaction.user.id)
++    error = _auth_error(bot, guild_id=interaction.guild_id, member=interaction.user)
+     if error:
+         await interaction.response.send_message(error, ephemeral=True)
+         return
+@@ -249,9 +256,9 @@ class BridgeBot(commands.Bot):
+             return
+         if message.webhook_id is not None or message.author.bot:
+             return
+-        if message.guild is None or message.guild.id != self.settings.guild_id:
++        if message.guild is None:
+             return
+-        if message.author.id != self.settings.user_id:
++        if _auth_error(self, guild_id=message.guild.id, member=message.author):
+             return
+         if message.channel.id != self.settings.codex_channel_id:
+             return
+diff --git a/src/orca_discord_bridge/config.py b/src/orca_discord_bridge/config.py
+index 46011d2..e0b2c2e 100644
+--- a/src/orca_discord_bridge/config.py
++++ b/src/orca_discord_bridge/config.py
+@@ -6,6 +6,8 @@ from pathlib import Path
+ 
+ from dotenv import load_dotenv
+ 
++_MAX_DISCORD_ID = "18446744073709551615"
++
+ 
+ class ConfigError(RuntimeError):
+     pass
+@@ -21,6 +23,31 @@ def _required_int(name: str) -> int:
+         raise ConfigError(f"{name} must be an integer Discord ID") from exc
+ 
+ 
++def _optional_int_list(name: str) -> tuple[int, ...]:
++    value = os.getenv(name, "").strip()
++    if not value:
++        return ()
++
++    parts = [part.strip() for part in value.split(",")]
++    if any(not part or not part.isascii() or not part.isdecimal() for part in parts):
++        raise ConfigError(f"{name} must be a comma-separated list of integer Discord IDs")
++
++    role_ids = []
++    for part in parts:
++        normalized = part.lstrip("0")
++        if not normalized:
++            raise ConfigError(f"{name} must contain positive uint64 Discord IDs")
++        if len(normalized) > len(_MAX_DISCORD_ID) or (
++            len(normalized) == len(_MAX_DISCORD_ID) and normalized > _MAX_DISCORD_ID
++        ):
++            raise ConfigError(f"{name} must contain positive uint64 Discord IDs")
++        try:
++            role_ids.append(int(normalized))
++        except ValueError as exc:
++            raise ConfigError(f"{name} must contain positive uint64 Discord IDs") from exc
++    return tuple(dict.fromkeys(role_ids))
++
++
+ @dataclass(frozen=True, slots=True)
+ class Settings:
+     discord_token: str
+@@ -30,6 +57,7 @@ class Settings:
+     orca_binary: str
+     wait_timeout_ms: int
+     state_path: Path
++    role_ids: tuple[int, ...] = ()
+ 
+     @classmethod
+     def load(cls) -> "Settings":
+@@ -55,4 +83,5 @@ class Settings:
+             orca_binary=os.getenv("ORCA_BINARY", "orca").strip() or "orca",
+             wait_timeout_ms=timeout_ms,
+             state_path=Path(os.getenv("STATE_PATH", ".state.json")).expanduser(),
++            role_ids=_optional_int_list("DISCORD_ROLE_IDS"),
+         )
+diff --git a/tests/test_harness_compatibility.py b/tests/test_harness_compatibility.py
+index e476a1a..aa0429d 100644
+--- a/tests/test_harness_compatibility.py
++++ b/tests/test_harness_compatibility.py
+@@ -144,8 +144,8 @@ def test_non_codex_rejected(cli):
+         asyncio.run(client.validate_codex_binding('term'))
+ 
+ 
+-def settings(path):
+-    return config.Settings('OWNED_SYNTHETIC_TOKEN',1,2,3,'owned-fake-cli',1000,path)
++def settings(path, role_ids=()):
++    return config.Settings('OWNED_SYNTHETIC_TOKEN',1,2,3,'owned-fake-cli',1000,path,role_ids)
+ 
+ 
+ @pytest.mark.parametrize('change', ['own','webhook','bot','no-guild','guild','user','channel','empty'])
+@@ -225,7 +225,20 @@ def test_synthetic_config_validation_and_prompt_data(monkeypatch, tmp_path):
+     monkeypatch.setattr(config,'load_dotenv',lambda:None)
+     for key,value in {'DISCORD_TOKEN':'OWNED_SYNTHETIC_TOKEN','DISCORD_GUILD_ID':'1','DISCORD_USER_ID':'2','CODEX_CHANNEL_ID':'3','STATE_PATH':str(tmp_path/'state.json'),'ORCA_WAIT_TIMEOUT_MS':'1000'}.items():
+         monkeypatch.setenv(key,value)
++    monkeypatch.delenv('DISCORD_ROLE_IDS',raising=False)
+     assert config.Settings.load().state_path==tmp_path/'state.json'
++    assert config.Settings.load().role_ids==()
++    monkeypatch.setenv('DISCORD_ROLE_IDS',' 10, 20,10 ')
++    assert config.Settings.load().role_ids==(10,20)
++    monkeypatch.setenv('DISCORD_ROLE_IDS','18446744073709551615')
++    assert config.Settings.load().role_ids==(18446744073709551615,)
++    monkeypatch.setenv('DISCORD_ROLE_IDS','  ')
++    assert config.Settings.load().role_ids==()
++    for malformed in ('invalid','1,,2','1,','0','18446744073709551616','9'*5000):
++        monkeypatch.setenv('DISCORD_ROLE_IDS',malformed)
++        with pytest.raises(config.ConfigError,match='DISCORD_ROLE_IDS'):
++            config.Settings.load()
++    monkeypatch.delenv('DISCORD_ROLE_IDS')
+     monkeypatch.setenv('DISCORD_USER_ID','invalid')
+     with pytest.raises(config.ConfigError,match='integer'):config.Settings.load()
+     message=NS(content='OWNED_UNTRUSTED_INSTRUCTION',embeds=[])
+@@ -235,29 +248,52 @@ def test_synthetic_config_validation_and_prompt_data(monkeypatch, tmp_path):
+     assert formatting.codex_input('//clear')=='/clear'
+ 
+ 
+-def interaction(bot, *, guild=1, user=2):
+-    return NS(client=bot,guild_id=guild,user=NS(id=user),
++def interaction(bot, *, guild=1, user=2, roles=()):
++    member=NS(id=user,roles=[NS(id=role_id) for role_id in roles])
++    return NS(client=bot,guild_id=guild,user=member,
+               response=NS(send_message=AsyncMock(),defer=AsyncMock(),send_modal=AsyncMock()),
+               followup=NS(send=AsyncMock()))
+ 
+ 
++def authorization_case(name):
++    return {
++        'owner': (1,2,()),
++        'role': (1,7,(10,)),
++        'wrong-role': (1,7,(11,)),
++        'wrong-user': (1,7,()),
++        'wrong-guild': (7,7,(10,)),
++        'dm-role': (None,7,(10,)),
++        'dm-owner': (None,2,()),
++    }[name]
++
++
+ @pytest.mark.parametrize('name', ['terminals_command','connect_command','status_command','disconnect_command'])
+-@pytest.mark.parametrize('allowed', [False,True])
+-def test_application_commands_auth_and_connected_paths(tmp_path,name,allowed):
++@pytest.mark.parametrize('identity', ['owner','role','wrong-role','wrong-user','wrong-guild','dm-role','dm-owner'])
++def test_application_commands_auth_and_connected_paths(tmp_path,name,identity):
+     async def run():
+-        bot=bot_module.BridgeBot(settings(tmp_path/'state.json'))
++        bot=bot_module.BridgeBot(settings(tmp_path/'state.json',(10,)))
+         binding=orca.TerminalBinding('term','wt','tab','leaf')
+         bot.orca=NS(list_terminals=AsyncMock(return_value=[orca.TerminalInfo('term','owned','wt','codex')]),
+                     validate_codex_binding=AsyncMock(return_value=binding),
+                     get_agent_snapshot=AsyncMock(return_value=orca._parse_agent_snapshot(row())))
+-        if name=='status_command':bot.store.connect('term','wt','tab:leaf')
+-        request=interaction(bot,user=2 if allowed else 7)
++        if name in ('status_command','disconnect_command'):bot.store.connect('term','wt','tab:leaf')
++        guild,user,roles=authorization_case(identity)
++        allowed=identity in ('owner','role')
++        request=interaction(bot,guild=guild,user=user,roles=roles)
+         args=(request,'term') if name=='connect_command' else (request,)
+         await getattr(bot_module,name).callback(*args)
+         if not allowed:
+             request.response.send_message.assert_awaited_once()
+-            bot.orca.validate_codex_binding.assert_not_awaited()
+-        elif name=='connect_command':assert bot.store.state.terminal_handle=='term'
++            for call in vars(bot.orca).values():
++                call.assert_not_awaited()
++            if name=='disconnect_command':assert bot.store.state.terminal_handle=='term'
++        elif name=='terminals_command':bot.orca.list_terminals.assert_awaited_once()
++        elif name=='connect_command':
++            bot.orca.validate_codex_binding.assert_awaited_once_with('term')
++            assert bot.store.state.terminal_handle=='term'
++        elif name=='status_command':
++            bot.orca.validate_codex_binding.assert_awaited_once_with('term')
++            bot.orca.get_agent_snapshot.assert_awaited_once_with(binding)
+         elif name=='disconnect_command':assert bot.store.state.terminal_handle is None
+         await bot.close()
+     asyncio.run(run())
+@@ -279,10 +315,15 @@ def test_application_command_transport_errors_are_reported(tmp_path,name):
+ 
+ def test_autocomplete_limits_context_auth_and_setup_without_network(tmp_path):
+     async def run():
+-        bot=bot_module.BridgeBot(settings(tmp_path/'state.json'))
++        bot=bot_module.BridgeBot(settings(tmp_path/'state.json',(10,)))
+         bot.orca=NS(list_terminals=AsyncMock(return_value=[orca.TerminalInfo(str(i),'owned','wt','codex') for i in range(30)]))
+         assert len(await bot_module.terminal_autocomplete(interaction(bot),'owned'))==25
+-        assert await bot_module.terminal_autocomplete(interaction(bot,user=7),'')==[]
++        assert len(await bot_module.terminal_autocomplete(interaction(bot,user=7,roles=(10,)),'owned'))==25
++        for identity in ('wrong-role','wrong-user','wrong-guild','dm-role','dm-owner'):
++            guild,user,roles=authorization_case(identity)
++            bot.orca.list_terminals.reset_mock()
++            assert await bot_module.terminal_autocomplete(interaction(bot,guild=guild,user=user,roles=roles),'')==[]
++            bot.orca.list_terminals.assert_not_awaited()
+         assert await bot_module.terminal_autocomplete(interaction(bot),'absent')==[]
+         bot.orca.list_terminals.side_effect=orca.OrcaError('owned')
+         assert await bot_module.terminal_autocomplete(interaction(bot),'')==[]
+@@ -313,6 +354,74 @@ def test_autocomplete_limits_context_auth_and_setup_without_network(tmp_path):
+     asyncio.run(run())
+ 
+ 
++def test_context_menu_and_modal_use_role_authorization_before_forwarding(tmp_path):
++    async def run():
++        bot=bot_module.BridgeBot(settings(tmp_path/'state.json',(10,)))
++        bot.store.connect('term','wt','tab:leaf')
++        bot.forward_to_codex=AsyncMock()
++        source=NS(content='owned source',embeds=[])
++
++        for identity in ('owner','role'):
++            guild,user,roles=authorization_case(identity)
++            request=interaction(bot,guild=guild,user=user,roles=roles)
++            await bot_module.send_to_codex_context.callback(request,source)
++            request.response.send_modal.assert_awaited_once()
++            modal=request.response.send_modal.call_args.args[0]
++            modal.instruction._value='owned instruction'
++            submit=interaction(bot,guild=guild,user=user,roles=roles)
++            await modal.on_submit(submit)
++            bot.forward_to_codex.assert_awaited_once()
++            bot.forward_to_codex.reset_mock()
++
++        for identity in ('wrong-role','wrong-user','wrong-guild','dm-role','dm-owner'):
++            guild,user,roles=authorization_case(identity)
++            request=interaction(bot,guild=guild,user=user,roles=roles)
++            await bot_module.send_to_codex_context.callback(request,source)
++            request.response.send_message.assert_awaited_once()
++            request.response.send_modal.assert_not_awaited()
++
++            modal=bot_module.ForwardModal(bot,source)
++            modal.instruction._value='owned instruction'
++            submit=interaction(bot,guild=guild,user=user,roles=roles)
++            await modal.on_submit(submit)
++            submit.response.send_message.assert_awaited_once()
++            bot.forward_to_codex.assert_not_awaited()
++        await bot.close()
++    asyncio.run(run())
++
++
++def test_ordinary_messages_use_role_authorization_and_silently_ignore_denials(tmp_path):
++    @asynccontextmanager
++    async def typing():
++        yield
++
++    async def run():
++        bot=bot_module.BridgeBot(settings(tmp_path/'state.json',(10,)))
++        bot.store.connect('term','wt','tab:leaf')
++        bot.forward_to_codex=AsyncMock()
++        for identity in ('owner','role'):
++            guild,user,roles=authorization_case(identity)
++            message=NS(author=NS(id=user,bot=False,roles=[NS(id=rid) for rid in roles]),
++                       webhook_id=None,guild=None if guild is None else NS(id=guild),
++                       channel=NS(id=3,typing=typing),content='owned prompt',reference=None,id=4,
++                       reply=AsyncMock())
++            await bot.on_message(message)
++            bot.forward_to_codex.assert_awaited_once_with('owned prompt',origin='Discord message 4')
++            bot.forward_to_codex.reset_mock()
++
++        for identity in ('wrong-role','wrong-user','wrong-guild','dm-role','dm-owner'):
++            guild,user,roles=authorization_case(identity)
++            message=NS(author=NS(id=user,bot=False,roles=[NS(id=rid) for rid in roles]),
++                       webhook_id=None,guild=None if guild is None else NS(id=guild),
++                       channel=NS(id=3,typing=typing),content='owned prompt',reference=None,id=4,
++                       reply=AsyncMock())
++            await bot.on_message(message)
++            bot.forward_to_codex.assert_not_awaited()
++            message.reply.assert_not_awaited()
++        await bot.close()
++    asyncio.run(run())
++
++
+ def test_config_failure_modes_and_entrypoint_no_network(monkeypatch,tmp_path):
+     import orca_discord_bridge.__main__ as entry
+     monkeypatch.setattr(config,'load_dotenv',lambda:None)
