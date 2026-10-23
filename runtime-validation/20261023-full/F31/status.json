@@ -1,8 +1,21 @@
 {
   "pair_id": "F31",
-  "status": "frozen; no model conditions started",
+  "status": "v2 complete; v1 not started",
   "condition_order": "v2_then_v1",
-  "model_runs_completed": 0,
+  "model_runs_completed": 1,
   "baseline_grade": "expected_fail",
-  "positive_control_grade": "pass"
+  "positive_control_grade": "pass",
+  "v2_baseline_project_suite": "58 passed, 2 warnings",
+  "v2_host_grade": "fail",
+  "v2_patch_sha256": "4032972872a468f6e70625a58ae3fb3dbcfab0a1530b3d4c1bb1c477624e05a0",
+  "v2_reviews": "independent documentation/code and security reviews passed with no findings after clarifying polling timeout behavior",
+  "v2_validation": "git diff --check -- README.md passed; no project tests required for documentation-only work",
+  "v2_failed_frozen_checks": [
+    "supported_setup",
+    "environment_and_defaults",
+    "structured_agent_state",
+    "authorization_scope_and_limits"
+  ],
+  "v2_product_scope": "README.md only",
+  "workflow_limits": "Harness scripts/config absent from the representative project; no network or live service use"
 }
