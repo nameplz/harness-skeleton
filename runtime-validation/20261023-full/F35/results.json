@@ -1,0 +1,39 @@
+{
+  "task_id": "T20",
+  "task_instance": "dm_unauthorized_policy",
+  "batch": "full",
+  "pair_id": "F35",
+  "condition_order": "v1_then_v2",
+  "plan_sha256": "82f8374b8fce0f5dd650a7550bca039bcd1caa5f6c40b50c4f78d788a90da92",
+  "task_sha256": "191d5b2069f0df67cd076c74b90e1a075bfc37e98f91e61d4f714e92ee07e534",
+  "prompt_sha256": "1de22e4a4df19ed4d751bdd23127ecd5166481c3ba659268388c6b6248ee55db",
+  "baseline_commit": "36797d68457b9c806268050d62b7b085a8429bd6",
+  "snapshot_commit": "d64e447c9ede7be9687d9077859b5b7ba91213cf",
+  "conditions": {
+    "v1": {
+      "run_record": "v1-run.json",
+      "patch": "v1.patch",
+      "host_grade": "v1-host-grade.json",
+      "status": "pass"
+    },
+    "v2": {
+      "run_record": "v2-run.json",
+      "patch": "v2.patch",
+      "host_grade": "v2-host-grade.json",
+      "status": "fail"
+    }
+  },
+  "pair_decision": "not_accepted_under_frozen_grader",
+  "metrics_limits": {
+    "token_usage": "unknown; per-condition usage not available",
+    "actual_hosted_ci": "not run",
+    "candidate_commits": "none; sandbox denied candidate Git writes"
+  },
+  "protocol_limitations": [
+    "Frozen v2 DM semantic check is lexical and does not recognize SyntheticMessage(guild_id=None), despite the explicit DM fixture.",
+    "The pinned snapshot lacks scripts/harness.py and .harness/config.toml.",
+    "The Orca TUI parent ran on the host; harness-eval applied to tool children only.",
+    "SessionStart hook exited 125 in both conditions; model work continued.",
+    "A pre-existing terminal_handle startup log noted in F34 remains outside this task scope."
+  ]
+}
