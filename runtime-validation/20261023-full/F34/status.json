@@ -1,0 +1,13 @@
+{
+  "pair_id": "F34",
+  "status": "frozen",
+  "task_id": "T13",
+  "task_instance": "standard",
+  "condition_order": "v1_then_v2",
+  "model_runs_completed": 0,
+  "baseline_grade": "expected_fail",
+  "baseline_project_suite": "58 passed",
+  "positive_control_grade": "pass",
+  "positive_control_source": "accepted T13 pilot v1 patch",
+  "next_condition": "v1"
+}
