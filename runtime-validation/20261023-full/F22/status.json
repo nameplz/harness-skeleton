@@ -1,0 +1,7 @@
+{
+  "pair_id": "F22",
+  "status": "frozen; awaiting v2 then v1 model conditions",
+  "condition_order": "v2_then_v1",
+  "freeze_sha256": "4d4f725547f5f6f0a9c28614c35adc687d30d38a98c6b62070ccde50ec5d10fd",
+  "model_runs_completed": 0
+}
