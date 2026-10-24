@@ -236,8 +236,11 @@ class HarnessRiskTests(unittest.TestCase):
 
 
 class HarnessCheckTests(unittest.TestCase):
-    def test_skeleton_profiles_start_unconfigured(self) -> None:
-        config = load_config(ROOT)
+    def test_empty_profiles_load_as_unconfigured(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_config(root, [], [])
+            config = load_config(root)
         self.assertEqual((), config.quick)
         self.assertEqual((), config.full)
 
