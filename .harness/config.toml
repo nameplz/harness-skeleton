@@ -2,8 +2,10 @@ schema = 2
 
 [checks]
 quick = [
+  ["python", "-m", "unittest", "discover", "-p", "test_fake_erp.py", "-q"],
 ]
 full = [
+  ["python", "-m", "unittest", "discover", "-q"],
 ]
 
 [risk]
