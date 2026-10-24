@@ -34,20 +34,22 @@ Update .harness/config.toml with explicit argv arrays for checks.quick and check
 
 ## 3. Create or adapt GitHub Actions
 
-Create the smallest project-specific workflow under .github/workflows/ or adapt the existing PR validation workflow. It must run python -I scripts/harness.py check --full on pull_request. A limited push trigger for relevant branches is optional. Configure the runtime and reproducible dependency installation from the files actually present.
+Create the smallest project-specific workflow under .github/workflows/ or adapt the existing PR validation workflow. It must run python -I scripts/harness.py check --full on pull_request. An optional push trigger must use a limited branch list or a finite list of literal release tags. Configure the runtime and reproducible dependency installation from the files actually present.
 
 For validation jobs:
 
 - Prefer GitHub-hosted runners and set a bounded timeout-minutes.
 - Give the workflow and jobs only the read permissions they need; validation must not receive repository secrets or use github.token.
-- Pin every external Action to its full commit SHA. Set actions/checkout persist-credentials: false and do not provide custom checkout credentials.
+- Pin every external Action to its full commit SHA. Set actions/checkout persist-credentials: false, keep workspace cleaning enabled, and do not provide custom checkout credentials.
 - Pin Docker action images and Dockerfile base images to a SHA-256 digest.
 - Pin external Dockerfile `COPY --from` images to a digest; do not use remote `ADD` or common network-fetch/install commands in `RUN`.
-- Keep the Full command unconditional and fail on its exit code. Do not use path filters, continue-on-error, or skip conditions to bypass required validation.
-- Do not add branch filters to `pull_request`; the policy requires the PR workflow to run for every target branch. Limit branches only on the optional `push` trigger.
+- Keep the Full command unconditional and fail on its exit code. Do not use path filters or skip conditions to bypass required validation; do not use continue-on-error in PR validation jobs.
+- Do not grant write-capable Actions cache access to pull_request workflows or validation jobs.
+- Do not add branch filters to `pull_request`; the policy requires the PR workflow to run for every target branch. Limit optional `push` triggers to explicit branches or literal tags; ignore and path filters are not accepted.
 - Do not set interpreter, loader, shell, or PATH environment overrides on the Full validation job.
 - Keep the Full job non-matrix with one exact check name. Do not use job/service containers or deployment environments on PR validation jobs.
-- Keep checkout on the current PR repository, revision, and root path. Do not let earlier steps write GitHub command files or run local actions before Full.
+- Keep PR validation jobs inline; reusable-workflow calls are not accepted because the policy checker cannot verify their timeout and execution contract.
+- The Full job must contain exactly one SHA-pinned `actions/checkout` before the Full command, with `persist-credentials: false`, workspace cleaning enabled, and default repository, revision, and root path. Do not override `repository`, `ref`, `path`, sparse checkout, or checkout server; do not let earlier steps write GitHub command files or run local actions before Full.
 - Avoid shell command substitution, indirect variable expansion, backticks, or `eval` in setup scripts before Full.
 - Runner labels do not prove hosted-runner identity; use trusted runner groups in GitHub settings.
 - Do not use pull_request_target to run project validation or execute pull request code.

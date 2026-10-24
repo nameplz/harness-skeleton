@@ -12,18 +12,21 @@ from typing import Any
 
 _HELPER_IMPORT_ERROR: str | None = None
 try:
+    from .ci_action_policy import _is_checkout_action
     from .ci_action_policy import check_job_actions as _check_job_actions
     from .ci_action_policy import check_local_action_metadata as _check_local_action_metadata
     from .github_expression_scanner import extract_github_expressions
     from .harness_common import HarnessError, sanitize_log
 except ImportError as exc:
     try:  # Direct script invocation from the scripts directory.
+        from ci_action_policy import _is_checkout_action
         from ci_action_policy import check_job_actions as _check_job_actions
         from ci_action_policy import check_local_action_metadata as _check_local_action_metadata
         from github_expression_scanner import extract_github_expressions
         from harness_common import HarnessError, sanitize_log
     except ImportError:
         _HELPER_IMPORT_ERROR = str(exc)
+        _is_checkout_action = None
         _check_job_actions = None
         _check_local_action_metadata = None
         extract_github_expressions = None
@@ -38,6 +41,11 @@ FULL_PROFILE_RE = re.compile(
     r"(?:python|python3)[ \t]+-I[ \t]+scripts/harness\.py[ \t]+check[ \t]+--full\Z"
 )
 JOB_ID_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*\Z")
+REUSABLE_WORKFLOW_JOB_KEYS = frozenset(
+    {
+        "name", "uses", "with", "secrets", "strategy", "needs", "if", "concurrency", "permissions", "cache-mode",
+    }
+)
 # shortcut: labels cannot attest hosted-runner identity; enforce trusted runner groups in GitHub settings.
 HOSTED_RUNNERS = frozenset({
     "ubuntu-slim", "ubuntu-latest", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04",
@@ -242,16 +250,31 @@ def _configured_profiles(root: Path, *, config_root: Path | None = None) -> tupl
 
 def _check_workflow(relative: Path, workflow: dict[str, Any], root: Path) -> tuple[list[str], dict[str, Any]]:
     errors: list[str] = []
-    triggers = workflow.get("on")
-    events = list(triggers) if isinstance(triggers, dict) else []
+    raw_triggers = workflow.get("on")
+    if isinstance(raw_triggers, dict):
+        triggers = raw_triggers
+    elif isinstance(raw_triggers, str) and raw_triggers:
+        triggers = {raw_triggers: None}
+    elif isinstance(raw_triggers, list) and raw_triggers and all(
+        isinstance(event, str) and event for event in raw_triggers
+    ):
+        triggers = dict.fromkeys(raw_triggers)
+    else:
+        triggers = {}
+    events = list(triggers)
     is_pr = "pull_request" in events
     jobs = workflow.get("jobs")
-    if not isinstance(triggers, dict):
-        errors.append(f"{relative}: workflow triggers must be a mapping")
+    if not triggers:
+        errors.append(f"{relative}: workflow triggers must name at least one event")
     elif is_pr:
         if set(events) - {"pull_request", "push"}:
             errors.append(f"{relative}: validation workflows may use only pull_request and push")
+    if triggers:
         errors.extend(_check_triggers(relative, triggers))
+    if is_pr and "cache-mode" in workflow and (
+        not isinstance(workflow["cache-mode"], str) or workflow["cache-mode"] not in {"read", "none"}
+    ):
+        errors.append(f"{relative}: pull_request workflows may use only read or none cache access")
     if "pull_request_target" in events and _has_pr_target_execution(jobs):
         errors.append(f"{relative}: pull_request_target jobs with executable steps are unsupported")
     if not isinstance(jobs, dict) or not jobs:
@@ -314,7 +337,22 @@ def _check_job(relative: Path, job_id: Any, job: Any, workflow: dict[str, Any], 
         return [f"{relative}: job identifiers must be stable strings"], None
     if not isinstance(job, dict):
         return [f"{relative}: job {job_id} must be a mapping"], None
-    errors.extend(_check_job_actions(relative, job, root))
+    errors.extend(_check_job_actions(
+        relative, job, root, parse_workflow_yaml=_parse_workflow_yaml,
+        max_workflow_bytes=MAX_WORKFLOW_BYTES,
+    ))
+    if "uses" in job:
+        unsupported = sorted(set(job) - REUSABLE_WORKFLOW_JOB_KEYS)
+        if unsupported:
+            errors.append(
+                f"{relative}: reusable workflow job {job_id} has unsupported keys: {', '.join(unsupported)}"
+            )
+        errors.extend(_check_reusable_workflow_job_values(relative, job_id, job))
+        if is_pr and not _is_push_only_job(job):
+            errors.append(f"{relative}: reusable workflow jobs are not supported in pull_request validation")
+            if job.get("secrets") not in (None, {}):
+                errors.append(f"{relative}: reusable workflow jobs in PR validation cannot receive secrets")
+        return errors, None
     if is_pr and not _is_push_only_job(job):
         errors.extend(_check_validation_job(relative, job_id, job))
         errors.extend(_check_expressions(relative, job_id, job))
@@ -326,18 +364,87 @@ def _check_job(relative: Path, job_id: Any, job: Any, workflow: dict[str, Any], 
                 "job_id": job_id, "job_name": str(job.get("name") or job_id)}
     if job.get("if") is not None:
         errors.append(f"{relative}: Full validation job {job_id} cannot be conditional")
-    if _is_enabled(job.get("continue-on-error")):
-        errors.append(f"{relative}: Full validation job {job_id} cannot ignore failures")
     strategy = job.get("strategy")
     if isinstance(strategy, dict) and "matrix" in strategy:
         errors.append(f"{relative}: Full validation job {job_id} cannot use a matrix check name")
     for index, step in full_steps:
         if step.get("if") is not None:
             errors.append(f"{relative}: Full validation step in {job_id} cannot be conditional")
-        if _is_enabled(step.get("continue-on-error")):
-            errors.append(f"{relative}: Full validation step in {job_id} cannot ignore failures")
         errors.extend(_check_full_execution_context(relative, workflow, job_id, job, step, index))
+    errors.extend(_check_full_job_checkout(relative, job_id, job, full_steps))
     return errors, full_job
+
+
+def _check_full_job_checkout(relative: Path, job_id: str, job: dict[str, Any],
+                             full_steps: list[tuple[int, dict[str, Any]]]) -> list[str]:
+    steps = job.get("steps")
+    checkouts = []
+    if isinstance(steps, list):
+        checkouts = [
+            (index, step) for index, step in enumerate(steps)
+            if isinstance(step, dict) and isinstance(step.get("uses"), str)
+            and _is_checkout_action(step["uses"])
+        ]
+    if len(checkouts) != 1:
+        return [f"{relative}: Full validation job {job_id} must have exactly one actions/checkout step"]
+    checkout_index, checkout = checkouts[0]
+    if checkout_index >= min(index for index, _step in full_steps):
+        return [f"{relative}: actions/checkout must run before Full validation in {job_id}"]
+    if checkout.get("if") is not None:
+        return [f"{relative}: actions/checkout cannot be conditional in Full validation job {job_id}"]
+    return []
+
+
+def _check_reusable_workflow_job_values(relative: Path, job_id: str,
+                                        job: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    field_types = {
+        "name": (str,), "with": (dict,), "secrets": (dict, str), "strategy": (dict,),
+        "needs": (str, list), "if": (str, bool), "concurrency": (str, dict),
+        "permissions": (dict, str),
+    }
+    for field, expected in field_types.items():
+        if field in job and not isinstance(job[field], expected):
+            errors.append(f"{relative}: reusable workflow job {job_id} has invalid {field} value")
+    inputs = job.get("with")
+    if isinstance(inputs, dict) and any(
+        not isinstance(key, str) or type(value) not in {str, int, float, bool}
+        for key, value in inputs.items()
+    ):
+        errors.append(f"{relative}: reusable workflow job {job_id} has invalid with values")
+    needs = job.get("needs")
+    if isinstance(needs, list) and not all(isinstance(item, str) for item in needs):
+        errors.append(f"{relative}: reusable workflow job {job_id} has invalid needs values")
+    secrets = job.get("secrets")
+    if isinstance(secrets, str) and secrets.casefold() != "inherit":
+        errors.append(f"{relative}: reusable workflow job {job_id} has invalid secrets value")
+    elif isinstance(secrets, dict) and not all(
+        isinstance(key, str) and isinstance(value, str) for key, value in secrets.items()
+    ):
+        errors.append(f"{relative}: reusable workflow job {job_id} has invalid secrets values")
+    concurrency = job.get("concurrency")
+    if isinstance(concurrency, dict) and (
+        set(concurrency) - {"group", "cancel-in-progress"}
+        or not isinstance(concurrency.get("group"), str)
+        or "cancel-in-progress" in concurrency
+        and not isinstance(concurrency["cancel-in-progress"], (bool, str))
+    ):
+        errors.append(f"{relative}: reusable workflow job {job_id} has invalid concurrency value")
+    permissions = job.get("permissions")
+    if isinstance(permissions, str) and permissions.casefold() not in {"read-all", "write-all"}:
+        errors.append(f"{relative}: reusable workflow job {job_id} has invalid permissions value")
+    elif isinstance(permissions, dict) and not all(
+        isinstance(key, str) and isinstance(value, str)
+        and value.casefold() in {"read", "write", "none"}
+        for key, value in permissions.items()
+    ):
+        errors.append(f"{relative}: reusable workflow job {job_id} has invalid permission entries")
+    cache_mode = job.get("cache-mode")
+    if "cache-mode" in job and (
+        not isinstance(cache_mode, str) or cache_mode not in {"read", "write", "write-only", "none"}
+    ):
+        errors.append(f"{relative}: reusable workflow job {job_id} has invalid cache-mode value")
+    return errors
 
 
 def _check_full_execution_context(relative: Path, workflow: dict[str, Any], job_id: str,
@@ -408,14 +515,43 @@ def _check_triggers(relative: Path, triggers: dict[str, Any]) -> list[str]:
         if types is not None and (not isinstance(types, list) or not required_types.issubset(types)):
             errors.append(f"{relative}: pull_request types must include opened, synchronize, and reopened")
     push = triggers.get("push")
-    if push is not None:
-        branches = push.get("branches") if isinstance(push, dict) else None
-        if not isinstance(branches, list) or not branches or not all(
-            isinstance(item, str) and item not in {"*", "**"} for item in branches
-        ):
-            errors.append(f"{relative}: push must be limited to an explicit branch list")
-        if isinstance(push, dict) and ("paths" in push or "paths-ignore" in push):
-            errors.append(f"{relative}: path filters can skip required validation")
+    if "push" in triggers:
+        if not isinstance(push, dict):
+            errors.append(f"{relative}: push trigger must be limited to explicit branches or finite tags")
+        else:
+            allowed = {"branches", "branches-ignore", "tags", "tags-ignore", "paths", "paths-ignore"}
+            unsupported = sorted(set(push) - allowed)
+            if unsupported:
+                errors.append(f"{relative}: push trigger has unsupported filters: {', '.join(unsupported)}")
+            branches = push.get("branches")
+            tags = push.get("tags")
+            if "branches-ignore" in push or "tags-ignore" in push:
+                errors.append(f"{relative}: push ignore filters can allow unbounded refs")
+            if "branches" in push and not isinstance(branches, list):
+                errors.append(f"{relative}: push branches must be an explicit branch list")
+            elif isinstance(branches, list) and (
+                not branches
+                or any(
+                    not isinstance(item, str) or not item or item[0] in "*?[]!+"
+                    for item in branches
+                )
+            ):
+                errors.append(f"{relative}: push branches must be a limited positive branch list")
+            if "tags" in push and not isinstance(tags, list):
+                errors.append(f"{relative}: push tags must be a finite explicit tag list")
+            elif isinstance(tags, list) and (
+                not tags
+                or any(
+                    not isinstance(item, str) or not item
+                    or any(char in item for char in "*?[]!+\\")
+                    for item in tags
+                )
+            ):
+                errors.append(f"{relative}: push tags must be a finite explicit tag list")
+            if "branches" not in push and "tags" not in push:
+                errors.append(f"{relative}: push must be limited to explicit branches or finite tags")
+            if "paths" in push or "paths-ignore" in push:
+                errors.append(f"{relative}: path filters can skip required validation")
     return errors
 
 
@@ -437,10 +573,19 @@ def _check_validation_job(relative: Path, job_id: str, job: dict[str, Any]) -> l
         for step in steps:
             if not isinstance(step, dict):
                 errors.append(f"{relative}: job {job_id} steps must be mappings")
-            elif "run" in step and (not isinstance(step["run"], str) or not step["run"].strip()):
-                errors.append(f"{relative}: job {job_id} has an empty run step")
+            else:
+                if "run" in step and (not isinstance(step["run"], str) or not step["run"].strip()):
+                    errors.append(f"{relative}: job {job_id} has an empty run step")
+                if "continue-on-error" in step and not _explicit_false(step["continue-on-error"]):
+                    errors.append(f"{relative}: PR validation steps in {job_id} cannot ignore failures")
+    if "continue-on-error" in job and not _explicit_false(job["continue-on-error"]):
+        errors.append(f"{relative}: PR validation job {job_id} cannot ignore failures")
     if job.get("permissions") is not None:
         errors.extend(_check_permissions(relative, job["permissions"]))
+    if "cache-mode" in job and (
+        not isinstance(job["cache-mode"], str) or job["cache-mode"] not in {"read", "none"}
+    ):
+        errors.append(f"{relative}: PR validation job {job_id} may use only read or none cache access")
     return errors
 
 
@@ -537,8 +682,8 @@ def _has_pr_target_execution(jobs: Any) -> bool:
     return False
 
 
-def _is_enabled(value: Any) -> bool:
-    return value is True or isinstance(value, str) and value.strip().casefold() not in {"", "false"}
+def _explicit_false(value: Any) -> bool:
+    return value is False or isinstance(value, str) and value.strip().casefold() == "false"
 
 
 def _check_dependencies(relative: Path, jobs: dict[str, Any]) -> list[str]:

@@ -11,7 +11,12 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.check_ci_security import check_security_policy, check_workflow_text, is_sensitive_path  # noqa: E402
+from scripts.check_ci_security import (  # noqa: E402
+    MAX_WORKFLOW_BYTES,
+    check_security_policy,
+    check_workflow_text,
+    is_sensitive_path,
+)
 
 PINNED_ACTION = "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
 
@@ -44,6 +49,8 @@ def valid_workflow(*, name: str = "CI", job_id: str = "verify", job_name: str | 
         "    timeout-minutes: 15\n"
         "    permissions: {}\n"
         "    steps:\n"
+        f"      - uses: {PINNED_ACTION}\n"
+        "        with:\n          persist-credentials: false\n"
         "      - run: python -I scripts/harness.py check --full\n"
         f"{extra}"
     )
@@ -59,6 +66,7 @@ class CiSecurityTests(unittest.TestCase):
             "  package-a:\n    runs-on: ubuntu-22.04\n    timeout-minutes: 10\n    steps:\n"
             "      - run: echo package A\n  package-b:\n    needs: package-a\n"
             "    runs-on: ubuntu-22.04\n    timeout-minutes: 20\n    steps:\n"
+            f"      - uses: {PINNED_ACTION}\n        with:\n          persist-credentials: false\n"
             "      - run: python -I scripts/harness.py check --full\n",
         )
         for body in examples:
@@ -107,6 +115,15 @@ class CiSecurityTests(unittest.TestCase):
             with self.subTest(body=body):
                 errors = check_workflow_text(Path("ci.yml"), body)
                 self.assertTrue(errors)
+
+    def test_standard_shorthand_trigger_forms_are_supported(self) -> None:
+        mapping_triggers = "on:\n  pull_request:\n  push:\n    branches: [main]\n"
+        for trigger in ("on: pull_request\n", "on: [pull_request]\n"):
+            with self.subTest(trigger=trigger):
+                body = valid_workflow().replace(mapping_triggers, trigger)
+                self.assertEqual([], check_workflow_text(Path("ci.yml"), body))
+        push_only = valid_workflow().replace(mapping_triggers, "on: [push]\n")
+        self.assertTrue(any("push" in error for error in check_workflow_text(Path("ci.yml"), push_only)))
 
     def test_yml_and_yaml_are_both_scanned_and_symlinks_rejected(self) -> None:
         with TemporaryDirectory() as temp, TemporaryDirectory() as outside:
@@ -310,15 +327,120 @@ class CiSecurityTests(unittest.TestCase):
         self.assertTrue(any("matrix" in error for error in errors), errors)
 
     def test_checkout_must_use_the_current_pull_request_repository_root(self) -> None:
-        for option, value in (("repository", "attacker/project"), ("ref", "main"), ("path", "tmp")):
+        for option, value in (("repository", "attacker/project"), ("ref", "main"), ("path", "tmp"),
+                              ("sparse-checkout", "scripts/**"), ("github-server-url", "https://example.test")):
             with self.subTest(option=option):
-                body = valid_workflow(extra=(
-                    f"      - uses: {PINNED_ACTION}\n"
-                    "        with:\n          persist-credentials: false\n"
-                    f"          {option}: {value}\n"
-                ))
+                body = valid_workflow().replace(
+                    "          persist-credentials: false\n",
+                    f"          persist-credentials: false\n          {option}: {value}\n",
+                    1,
+                )
                 errors = check_workflow_text(Path("ci.yml"), body)
                 self.assertTrue(any("current pull request" in error for error in errors), errors)
+        body = valid_workflow().replace(
+            "          persist-credentials: false\n",
+            "          persist-credentials: false\n          clean: false\n",
+            1,
+        )
+        errors = check_workflow_text(Path("ci.yml"), body)
+        self.assertTrue(any("workspace cleaning enabled" in error for error in errors), errors)
+
+    def test_full_profile_requires_one_unconditional_checkout_before_validation(self) -> None:
+        checkout = (
+            f"      - uses: {PINNED_ACTION}\n"
+            "        with:\n          persist-credentials: false\n"
+        )
+        full = "      - run: python -I scripts/harness.py check --full\n"
+        cases = (
+            valid_workflow().replace(checkout, "", 1),
+            valid_workflow().replace(checkout + full, full + checkout, 1),
+            valid_workflow().replace(
+                "        with:\n          persist-credentials: false\n",
+                "        if: false\n        with:\n          persist-credentials: false\n",
+                1,
+            ),
+        )
+        expected = ("exactly one actions/checkout", "before Full validation", "cannot be conditional")
+        for body, message in zip(cases, expected):
+            with self.subTest(message=message):
+                errors = check_workflow_text(Path("ci.yml"), body)
+                self.assertTrue(any(message in error for error in errors), errors)
+
+    def test_reusable_workflow_jobs_reject_normal_job_fields(self) -> None:
+        body = valid_workflow() + (
+            "  reusable:\n"
+            "    uses: owner/repo/.github/workflows/checks.yml@" + "a" * 40 + "\n"
+            "    runs-on: ubuntu-24.04\n"
+            "    timeout-minutes: 15\n"
+            "    steps:\n"
+            "      - run: python -I scripts/harness.py check --full\n"
+        )
+        errors = check_workflow_text(Path("ci.yml"), body)
+        self.assertTrue(any("reusable workflow job reusable has unsupported keys" in error for error in errors), errors)
+
+    def test_reusable_workflow_jobs_cannot_receive_pull_request_secrets(self) -> None:
+        body = valid_workflow() + (
+            "  reusable:\n"
+            "    uses: owner/repo/.github/workflows/checks.yml@" + "a" * 40 + "\n"
+            "    secrets: inherit\n"
+        )
+        errors = check_workflow_text(Path("ci.yml"), body)
+        self.assertTrue(any("cannot receive secrets" in error for error in errors), errors)
+
+    def test_pull_request_validation_uses_inline_jobs(self) -> None:
+        body = valid_workflow() + (
+            "  reusable:\n"
+            "    uses: owner/repo/.github/workflows/checks.yml@" + "a" * 40 + "\n"
+        )
+        errors = check_workflow_text(Path("ci.yml"), body)
+        self.assertTrue(any("not supported in pull_request validation" in error for error in errors), errors)
+
+    def test_reusable_workflow_jobs_accept_supported_call_settings(self) -> None:
+        body = (
+            "name: Release\non:\n  push:\n    branches: [main]\njobs:\n  deploy:\n"
+            "    uses: owner/repo/.github/workflows/deploy.yml@" + "a" * 40 + "\n"
+            "    concurrency: release\n    permissions:\n      contents: read\n    cache-mode: read\n"
+        )
+        self.assertEqual([], check_workflow_text(Path("release.yml"), body))
+
+    def test_reusable_workflow_reference_and_allowed_values_are_validated(self) -> None:
+        prefix = "name: Release\non:\n  push:\n    branches: [main]\njobs:\n  deploy:\n"
+        body = prefix + "    uses: owner/repo/workflows/deploy.yml@" + "a" * 40 + "\n"
+        errors = check_workflow_text(Path("release.yml"), body)
+        self.assertTrue(any(".github/workflows/*.yml" in error for error in errors), errors)
+
+        valid_ref = "    uses: owner/repo/.github/workflows/deploy.yml@" + "a" * 40 + "\n"
+        for fields, expected in (("    with: []\n", "invalid with value"),
+                                 ("    needs: 42\n", "invalid needs value")):
+            with self.subTest(fields=fields):
+                errors = check_workflow_text(Path("release.yml"), prefix + valid_ref + fields)
+                self.assertTrue(any(expected in error for error in errors), errors)
+
+    def test_local_reusable_workflow_reference_must_exist_under_workflows(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            body = (
+                "name: Release\non:\n  push:\n    branches: [main]\njobs:\n  deploy:\n"
+                "    uses: ./.github/workflows/deploy.yml\n"
+            )
+            errors = check_workflow_text(Path("release.yml"), body, root=root)
+            self.assertTrue(any(".yml or .yaml file" in error for error in errors), errors)
+            nul_path = body.replace(
+                "uses: ./.github/workflows/deploy.yml",
+                r'uses: "./.github/workflows/deploy\u0000.yml"',
+            )
+            self.assertTrue(check_workflow_text(Path("release.yml"), nul_path, root=root))
+            target = root / ".github/workflows/deploy.yml"
+            target.parent.mkdir(parents=True)
+            with target.open("wb") as oversized:
+                oversized.truncate(MAX_WORKFLOW_BYTES + 1)
+            errors = check_workflow_text(Path("release.yml"), body, root=root)
+            self.assertTrue(any("invalid or too large" in error for error in errors), errors)
+            target.write_text("name: Deploy\non: push\njobs: {}\n", encoding="utf-8")
+            errors = check_workflow_text(Path("release.yml"), body, root=root)
+            self.assertTrue(any("must declare workflow_call" in error for error in errors), errors)
+            target.write_text("name: Deploy\non: workflow_call\njobs: {}\n", encoding="utf-8")
+            self.assertEqual([], check_workflow_text(Path("release.yml"), body, root=root))
 
     def test_full_profile_shell_failure_suppression_is_not_accepted(self) -> None:
         cases = [
@@ -597,6 +719,88 @@ class CiSecurityTests(unittest.TestCase):
         for body in cases:
             with self.subTest(body=body[-90:]):
                 self.assertTrue(check_workflow_text(Path("ci.yml"), body))
+
+    def test_all_pull_request_validation_steps_reject_ignored_failures(self) -> None:
+        job_level = valid_workflow().replace(
+            "  verify:\n", "  verify:\n    continue-on-error: true\n", 1
+        )
+        step_level = valid_workflow().replace(
+            f"      - uses: {PINNED_ACTION}\n",
+            "      - run: pytest\n        continue-on-error: true\n"
+            f"      - uses: {PINNED_ACTION}\n",
+            1,
+        )
+        for body in (job_level, step_level):
+            with self.subTest(body=body[:100]):
+                errors = check_workflow_text(Path("ci.yml"), body)
+                self.assertTrue(any("cannot ignore failures" in error for error in errors), errors)
+
+    def test_pull_request_cache_access_cannot_write(self) -> None:
+        for mode, expected_ok in (("write", False), ("write-only", False),
+                                  ("read", True), ("none", True)):
+            with self.subTest(scope="workflow", mode=mode):
+                body = valid_workflow().replace(
+                    "permissions: {}", f"cache-mode: {mode}\npermissions: {{}}", 1
+                )
+                self.assertEqual(expected_ok, not check_workflow_text(Path("ci.yml"), body))
+            with self.subTest(scope="job", mode=mode):
+                body = valid_workflow().replace(
+                    "    timeout-minutes: 15", f"    cache-mode: {mode}\n    timeout-minutes: 15", 1
+                )
+                self.assertEqual(expected_ok, not check_workflow_text(Path("ci.yml"), body))
+
+        push_only = valid_workflow() + (
+            "  deploy:\n    if: github.event_name == 'push'\n    cache-mode: write\n"
+            "    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n    steps:\n      - run: ./deploy\n"
+        )
+        self.assertEqual([], check_workflow_text(Path("ci.yml"), push_only))
+
+    def test_referenced_composite_action_steps_cannot_ignore_failures(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            setup_project(root)
+            action = root / ".github/actions/ignored/action.yml"
+            action.parent.mkdir(parents=True)
+            action.write_text(
+                "name: ignored\nruns:\n  using: composite\n  steps:\n"
+                "    - run: echo tolerated\n      shell: bash\n      continue-on-error: true\n",
+                encoding="utf-8",
+            )
+            workflow = valid_workflow().replace(
+                "      - run: python -I scripts/harness.py check --full\n",
+                "      - run: python -I scripts/harness.py check --full\n"
+                "      - uses: ./.github/actions/ignored\n",
+            )
+            (root / ".github/workflows/ci.yml").write_text(workflow, encoding="utf-8")
+            result = check_security_policy(root=root)
+        self.assertFalse(result["ok"], result["errors"])
+        self.assertTrue(any("composite action steps cannot ignore failures" in error
+                            for error in result["errors"]), result["errors"])
+
+    def test_push_only_workflows_require_scoped_branch_or_literal_tag_filters(self) -> None:
+        job = "jobs:\n  deploy:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: ./deploy\n"
+        invalid = (
+            "on: [push]\n",
+            "on:\n  push:\n",
+            "on:\n  push:\n    branches: ['**']\n",
+            "on:\n  push:\n    branches: ['**/**']\n",
+            "on:\n  push:\n    branches: ['*release']\n",
+            "on:\n  push:\n    branches: [main]\n    tags: ['**']\n",
+            "on:\n  push:\n    branches: [main]\n    tags-ignore: [v1.*]\n",
+        )
+        for trigger in invalid:
+            with self.subTest(trigger=trigger):
+                errors = check_workflow_text(Path("deploy.yml"), "name: Deploy\n" + trigger + job)
+                self.assertTrue(any("push" in error for error in errors), errors)
+
+        valid = (
+            "on:\n  push:\n    branches: [main, release/*]\n",
+            "on:\n  push:\n    tags: [v1.2.3, v2.0.0]\n",
+            "on:\n  push:\n    branches: [main]\n    tags: [v1.2.3]\n",
+        )
+        for trigger in valid:
+            with self.subTest(trigger=trigger):
+                self.assertEqual([], check_workflow_text(Path("deploy.yml"), "name: Deploy\n" + trigger + job))
 
     def test_ci_dependencies_must_exist_and_be_acyclic(self) -> None:
         body = valid_workflow().replace("  verify:", "  verify:\n    needs: absent")

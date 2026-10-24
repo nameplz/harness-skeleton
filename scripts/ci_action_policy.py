@@ -11,7 +11,9 @@ FULL_SHA_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@
 DOCKER_DIGEST_RE = re.compile(r"[^\s@]+@sha256:[0-9a-f]{64}\Z", re.IGNORECASE)
 
 
-def check_job_actions(relative: Path, job: dict[str, Any], root: Path) -> list[str]:
+def check_job_actions(relative: Path, job: dict[str, Any], root: Path, *,
+                      parse_workflow_yaml: Callable[[str], dict[str, Any]],
+                      max_workflow_bytes: int) -> list[str]:
     errors: list[str] = []
     if "uses" in job:
         workflow_ref = job["uses"]
@@ -19,9 +21,26 @@ def check_job_actions(relative: Path, job: dict[str, Any], root: Path) -> list[s
             errors.append(f"{relative}: reusable workflow reference must be a string")
         elif workflow_ref.startswith("./"):
             if not _is_safe_local_workflow_reference(workflow_ref, root):
-                errors.append(f"{relative}: local reusable workflow must stay under .github/workflows/")
-        elif not FULL_SHA_RE.fullmatch(workflow_ref):
-            errors.append(f"{relative}: external reusable workflow must be pinned to a full commit SHA")
+                errors.append(
+                    f"{relative}: local reusable workflow target must exist as a .yml or .yaml file "
+                    "under .github/workflows/"
+                )
+            else:
+                target_path = root / workflow_ref[2:]
+                try:
+                    if target_path.stat().st_size > max_workflow_bytes:
+                        raise ValueError("workflow exceeds the size limit")
+                    target = parse_workflow_yaml(target_path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, ValueError, subprocess.SubprocessError):
+                    errors.append(f"{relative}: local reusable workflow target is invalid or too large")
+                else:
+                    if not _has_workflow_call(target.get("on")):
+                        errors.append(f"{relative}: local reusable workflow target must declare workflow_call")
+        elif not _is_pinned_external_workflow_reference(workflow_ref):
+            errors.append(
+                f"{relative}: external reusable workflow must be pinned to a full commit SHA "
+                "and reference .github/workflows/*.yml or *.yaml"
+            )
     errors.extend(_check_action_steps(relative, job.get("steps", []), root))
     return errors
 
@@ -96,6 +115,12 @@ def _check_pr_action_expressions(pr_action_refs: list[str],
         if isinstance(steps, list):
             if _contains_github_environment_file(action):
                 errors.append(f"{relative}: PR composite actions cannot change GitHub environment or path files")
+            if any(
+                isinstance(step, dict) and "continue-on-error" in step
+                and not _is_explicit_false(step["continue-on-error"])
+                for step in steps
+            ):
+                errors.append(f"{relative}: PR composite action steps cannot ignore failures")
             pending.extend(step["uses"] for step in steps if isinstance(step, dict)
                            and isinstance(step.get("uses"), str)
                            and (step["uses"] == "./.github/actions"
@@ -244,17 +269,52 @@ def _is_safe_local_workflow_reference(workflow_ref: str, root: Path) -> bool:
     if chr(92) in workflow_ref or not workflow_ref.startswith("./.github/workflows/"):
         return False
     parts = workflow_ref[2:].split("/")
-    if any(part in {"", ".", ".."} for part in parts):
+    if (
+        any(part in {"", ".", ".."} or any(ord(char) < 32 or ord(char) == 127 for char in part)
+            for part in parts)
+        or Path(parts[-1]).suffix.casefold() not in {".yml", ".yaml"}
+    ):
         return False
     workspace = root.resolve(strict=True)
     workflow_root = (workspace / ".github/workflows").resolve(strict=False)
-    target = (workspace / workflow_ref[2:]).resolve(strict=False)
+    target_path = workspace / workflow_ref[2:]
+    target = target_path.resolve(strict=False)
     try:
         workflow_root.relative_to(workspace)
         target.relative_to(workflow_root)
     except (OSError, RuntimeError, ValueError):
         return False
-    return not any((workspace / ".github/workflows" / part).is_symlink() for part in parts[2:])
+    return (
+        target_path.is_file()
+        and not any((workspace / ".github/workflows" / part).is_symlink() for part in parts[2:])
+    )
+
+
+def _is_pinned_external_workflow_reference(workflow_ref: str) -> bool:
+    path, separator, sha = workflow_ref.rpartition("@")
+    parts = path.split("/")
+    return (
+        bool(separator)
+        and re.fullmatch(r"[0-9a-f]{40}", sha) is not None
+        and len(parts) >= 5
+        and all(re.fullmatch(r"[A-Za-z0-9_.-]+", part) for part in parts[:2])
+        and parts[2:4] == [".github", "workflows"]
+        and all(part not in {"", ".", ".."} and "\\" not in part
+                and not any(ord(char) < 32 or ord(char) == 127 for char in part) for part in parts[4:])
+        and Path(parts[-1]).suffix.casefold() in {".yml", ".yaml"}
+    )
+
+
+def _has_workflow_call(triggers: Any) -> bool:
+    return (
+        isinstance(triggers, dict) and "workflow_call" in triggers
+        or isinstance(triggers, str) and triggers == "workflow_call"
+        or isinstance(triggers, list) and "workflow_call" in triggers
+    )
+
+
+def _is_explicit_false(value: Any) -> bool:
+    return value is False or isinstance(value, str) and value.strip().casefold() == "false"
 
 
 def _is_safe_local_action_reference(action_ref: str, root: Path) -> bool:
@@ -290,6 +350,12 @@ def _check_checkout_credentials(relative: Path, step: dict[str, Any]) -> list[st
         return [f"{relative}: actions/checkout must set persist-credentials: false"]
     if set(normalized) & {"token", "ssh-key", "ssh-token"}:
         return [f"{relative}: custom checkout credentials are forbidden"]
-    if set(normalized) & {"repository", "ref", "path"}:
-        return [f"{relative}: checkout must use the current pull request repository and root path"]
+    clean = normalized.get("clean", True)
+    if not (clean is True or isinstance(clean, str) and clean.casefold() == "true"):
+        return [f"{relative}: checkout must keep workspace cleaning enabled"]
+    if set(normalized) & {
+        "repository", "ref", "path", "sparse-checkout", "sparse-checkout-cone-mode", "filter",
+        "github-server-url", "allow-unsafe-pr-checkout",
+    }:
+        return [f"{relative}: checkout must use the current pull request repository, revision, and full root"]
     return []

@@ -354,6 +354,8 @@ def _write_doctor_fixture_workflow(root: Path) -> None:
         "name: Project CI\non:\n  pull_request:\npermissions: {}\njobs:\n"
         "  validate:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n"
         "    permissions: {}\n    steps:\n"
+        "      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683\n"
+        "        with:\n          persist-credentials: false\n"
         "      - run: python -I scripts/harness.py check --full\n",
         encoding="utf-8",
     )

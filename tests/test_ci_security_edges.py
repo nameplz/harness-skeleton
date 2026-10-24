@@ -186,11 +186,7 @@ class CiSecurityEdgeTests(unittest.TestCase):
         self.assertTrue(any("custom checkout credentials" in item for item in errors), errors)
 
     def test_full_sha_pinned_checkout_without_credentials_passes(self) -> None:
-        body = valid_workflow(extra=(
-            "      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683\n"
-            "        with:\n          persist-credentials: false\n"
-        ))
-        self.assertEqual([], check_workflow_text(Path("ci.yml"), body))
+        self.assertEqual([], check_workflow_text(Path("ci.yml"), valid_workflow()))
 
     def test_dockerfile_rejects_mutable_external_copy_and_network_fetches(self) -> None:
         digest = "a" * 64
