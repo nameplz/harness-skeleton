@@ -21,7 +21,7 @@ matcher = "^Bash$"
 [[hooks.PreToolUse.hooks]]
 type = "command"
 command = 'python "$(git rev-parse --show-toplevel)/.codex/hooks/harness_hook.py"'
-timeout = 180
+timeout = 960
 statusMessage = "Checking Bash command and commit validation"
 
 [[hooks.PermissionRequest]]

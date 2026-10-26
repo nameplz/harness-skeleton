@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Provide small Codex hook guardrails and configured quick validation."""
+"""Provide small Codex hook guardrails and configured project validation."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 HARNESS_SCRIPT = PROJECT_ROOT / "scripts/harness.py"
-CHECK_TIMEOUT_SECONDS = 180
+CHECK_TIMEOUT_SECONDS = {"quick": 180, "full": 930}
 DANGEROUS_PATTERNS = (
     (re.compile(r"\brm\s+-[^\n;]*r[^\n;]*f\b"), "recursive force deletion"),
     (re.compile(r"\bgit\s+push\b[^\n;]*\s--force(?:-with-lease)?\b"), "forced git push"),
@@ -105,19 +105,19 @@ def _hook_response(event: str, reason: str) -> dict[str, Any]:
     return {"decision": "block", "reason": safe_reason}
 
 
-def _run_quick_check(root: Path) -> tuple[bool, str]:
+def _run_check(root: Path, profile: str) -> tuple[bool, str]:
     config_path = root / ".harness/config.toml"
     if not (config_path.exists() or config_path.is_symlink()):
         return True, ""
     try:
         completed = subprocess.run(
-            [sys.executable, str(HARNESS_SCRIPT), "check", "--quick", "--root", str(root)],
+            [sys.executable, str(HARNESS_SCRIPT), "check", f"--{profile}", "--root", str(root)],
             cwd=root,
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=CHECK_TIMEOUT_SECONDS,
+            timeout=CHECK_TIMEOUT_SECONDS[profile],
             shell=False,
             check=False,
         )
@@ -127,14 +127,16 @@ def _run_quick_check(root: Path) -> tuple[bool, str]:
             for value in (exc.stdout, exc.stderr)
             if value
         )
-        return False, sanitize_log(detail + "\nquick validation timed out")
+        return False, sanitize_log(detail + f"\n{profile} validation timed out")
     except OSError:
-        return False, "quick validation could not be started"
+        return False, f"{profile} validation could not be started"
 
     try:
         report = json.loads(completed.stdout)
     except json.JSONDecodeError:
-        return False, sanitize_log(completed.stdout + completed.stderr) or "quick validation returned invalid output"
+        return False, sanitize_log(completed.stdout + completed.stderr) or f"{profile} validation returned invalid output"
+    if not isinstance(report, dict):
+        return False, f"{profile} validation returned invalid output"
     if report.get("status") == "unconfigured":
         return True, ""
     if completed.returncode == 0 and report.get("ok") is True:
@@ -148,7 +150,30 @@ def _run_quick_check(root: Path) -> tuple[bool, str]:
         ]
         if details:
             return False, sanitize_log("\n\n".join(details))
-    return False, sanitize_log(str(report.get("error") or "quick validation failed"))
+    return False, sanitize_log(str(report.get("error") or f"{profile} validation failed"))
+
+
+def _commit_risk_tier(root: Path) -> str:
+    try:
+        completed = subprocess.run(
+            [sys.executable, str(HARNESS_SCRIPT), "risk", "--root", str(root)],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+            shell=False,
+            check=False,
+        )
+        report = json.loads(completed.stdout)
+        if completed.returncode == 0 and isinstance(report, dict):
+            tier = report.get("level")
+            if isinstance(tier, str) and tier in {"T0", "T1", "T2", "T3"}:
+                return tier
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        pass
+    return "unknown"
 
 
 def _resolve_project_root(raw_root: str) -> Path:
@@ -207,10 +232,13 @@ def handle_event(payload: dict[str, Any]) -> dict[str, Any] | None:
     except (OSError, RuntimeError):
         return _hook_response(event, "Project root is unavailable; validation was not run.")
 
-    passed, detail = _run_quick_check(root)
+    tier = _commit_risk_tier(root) if event == "PreToolUse" else None
+    profile = "full" if tier in {"T2", "T3", "unknown"} else "quick"
+    passed, detail = _run_check(root, profile)
     if passed:
         return None
-    reason = "Configured quick validation failed. Fix the failures before committing or finishing."
+    risk_detail = f" (tier {tier})" if tier is not None else ""
+    reason = f"Configured {profile} validation{risk_detail} failed. Fix the failures before committing or finishing."
     if detail:
         reason += "\n\n" + detail
     return _hook_response(event, reason)
