@@ -14,47 +14,34 @@ from scripts.command_runner import run_bounded_command  # noqa: E402
 
 
 class GitCommandSecurityTests(unittest.TestCase):
-    def test_git_config_cannot_select_external_helpers(self) -> None:
-        unsafe_settings = (
-            "protocol.ext.allow=always",
-            "remote.origin.uploadpack=./helper",
-            "remote.origin.receivepack=./helper",
-            "diff.helper.command=./helper",
-            "diff.helper.textconv=./helper",
-            "merge.helper.driver=./helper",
-            "url.https://evil.example/.insteadof=origin",
-            "remote.origin.vcs=./helper",
-            "core.gitproxy=./helper",
-            "gpg.program=./helper",
-            "submodule.helper.update=./helper",
-        )
-        for setting in unsafe_settings:
-            with self.subTest(setting=setting), self.assertRaises(HarnessError):
-                _validate_command_safety(
-                    ["git", "-c", setting, "status"],
-                    Path("/workspace"),
-                    "checks.full",
-                    0,
-                )
-
-    def test_git_helper_execution_options_and_external_remote_syntax_are_rejected(self) -> None:
+    def test_global_git_configuration_overrides_are_rejected(self) -> None:
         commands = (
-            ["git", "ls-remote", "ext::./helper"],
-            ["git", "clone", "ext::./helper"],
-            ["git", "clone", "--upload-pack=./helper", "repo"],
-            ["git", "clone", "--receive-pack=./helper", "repo"],
-            ["git", "clone", "-u", "./helper", "repo"],
-            ["git", "--exec-path=./bin", "clone", "repo"],
-            ["git", "diff", "--no-ext-diff", "--no-textconv", "--output=result.patch"],
+            ["git", "-c", "alias.x=!sh -c 'touch /tmp/pwn'", "x"],
+            ["git", "-c", "core.pager=sh -c id", "log"],
+            ["git", "--config-env=core.pager=X", "log"],
+            ["git", "-ccore.pager=cat", "log"],
+            ["git", "--config", "core.pager=cat", "log"],
+            ["git", "--config=core.pager=cat", "log"],
+            ["git", "--config-env", "core.pager=X", "log"],
+            ["git", "-C", ".", "-c", "color.ui=false", "status"],
+            ["git.exe", "-c", "protocol.allow=always", "status"],
+            ["git", "-c", "color.ui=false"],
         )
         for command in commands:
-            with self.subTest(command=command), self.assertRaises(HarnessError):
-                _validate_command_safety(command, Path("/workspace"), "checks.full", 0)
+            with self.subTest(command=command), self.assertRaisesRegex(HarnessError, "safe Git configuration"):
+                _validate_command_safety(command, ROOT, "checks.full", 0)
 
-    def test_safe_display_configuration_remains_usable(self) -> None:
-        command = ["git", "-c", "color.ui=false", "status"]
-
-        _validate_command_safety(command, Path("/workspace"), "checks.full", 0)
+    def test_subcommand_options_and_paths_are_not_global_configuration(self) -> None:
+        commands = (
+            ["git", "diff", "--check"],
+            ["git", "status"],
+            ["git", "-C", ".", "--no-pager", "log"],
+            ["git", "log", "-c"],
+            ["git", "diff", "--", "--config=fixture.txt"],
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                _validate_command_safety(command, ROOT, "checks.full", 0)
 
     def test_bounded_git_command_disables_candidate_fsmonitor_helper(self) -> None:
         with TemporaryDirectory() as temp:

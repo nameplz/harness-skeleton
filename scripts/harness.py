@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic Harness commands used by Codex and project CI."""
+"""Deterministic Harness commands used by Codex and project validation."""
 
 from __future__ import annotations
 
@@ -51,28 +51,9 @@ UNSAFE_COMMAND_TOKENS = frozenset(
     "add ci deploy external-login install login migrate migration publish reset seed watch".split()
 )
 SHELL_EXECUTABLES = frozenset({"sh", "bash", "zsh", "dash", "fish", "pwsh", "powershell", "cmd", "cmd.exe"})
-SCRIPT_EXECUTABLE_SUFFIXES = frozenset({".py", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ps1", ".bat", ".cmd"})
-SENSITIVE_OPTION_RE = re.compile(
-    r"^--?(?:api[_-]?key|access[_-]?key|private[_-]?key|authorization|password|secret|token)$", re.IGNORECASE
-)
-SENSITIVE_VALUE_RE = re.compile(
-    r"^(-{1,2}(?:api[_-]?key|access[_-]?key|private[_-]?key|authorization|password|secret|token))=([\s\S]*)$",
-    re.IGNORECASE,
-)
 FILE_URI_RE = re.compile(r"^file:", re.IGNORECASE)
 URL_RE = re.compile(r"^(?![a-z]:[/\\])[a-z][a-z0-9.+-]*://", re.IGNORECASE)
 PATH_BEARING_SHORT_OPTIONS = ("-I", "-r")
-PYTHON_INLINE_MODULES = frozenset({"timeit"})
-SAFE_GIT_SUBCOMMANDS = frozenset(
-    {"check-ignore", "config", "diff", "ls-files", "rev-parse", "status"}
-)
-SAFE_GIT_CONFIG_VALUES = {
-    "color.diff": frozenset({"auto", "always", "never", "false", "true", "0", "1"}),
-    "color.status": frozenset({"auto", "always", "never", "false", "true", "0", "1"}),
-    "color.ui": frozenset({"auto", "always", "never", "false", "true", "0", "1"}),
-    "core.quotepath": frozenset({"false", "true", "0", "1"}),
-}
-GIT_HELPER_URL_RE = re.compile(r"^[a-z0-9.+-]+::", re.IGNORECASE)
 UNITTEST_RUN_RE = re.compile(r"(?m)^Ran ([1-9][0-9]*) tests? in [0-9]+(?:\.[0-9]+)?s$")
 UNITTEST_OK_RE = re.compile(r"(?m)^OK(?: \([^\n]+\))?$")
 
@@ -179,8 +160,16 @@ def _validate_command_safety(command: Sequence[str], workspace: Path, field: str
     if executable == "env":
         raise HarnessError(f"{field}[{index}] cannot override the validation process environment")
     if _is_git_executable(command[0]):
-        _validate_git_command(command, field, index)
-    elif any(_is_git_executable(argument) for argument in command[1:]):
+        arguments = command[1:]
+        subcommand_index = _git_subcommand_index(arguments)
+        if any(
+            argument.startswith("-c")
+            or argument in {"--config", "--config-env"}
+            or argument.startswith(("--config=", "--config-env="))
+            for argument in arguments[:subcommand_index]
+        ):
+            raise HarnessError(f"{field}[{index}] cannot override safe Git configuration")
+    if not _is_git_executable(command[0]) and any(_is_git_executable(argument) for argument in command[1:]):
         raise HarnessError(f"{field}[{index}] must invoke Git directly, not through a wrapper")
     if tokens & SHELL_EXECUTABLES and any(
         _is_inline_shell_flag(part, tokens) for part in command[1:]
@@ -190,11 +179,6 @@ def _validate_command_safety(command: Sequence[str], workspace: Path, field: str
         _is_inline_code_flag(part, tokens) for part in command[1:]
     ):
         raise HarnessError(f"{field}[{index}] cannot execute inline code")
-    if _python_timeit_command(command):
-        raise HarnessError(f"{field}[{index}] cannot execute inline code")
-    if _is_mutating_formatter(command, tokens):
-        raise HarnessError(f"{field}[{index}] cannot rewrite source files")
-
     for arg_index, argument in enumerate(command):
         option_path = _short_option_path(command, arg_index)
         value = option_path if option_path is not None else argument
@@ -233,88 +217,6 @@ def _validate_command_safety(command: Sequence[str], workspace: Path, field: str
             raise HarnessError(f"{field}[{index}] contains a path outside the workspace") from exc
 
 
-def _validate_git_command(command: Sequence[str], field: str, index: int) -> None:
-    arguments = command[1:]
-    if any(GIT_HELPER_URL_RE.match(argument) for argument in arguments):
-        raise HarnessError(f"{field}[{index}] cannot invoke a Git remote helper")
-    if any(
-        argument == "--exec-path"
-        or argument.startswith("--exec-path=")
-        or argument == "--upload-pack"
-        or argument.startswith("--upload-pack=")
-        or argument == "--receive-pack"
-        or argument.startswith("--receive-pack=")
-        for argument in arguments
-    ):
-        raise HarnessError(f"{field}[{index}] cannot select a Git helper executable")
-
-    subcommand_index = _git_subcommand_index(arguments)
-    if subcommand_index is None:
-        if arguments == ["--version"]:
-            return
-        raise HarnessError(f"{field}[{index}] uses an unsupported Git command")
-    subcommand = arguments[subcommand_index].casefold()
-    if subcommand not in SAFE_GIT_SUBCOMMANDS:
-        raise HarnessError(f"{field}[{index}] uses an unsupported Git command")
-    if subcommand == "diff" and any(
-        argument.casefold() in {"--ext-diff", "--textconv"}
-        or argument.casefold().startswith(("--ext-diff=", "--textconv="))
-        for argument in arguments[subcommand_index + 1:]
-    ):
-        raise HarnessError(f"{field}[{index}] cannot enable external Git diff helpers")
-
-    prefix = arguments[:subcommand_index]
-    position = 0
-    while position < len(prefix):
-        argument = prefix[position]
-        setting: str | None = None
-        if argument in {"-c", "--config"} and position + 1 < len(prefix):
-            setting = prefix[position + 1]
-            position += 1
-        elif argument.startswith("-c") and len(argument) > 2:
-            setting = argument[2:]
-        elif argument.startswith("--config="):
-            setting = argument.partition("=")[2]
-        elif argument == "--config-env" or argument.startswith("--config-env="):
-            raise HarnessError(f"{field}[{index}] cannot read external Git configuration")
-        if setting is not None and not _git_config_is_safe(setting):
-            raise HarnessError(f"{field}[{index}] cannot configure Git external commands")
-        position += 1
-
-    if subcommand == "config":
-        config_arguments = {argument.casefold() for argument in arguments[subcommand_index + 1:]}
-        query_options = {
-            "--get", "--get-all", "--get-regexp", "--get-urlmatch", "--list", "-l",
-            "--show-origin", "--show-scope",
-        }
-        write_options = {
-            "--add", "--replace-all", "--unset", "--unset-all", "--rename-section",
-            "--remove-section", "--edit", "set", "unset",
-        }
-        if not config_arguments & query_options or config_arguments & write_options:
-            raise HarnessError(f"{field}[{index}] cannot modify Git configuration")
-
-    if subcommand == "diff" and "--no-ext-diff" not in arguments[subcommand_index + 1:]:
-        raise HarnessError(f"{field}[{index}] must disable external Git diff helpers")
-    if subcommand == "diff" and "--no-textconv" not in arguments[subcommand_index + 1:]:
-        raise HarnessError(f"{field}[{index}] must disable Git text conversion helpers")
-    if subcommand == "diff" and any(
-        argument == "--output" or argument.startswith("--output=")
-        for argument in arguments[subcommand_index + 1:]
-    ):
-        raise HarnessError(f"{field}[{index}] cannot write Git diff output to a file")
-
-
-
-def _git_config_is_safe(setting: str) -> bool:
-    key, separator, value = setting.partition("=")
-    normalized_key = key.strip().casefold()
-    if not separator:
-        return False
-    allowed_values = SAFE_GIT_CONFIG_VALUES.get(normalized_key)
-    return allowed_values is not None and value.strip().casefold() in allowed_values
-
-
 def _is_inline_shell_flag(argument: str, executables: set[str]) -> bool:
     value = argument.casefold()
     if value in {"-c", "/c", "-command", "-com"}:
@@ -343,31 +245,6 @@ def _is_inline_code_executable(executable: str) -> bool:
 
 def _is_node_executable(name: str) -> bool:
     return bool(re.fullmatch(r"node(?:js)?(?:\d+(?:\.\d+)*)?", _normalize_executable(name)))
-
-
-def _python_timeit_command(command: Sequence[str]) -> bool:
-    for executable_index, item in enumerate(command):
-        executable = _normalize_executable(Path(item.replace("\\", "/")).name.casefold())
-        if not re.fullmatch(r"(?:python|pypy)(?:\d+(?:\.\d+)*)?", executable):
-            continue
-        index = executable_index + 1
-        while index < len(command):
-            argument = command[index].casefold()
-            if argument == "-m":
-                if index + 1 < len(command) and command[index + 1].casefold() in PYTHON_INLINE_MODULES:
-                    return True
-                break
-            if argument.startswith("-m") and len(argument) > 2:
-                if argument[2:] in PYTHON_INLINE_MODULES:
-                    return True
-                break
-            if argument == "--" or not argument.startswith("-"):
-                break
-            if argument in {"-w", "-x"}:
-                index += 2
-            else:
-                index += 1
-    return False
 
 
 def _short_option_path(command: Sequence[str], index: int) -> str | None:
@@ -421,18 +298,6 @@ def _looks_like_path(value: str, workspace: Path) -> bool:
     )
 
 
-def _is_mutating_formatter(command: Sequence[str], tokens: set[str]) -> bool:
-    if tokens & {"format", "fmt"}:
-        return True
-    if ("ruff" in tokens or "eslint" in tokens) and "--fix" in tokens:
-        return True
-    if "prettier" in tokens and "--write" in tokens:
-        return True
-    if tokens & {"black", "isort"} and not tokens & {"--check", "--check-only"}:
-        return True
-    return tuple(command[:2]) in {("go", "fmt"), ("cargo", "fmt")}
-
-
 def _validate_keyword_list(values: Any, name: str) -> tuple[str, ...]:
     if not isinstance(values, list):
         raise HarnessError(f"{name} must be a list of strings")
@@ -460,7 +325,7 @@ def run_checks(root: Path, profile: str, *, config_root: Path | None = None) -> 
             "status": "unconfigured",
             "profile": profile,
             "checks": [],
-            "error": "unconfigured: .harness/config.toml is missing",
+            "error": "unconfigured: .harness/config.toml is missing; define checks.quick/full; see .agents/skills/harness/SKILL.md (Validation profile setup)",
         }
     config = load_config(workspace, config_root=config_root)
     evidence = {**capture_workspace(workspace), "config_sha256": config.config_sha256}
@@ -472,7 +337,7 @@ def run_checks(root: Path, profile: str, *, config_root: Path | None = None) -> 
             "profile": profile,
             "checks": [],
             "evidence": evidence,
-            "error": f"unconfigured: checks.{profile} has no validation commands",
+            "error": f"unconfigured: checks.{profile} has no validation commands; define checks.quick/full; see .agents/skills/harness/SKILL.md (Validation profile setup)",
         }
     if evidence.get("status") == "error":
         checks = _unstarted_results(commands, 1, reason="identity_error")
@@ -525,7 +390,7 @@ def run_checks(root: Path, profile: str, *, config_root: Path | None = None) -> 
                 "command": _safe_command(command),
                 "returncode": returncode,
                 "passed": returncode == 0,
-                "output": sanitize_command_output(output, command),
+                "output": sanitize_log(output),
                 "duration_ms": round((time.perf_counter() - started_at) * 1000, 3),
                 "started": started,
                 "timed_out": timed_out,
@@ -610,44 +475,13 @@ def doctor(root: Path, *, config_root: Path | None = None, bootstrap: bool = Fal
         try:
             from harness_doctor import doctor as run_doctor
         except ImportError:
-            return {"ok": False, "status": "invalid", "root": str(root), "config": {}, "ci": {},
+            return {"ok": False, "status": "invalid", "root": str(root), "config": {},
                     "git": None, "errors": ["required Harness doctor module is unavailable"]}
     return run_doctor(root, config_root=config_root, bootstrap=bootstrap)
 
 
 def _safe_command(command: Sequence[str]) -> list[str]:
-    redacted: list[str] = []
-    redact_next = False
-    for argument in command:
-        if redact_next:
-            redacted.append("[REDACTED]")
-            redact_next = False
-        elif match := SENSITIVE_VALUE_RE.fullmatch(argument):
-            redacted.append(f"{match.group(1)}=[REDACTED]")
-        elif SENSITIVE_OPTION_RE.fullmatch(argument):
-            redacted.append(argument)
-            redact_next = True
-        else:
-            redacted.append(sanitize_log(argument))
-    return redacted
-
-
-def sanitize_command_output(value: str, command: Sequence[str]) -> str:
-    redacted = value
-    redact_next = False
-    for argument in command:
-        if redact_next:
-            if argument:
-                redacted = redacted.replace(argument, "[REDACTED]")
-            redact_next = False
-            continue
-        match = SENSITIVE_VALUE_RE.fullmatch(argument)
-        if match:
-            option = re.escape(match.group(1))
-            redacted = re.sub(rf"{option}=[\s\S]*", f"{match.group(1)}=[REDACTED]", redacted, flags=re.IGNORECASE)
-        elif SENSITIVE_OPTION_RE.fullmatch(argument):
-            redact_next = True
-    return sanitize_log(redacted)
+    return [sanitize_log(argument) for argument in command]
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -665,7 +499,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     doctor_command = commands.add_parser("doctor", help="inspect Harness project setup")
     doctor_command.add_argument("--root", default=".", help="project root to inspect")
     doctor_command.add_argument("--config-root", help="trusted repository root supplying .harness/config.toml")
-    doctor_command.add_argument("--bootstrap", action="store_true", help="check Harness structure before CI setup")
+    doctor_command.add_argument("--bootstrap", action="store_true", help="check Harness structure before validation setup")
     return parser.parse_args(argv)
 
 

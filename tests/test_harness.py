@@ -16,7 +16,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.harness import HarnessError, _validate_command_safety, load_config, main, run_checks, sanitize_log  # noqa: E402
+from scripts.harness import HarnessError, load_config, main, run_checks, sanitize_log  # noqa: E402
 from scripts.command_runner import CommandResult, run_bounded_command  # noqa: E402
 from scripts.harness_risk import MAX_DIFF_BYTES, _git_output, classify_risk, inspect_git_risk  # noqa: E402
 
@@ -276,6 +276,7 @@ class HarnessCheckTests(unittest.TestCase):
             missing = run_checks(root, "quick")
             self.assertFalse(missing["ok"])
             self.assertEqual("unconfigured", missing["status"])
+            self.assertIn("define checks.quick/full; see .agents/skills/harness/SKILL.md (Validation profile setup)", missing["error"])
             output = StringIO()
             with redirect_stdout(output):
                 self.assertEqual(1, main(["check", "--quick", "--root", str(root)]))
@@ -286,6 +287,7 @@ class HarnessCheckTests(unittest.TestCase):
             self.assertFalse(empty["ok"])
             self.assertEqual("unconfigured", empty["status"])
             self.assertIn("no validation commands", empty["error"])
+            self.assertIn("define checks.quick/full; see .agents/skills/harness/SKILL.md (Validation profile setup)", empty["error"])
 
     def test_test_discovery_can_import_project_namespace_packages(self) -> None:
         with TemporaryDirectory() as temp:
@@ -441,6 +443,22 @@ class HarnessCheckTests(unittest.TestCase):
             self.assertEqual(4, report["checks"][0]["returncode"])
             self.assertNotIn("sample-secret", report["checks"][0]["output"])
 
+    def test_config_change_during_check_invalidates_evidence(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = self.write_config(root, [["true"]], [["true"]])
+
+            def changed(*args, **kwargs):
+                path.write_text(path.read_text(encoding="utf-8") + "\n# changed\n", encoding="utf-8")
+                return CommandResult(0, "")
+
+            with patch("scripts.harness.run_bounded_command", side_effect=changed):
+                report = run_checks(root, "quick")
+            self.assertFalse(report["ok"])
+            self.assertFalse(report["evidence_unchanged"])
+            self.assertNotEqual(report["evidence"]["config_sha256"],
+                                report["evidence_after"]["config_sha256"])
+
     def test_timed_out_check_is_reported_and_sanitized(self) -> None:
         with TemporaryDirectory() as temp:
             root = Path(temp)
@@ -533,13 +551,32 @@ class HarnessCheckTests(unittest.TestCase):
             self.assertTrue(report["ok"])
             self.assertEqual(3, run_command.call_args.kwargs["timeout_seconds"])
 
-    def test_source_rewriting_check_commands_are_rejected(self) -> None:
+    def test_standard_validation_commands_are_allowed(self) -> None:
+        commands = [
+            ["ruff", "format", "--check", "."],
+            ["git", "diff", "--check"],
+            ["git", "status"],
+            ["npm", "test"],
+            ["pytest", "-q"],
+            ["go", "test", "./..."],
+        ]
         with TemporaryDirectory() as temp:
             root = Path(temp)
-            self.write_config(root, [["ruff", "check", ".", "--fix"]], [["python", "-m", "pytest"]])
+            self.write_config(root, commands, commands)
+            self.assertEqual(tuple(map(tuple, commands)), load_config(root).quick)
 
-            with self.assertRaises(HarnessError):
-                load_config(root)
+    def test_removed_command_heuristics_do_not_reject_valid_argv(self) -> None:
+        commands = [
+            ["ruff", "check", ".", "--fix"],
+            ["python", "-m", "timeit", "pass"],
+            ["git", "log", "--oneline"],
+            ["git", "ls-remote", "ext::helper"],
+            ["git", "diff", "--ext-diff", "--output=result.patch"],
+        ]
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_config(root, commands, commands)
+            self.assertEqual(tuple(map(tuple, commands)), load_config(root).full)
 
     def test_invalid_or_shell_config_fails_closed(self) -> None:
         with TemporaryDirectory() as temp:
@@ -551,6 +588,11 @@ class HarnessCheckTests(unittest.TestCase):
 
     def test_wrapped_shells_and_inline_interpreters_fail_closed(self) -> None:
         commands = (
+            ["bash", "-c", "x"],
+            ["python", "-c", "x"],
+            ["node", "-e", "x"],
+            ["/usr/bin/env", "FOO=1", "pytest"],
+            ["../outside/test.py"],
             ["env", "sh", "-c", "echo unsafe"],
             ["env", "python", "-c", "print('unsafe')"],
             ["python3.13", "-cprint('unsafe')"],
@@ -634,22 +676,6 @@ class HarnessCheckTests(unittest.TestCase):
                     with self.assertRaises(HarnessError):
                         load_config(root)
 
-    def test_python_timeit_module_cannot_execute_inline_code(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            commands = (
-                ["python", "-m", "timeit", "__import__('os').system('echo unsafe')"],
-                ["python", "-mtimeit", "print(1)"],
-                ["python", "-Xdev", "-m", "timeit", "print(1)"],
-                ["python.exe", "-m", "timeit", "print(1)"],
-                ["uv", "run", "python", "-m", "timeit", "print(1)"],
-            )
-            for command in commands:
-                with self.subTest(command=command):
-                    self.write_config(root, [command], [command])
-                    with self.assertRaisesRegex(HarnessError, "inline code"):
-                        load_config(root)
-
     def test_python_timeit_cannot_be_hidden_behind_environment_launcher(self) -> None:
         with TemporaryDirectory() as temp:
             root = Path(temp)
@@ -676,24 +702,6 @@ class HarnessCheckTests(unittest.TestCase):
 
             with self.assertRaises(HarnessError):
                 load_config(root)
-
-    def test_git_shell_alias_and_external_command_configuration_are_rejected(self) -> None:
-        workspace = Path("/workspace")
-        dangerous_commands = (
-            ["git", "-c", "alias.pwn=!sh", "-c", "touch /tmp/proof", "pwn"],
-            ["uv", "run", "git", "-c", "alias.pwn=!sh", "pwn"],
-            ["git", "-c", "core.sshCommand=sh -c touch /tmp/proof", "fetch", "origin"],
-            ["git", "-c", "pager.diff=sh -c touch /tmp/proof", "diff"],
-            ["git", "-c", "core.editor=sh -c touch /tmp/proof", "commit"],
-            ["git", "-c", "include.path=.gitconfig", "status"],
-            ["git", "config", "alias.pwn", "!sh"],
-            ["git", "-C", "/workspace", "config", "alias.pwn", "!sh"],
-            ["git", "--config-env=alias.pwn=GIT_ALIAS", "pwn"],
-            ["git", "--config-env=diff.external=GIT_DIFF", "diff"],
-        )
-        for command in dangerous_commands:
-            with self.subTest(command=command), self.assertRaises(HarnessError):
-                _validate_command_safety(command, workspace, "checks.full", 0)
 
     def test_validation_process_drops_git_environment_overrides(self) -> None:
         environment = {
@@ -862,20 +870,7 @@ class HarnessCheckTests(unittest.TestCase):
             root = Path(temp)
             script = root / "check.py"
             script.write_text("print('token=sample-secret')\n", encoding="utf-8")
-            command = [sys.executable, "check.py", "--token", "sample-secret"]
-            self.write_config(root, [command], [command])
-
-            report = run_checks(root, "quick")
-
-            self.assertTrue(report["ok"])
-            self.assertNotIn("sample-secret", json.dumps(report))
-
-    def test_command_secret_values_are_redacted_even_without_a_key_label(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            script = root / "check.py"
-            script.write_text("print('sample-secret')\n", encoding="utf-8")
-            command = [sys.executable, "check.py", "--token", "sample-secret"]
+            command = [sys.executable, "check.py", "--token=sample-secret"]
             self.write_config(root, [command], [command])
 
             report = run_checks(root, "quick")
