@@ -137,10 +137,12 @@ def classify_risk(
     for path in changed_paths:
         if any(fnmatch.fnmatchcase(path.casefold(), pattern.casefold()) for pattern in configured_paths):
             reasons.append(f"changed security-sensitive path: {path}")
+    weakening = ["test_weakening"] if _test_weakening(diff_text, changed_paths) else []
     if reasons:
+        reasons.extend(weakening)
         return RiskAssessment("T3", True, True, tuple(reasons), (), changed_paths)
 
-    if all(_is_documentation_path(path) for path in changed_paths):
+    if not weakening and all(_is_documentation_path(path) for path in changed_paths):
         return RiskAssessment("T0", False, False, ("documentation-only changes",), (), changed_paths)
 
     changed_text = _changed_lines(diff_text).casefold()
@@ -165,9 +167,9 @@ def classify_risk(
         hints.append(f"changes span {len(implementation_paths)} implementation files")
     hints = list(dict.fromkeys(hints))
     if hard_reasons:
-        return RiskAssessment("T3", True, True, tuple(hard_reasons), tuple(hints), changed_paths)
+        return RiskAssessment("T3", True, True, tuple(hard_reasons + weakening), tuple(hints), changed_paths)
 
-    complexity_reasons = _complexity_reasons(changed_paths, changed_text)
+    complexity_reasons = _complexity_reasons(changed_paths, changed_text) + weakening
     if complexity_reasons:
         return RiskAssessment("T2", True, False, tuple(complexity_reasons), tuple(hints), changed_paths)
     return RiskAssessment("T1", False, False, ("focused change",), tuple(hints), changed_paths)
@@ -276,8 +278,37 @@ def _is_test_path(path: str) -> bool:
     parts = {part.casefold() for part in candidate.parts[:-1]}
     name = candidate.name.casefold()
     return bool(parts & {"test", "tests", "__tests__", "e2e"}) or (
-        name.startswith("test_") or ".test." in name or ".spec." in name
+        name.startswith("test_") or ".test." in name or ".spec." in name or name.endswith("_test.go")
     )
+
+
+def _test_weakening(diff_text: str, paths: Sequence[str]) -> bool:
+    # shortcut: line heuristics can match test comments or strings; use syntax parsing if noise warrants it.
+    if len(paths) == 1 and _is_test_path(paths[0]) and not re.search(r"(?m)^(?:diff --git |--- )", diff_text):
+        diff_text = f"--- a/{paths[0]}\n+++ b/{paths[0]}\n{diff_text}"
+    assertion = re.compile(r"\bassert\w*\s*(?:[!(]|\s)")
+    disabled = re.compile(r"\b(?:skip(?:if|unless)?|xfail)\b|\.only\b|#\s*\[\s*ignore\b", re.I)
+    for section in re.split(r"(?m)^(?=diff --git )", diff_text):
+        headers = re.search(r"(?m)^--- (.+)\n\+\+\+ (.+)$", section)
+        if not headers:
+            deleted = re.match(r'^diff --git "?a/(.*?)"? "?b/.*\n(?:.*\n)*?deleted file mode ', section)
+            if deleted and _is_test_path(deleted[1]):
+                return True
+            continue
+        old, new = (header.split("\t", 1)[0].strip('"') for header in headers.groups())
+        if old == "/dev/null" or not _is_test_path(old.removeprefix("a/")):
+            continue
+        if new == "/dev/null":
+            return True
+        delta = 0
+        for line in section[headers.end():].splitlines():
+            if line.startswith(("+", "-")):
+                delta += (1 if line[0] == "+" else -1) * bool(assertion.search(line[1:]))
+                if line[0] == "+" and disabled.search(line[1:]):
+                    return True
+        if delta < 0:
+            return True
+    return False
 
 
 def _complexity_reasons(paths: Sequence[str], changed_text: str) -> list[str]:
@@ -344,6 +375,7 @@ def inspect_git_risk(
                 "--relative",
                 "--no-ext-diff",
                 "--no-textconv",
+                "--no-renames",
                 "--no-color",
                 "--unified=0",
                 "HEAD",
@@ -379,6 +411,7 @@ def inspect_git_risk(
                 "--cached",
                 "--no-ext-diff",
                 "--no-textconv",
+                "--no-renames",
                 "--no-color",
                 "--unified=0",
                 "--",
@@ -392,6 +425,7 @@ def inspect_git_risk(
                 "--relative",
                 "--no-ext-diff",
                 "--no-textconv",
+                "--no-renames",
                 "--no-color",
                 "--unified=0",
                 "--",
@@ -411,7 +445,7 @@ def inspect_git_risk(
         content = _read_untracked_file(workspace, relative)
         if content is None:
             continue
-        addition = "\n" + "\n".join(
+        addition = f"\ndiff --git a/{relative} b/{relative}\n--- /dev/null\n+++ b/{relative}\n" + "\n".join(
             "+" + line for line in content.decode("utf-8", errors="replace").splitlines()
         )
         addition_size = len(addition.encode("utf-8"))
