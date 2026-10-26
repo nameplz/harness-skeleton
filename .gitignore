@@ -1,20 +1,20 @@
+# Secrets and local files
+.env
+.DS_Store
+.worktrees/
+.harness-changed-files.txt
+
+# Build and dependency artifacts
 node_modules/
 .next/
 out/
 next-env.d.ts
 tsconfig.tsbuildinfo
-.DS_Store
-.env
 __pycache__/
-*.pyc
-.pytest_cache/
-
-# optional isolated worktrees
-.worktrees/
-.harness-changed-files.txt
+*.py[cod]
 
 # Local verification artifacts
-*.py[cod]
+.pytest_cache/
 .coverage
 .coverage.*
 htmlcov/

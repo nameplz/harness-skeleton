@@ -8,7 +8,7 @@ Add durable choices for the concrete project here. Record the decision, the reas
 
 ### ADR-010: Codex owns orchestration
 
-**Decision:** Use Codex's native session, planning, context, tools, and selective subagents as the execution path. Keep Harness focused on project knowledge, task contracts, deterministic validation, risk signals, and CI boundaries.
+**Decision:** Use Codex's native session, planning, context, tools, and selective subagents as the execution path. Keep Harness focused on project knowledge, task contracts, deterministic validation, risk signals, and local validation boundaries.
 
 **Reason:** The v1 Python StepPipeline had no Codex adapter and duplicated lifecycle behavior without running a real Codex worker.
 
@@ -32,40 +32,44 @@ Add durable choices for the concrete project here. Record the decision, the reas
 
 ### ADR-013: Codex creates project-specific CI
 
-**Decision:** The starter contains no GitHub Actions workflows. Codex analyzes the actual project and configures .harness/config.toml plus a PR workflow that runs the Full profile. The local CI policy checker validates YAML structure and common security rules, but it lives in the same repository and is not an independent trust boundary. Existing deploy/release/publish jobs are preserved. pull_request_target is not used to execute PR validation.
-
-**Reason:** Skeleton consumers have different languages, runtimes, tests, and platforms. A fixed Python workflow or language template would give false assurance and duplicate project behavior.
-
-**Trade-off:** A malicious PR can change both workflow and local checker. GitHub required checks and branch protection must be configured separately. Static checks cannot prove test quality.
+**Superseded by ADR-018.** CI generation is optional project policy, not a Harness requirement.
 
 ### ADR-014: Hooks provide feedback, not isolation
 
-**Decision:** Keep local hooks small and focused on command policy and configured quick validation. Permit bootstrap work while profiles are unconfigured without reporting a pass. Treat Codex host permissions and GitHub branch protection as enforcement boundaries.
+**Decision:** Keep local hooks small and focused on command policy and tier-based quick/full validation. Permit bootstrap work while profiles are unconfigured without reporting a pass. Treat Codex host permissions as enforcement boundaries; remote enforcement is a project choice.
 
-**Reason:** Regex hooks and same-repository CI do not form a complete security sandbox.
+**Reason:** Regex hooks and same-repository validators do not form a complete security sandbox.
 
 **Trade-off:** Local checks improve feedback but cannot confine arbitrary test code, network access, or filesystem access.
 
 ### ADR-015: Protect control-plane changes with risk routing and bound evidence
 
-**Decision:** Route .github/**, .harness/**, CI policy validators, Harness skills, and related configuration to T3 review. Bind local checks to HEAD, dirty-content, and applied-config fingerprints; expose execution-limit metadata and invalidate results when source or config changes during validation.
+**Decision:** Route hooks, runner/risk scripts, control configuration, and user-added .github/workflows/** to T3; .harness/config.toml alone and test_weakening are at least T2. Bind local checks to HEAD, dirty-content, and applied-config fingerprints; expose execution-limit metadata and invalidate results when source or config changes during validation.
 
-**Reason:** CI and Harness policy affect what the project validates. Results cannot be safely reused for a different revision or configuration.
+**Reason:** Harness policy affects what the project validates. Results cannot be safely reused for a different revision or configuration.
 
-**Trade-off:** Fingerprints are bounded, non-atomic change evidence rather than execution attestations. Local policy does not replace GitHub enforcement.
+**Trade-off:** Fingerprints are bounded, non-atomic change evidence rather than execution attestations. Local policy does not replace host confinement or optional remote enforcement.
 
 ### ADR-016: Derive initialization state from files and checks
 
-**Decision:** doctor --bootstrap validates base Harness structure without requiring project profiles or CI. Normal doctor reports configured only when quick/full profiles, a pull_request Full-profile job, and static policy checks are valid. check returns unconfigured for missing/empty profiles. Do not write a persistent verified flag.
-
-**Reason:** The initial skeleton has no project stack to validate, and absent commands must not be confused with successful validation.
-
-**Trade-off:** doctor does not query GitHub. Configured means ready to run, not that a PR CI has succeeded.
+**Superseded by ADR-018.** Local profiles and structure determine configured state; no CI requirement or persistent verified flag remains.
 
 ### ADR-017: Verify GitHub results against the current PR revision
 
-**Decision:** scripts/verify_ci.py uses gh to read the PR and its associated check results, derives expected job identities from the local policy-clean Full-profile workflows, and checks PR head plus local workspace evidence before and after the query. It does not compare a Check Run SHA to the PR head by string equality or modify remote settings.
+**Superseded by ADR-018.** PR result verification belongs to user-selected remote integration.
 
-**Reason:** GitHub may attach a PR check to a synthetic merge revision, while old results or skipped/missing jobs must not imply success for the current head.
+### ADR-018: Local validation is the complete default
 
-**Trade-off:** Authentication, disabled Actions, missing checks, pending runs, and API errors remain incomplete. The result is a time-scoped report; branch protection still needs the generated required checks configured.
+**Decision:** Remove mandatory issues, PR delivery, and CI from the skeleton. Users choose remote integration; local validation needs no remote credentials or services. Retain optional integration as one architecture sentence, without shipped generators or remote verifiers.
+
+**Source and reason:** Reference design §2.1, principles 7–8: “The threat model is agent mistakes” and “Delivery procedures (issue/PR/CI) are the project's choice.” Same-repository policy cannot create independent remote enforcement. Keeping local gates explicit reduces always-loaded instructions and false assurance.
+
+**Validation ladder:** T0 documentation uses configured quick checks; T1 adds acceptance evidence. T2 public API/dependency/contract/configuration changes or test-weakening signals require full checks and one read-only correctness reviewer. T3 trust-boundary or runner/hook/risk changes add a security reviewer. Hard T2/T3 cannot be lowered. Stop uses quick; commit uses quick for T0/T1 and full for T2/T3 or unknown risk, covering the whole working tree since HEAD (N3).
+
+**N1:** Deleted tests, net assertion loss, and added skip/xfail/only markers create non-lowerable T2 signals. Review judges their justification; tests must not be weakened merely to pass.
+
+**N2:** Define 2–5 acceptance criteria before work when absent. T1+ final reports map each criterion to command, exit code, and 1–3 key output lines. Missing evidence is unverified; source/config changes invalidate old evidence.
+
+**Excluded** (reference design §2.1 principles 6–8 and §4.5): mandatory issue gates, PR workflows, CI generation, CI policy checks, remote-result verification, publication templates and contract checks; planner/generator/evaluator sprints, exhaustive feature JSON, ledger/stall replanning, background documentation gardening, flaky reruns, coverage filters, and generated architecture linters.
+
+**Trade-off:** Local gates target mistakes, not adversarial control of validators. Host confinement remains necessary. Remote enforcement and delivery remain user-owned; no verified state is inferred from configured profiles. Empty profiles stay unconfigured and never pass.

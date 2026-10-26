@@ -1,64 +1,41 @@
 ---
 name: harness
-description: Route Harness tasks through Codex-native planning and risk-based validation, review, and security escalation.
+description: Local deterministic validation, risk routing, and completion evidence.
 ---
 
 # Harness workflow
 
-Codex is the execution environment. Use its normal planning, tools, context handling, and subagent support. Harness does not run implementation workers or retry loops.
+## Risk and procedure
 
-## CI initialization state
+Run `python scripts/harness.py risk` on the final diff. It gives a minimum tier; never lower hard T2/T3 signals. Hints do not force review; escalate for material risks missed by the diff.
 
-- The starter skeleton has no GitHub Actions workflow and empty quick/full profiles. Run `python scripts/harness.py doctor --bootstrap` to check its base structure.
-- If normal `doctor` reports `unconfigured`, use `.agents/skills/ci-setup/SKILL.md` to analyze the project and configure real validation commands and PR CI. Do not call an empty `check` a pass or treat an unconfigured project as release-ready.
-- `doctor` reports `configured` only when quick/full profiles, a pull request workflow, its Full-profile job, and static CI policy checks are valid. Only `python scripts/verify_ci.py --pr <number>` can report the current GitHub execution result; it is revision-scoped and is not stored as a permanent flag.
+- **T0:** documentation or typos; run quick when configured, no reviewer.
+- **T1:** ordinary local changes; update behavior tests, run quick, self-review, and report acceptance evidence.
+- **T2:** public APIs, dependencies, cross-module contracts, `.harness/config.toml`, or `test_weakening`; run full and obtain one independent read-only `reviewer` review.
+- **T3:** hooks, runner/risk scripts, auth/secrets/subprocess/SQL/migrations, or user-added `.github/workflows/**`; run full and obtain independent read-only `reviewer` and `security_reviewer` reviews.
 
-## Classify the task
+Keep one implementation writer. Reviewers do not replace deterministic tests; no separate test-review role is needed. Reviewer findings cover only requirement gaps, incorrect behavior, regressions, missing tests, and justified or unjustified test_weakening signals. Security review is limited to changed trust boundaries. Exclude style, preferences, and hypothetical cases.
 
-Use `python scripts/harness.py risk` for a deterministic minimum tier. Hard T2/T3 signals must not be lowered. `hints` are non-binding context signals, not automatic review triggers; use task meaning and trust-boundary context to escalate when needed. File count alone does not force T2.
+## Review request
 
-- **T0, trivial:** wording, typo, or a small documentation-only change. Edit, run the quick check when configured, and finish without a reviewer.
-- **T1, normal:** a focused bug fix or single-module change. Add or update behavior tests, run deterministic checks, and self-review. Do not launch reviewers by default.
-- **T2, complex:** public API, dependency, explicit subsystem, or cross-module contract change. Plan the change, run full deterministic checks, then delegate one independent read-only review to `reviewer`. It checks requirements, contracts, architecture, maintainability, regression risk, and test adequacy.
-- **T3, high risk:** hard security-sensitive paths or high-confidence security behavior, including authentication, authorization, credentials, secrets, shell/subprocess boundaries, SQL or migrations, deployment, `.github/`, `.harness/`, or `.codex/`. Plan the change and run full deterministic checks, then delegate independent read-only reviews to `reviewer` and `security_reviewer`; the two reviews may run in parallel.
+Provide scope, acceptance criteria, final HEAD, dirty diff fingerprint, config identity, and validation evidence. Request `status`, `summary`, `findings`, `evidence`, and `recommendation`. Each finding needs `path:line` and a concrete failure scenario; require an explicit no-findings result when passing. Reviewers must not edit, commit, send messages, or perform external writes. Revalidate and review affected changes after edits; stale evidence cannot cover a new diff.
 
-Main Codex is the implementation writer. T2/T3 do not imply an implementation subagent. There is no separate test-review worker. Test commands and their exit status are deterministic; reviewers may assess test adequacy but must not re-judge test results.
+## Validation profile setup / 검증 프로필 설정
 
-Keep reviewers read-only, including external tool write permissions. Ask each reviewer to return `status`, `summary`, `findings`, `evidence`, and `recommendation`; findings include a cause, a repository `path:line` citation, and a concrete fix. Identify the reviewed HEAD and dirty diff fingerprint in `evidence`. An explicit no-findings result is required when the review passes. After implementation changes, revalidate and obtain review of the affected final diff; never attach an old review as evidence for new code.
+Use this section when `doctor` reports `unconfigured` or the project's test, lint, or build setup changes. Start with `python scripts/harness.py doctor --bootstrap`. Inspect multiple files for languages, runtime versions, package manager, lockfiles, workspace layout, real test files and runners, and lint/type/build configuration. Cross-check package scripts against the lockfile; a manifest alone is insufficient. Identify required non-secret test settings and services without forwarding credentials.
 
-## Issue-first delivery
+Write `checks.quick` for useful fast development checks and `checks.full` for actual tests plus configured lint/type/build checks in `.harness/config.toml`. Use argv arrays; execution uses `shell=False`. Keep dependency installation commands and credentials out of profiles. Never invent tools, tests, or versions. If no meaningful validation exists, leave the project unconfigured and report why; an empty profile is not a pass.
 
-- Each task starts from a published GitHub issue. Before implementation, confirm its link and acceptance criteria, then work on an issue-specific branch from the intended PR base. If no issue exists, use the currently configured issue-creation workflow and follow its approval steps; do not bind this policy to a skill name or begin implementation before the issue is published.
-- An explicit local-only user request is an exception to external delivery: implement and validate locally without creating an issue, committing, pushing, or publishing unless those actions are also authorized. Report the local diff and validation; do not describe it as completed issue-to-PR delivery.
-- Keep one issue as the task boundary. Complete and verify its work using the task-unit commit policy below.
-- After the issue's work and commits are complete, follow `.agents/skills/pr-workflow/SKILL.md` to publish one PR and wait until all required CI checks pass. Fix task-caused failures. Report external or permission-blocked checks as incomplete. Never merge unless asked.
+Run `python scripts/harness.py check --quick`, `python scripts/harness.py check --full`, and `python scripts/harness.py doctor`. Configuration changes require T2 review at minimum.
 
-## State and artifacts
+## Completion and task commits
 
-- Use `/goal` for a long-running objective that spans phases or needs durable completion tracking.
-- For a complex task that must survive a new session or pause for external approval/CI, keep one concise `.harness/tasks/<slug>.md` file with Goal, Acceptance, Constraints, Decisions, Current state, and Next. Use `.harness/task-template.md`; include issue/repository/branch/base/HEAD, the last completed unit, validation/review evidence, pending external actions, and granted approval scope. Validate the slug as a relative path under `.harness/tasks/`.
-- Do not create a task file for routine T0/T1 changes. Git records code state; CI records validation state.
-- On resume, compare the note with actual Git state and query existing PR/check status. Invalidate stale evidence. After a lost write response, look up the remote result before retrying; retain standing authorization and do not ask for it again unless scope changes.
+Define 2–5 acceptance criteria before work when none exist. For T1+, report a table of criterion → command, exit code, and 1–3 key output lines; mark unsupported items unverified. Check `evidence`, `evidence_after`, and `evidence_unchanged`; source/config changes during validation invalidate success. Null identity is unavailable evidence.
 
-## Task units and commits
+Commit each completed task separately after configured checks and required reviews pass. Keep dependent changes together, exclude unrelated changes and pre-existing user edits, and leave unfinished or failed work uncommitted. Honor explicit no-commit instructions.
 
-- For multi-step requests, plan cohesive, independently verifiable task units; keep dependent changes together.
-- Finish one unit end-to-end before starting the next: implement it, run its configured checks, and complete any required read-only reviews.
-- Commit each completed task separately after checks and reviews pass. Stage only that task's changes or hunks. Never stage unrelated changes or pre-existing user changes.
-- Leave failed or unfinished work uncommitted. Honor explicit no-commit requests. Publish completed tasks through the project PR workflow; never merge unless asked.
+Remote work only when requested by the user.
 
-## Delegation and worktrees
+## Optional long-task note
 
-- Keep one implementation writer in a mutable workspace.
-- Use subagents only for independent parallel investigation or a read-only review after implementation. Never use parallel writers for dependent changes.
-- Use a worktree when work must be isolated, run concurrently, or could disturb the current branch. Ordinary interactive work can stay in the current worktree.
-
-## Validation and finish
-
-- Read the project-specific command lists in `.harness/config.toml`; do not guess test, lint, typecheck, or build tools from the language.
-- Run `python scripts/harness.py check --quick` for T0/T1 and `--full` for T2/T3. Resolve failed checks before finishing.
-- If a check reports `unconfigured`, configure CI with the CI Setup skill or report why the task remains unconfigured. Never infer success from a skipped command.
-- Read `evidence`, `evidence_after`, and `evidence_unchanged` in check output. A source/config change during validation fails the overall check even if individual commands passed. A null identity is unavailable evidence, not an attestation.
-- Run the risk command on the final diff. When it reports `code_review`, obtain a read-only code review; when it reports `security_review`, obtain a read-only security review.
-- Hooks provide fast feedback only. Codex sandbox and permissions, trusted CI, and repository branch protection define enforcement boundaries.
-- Report changes, commands, results, and any review findings. Do not create phase indexes, heartbeat files, or worker output JSON.
+For work spanning sessions, use `.harness/task-template.md` under `.harness/tasks/<slug>.md` with acceptance evidence, constraints, decisions, current state, and next action. Skip notes for routine tasks. On resume, compare actual Git/config state and invalidate stale evidence. Never store credentials or whole conversations.
