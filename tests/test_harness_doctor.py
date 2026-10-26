@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import unittest
 from contextlib import redirect_stdout
@@ -12,6 +13,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from scripts.harness import doctor, main
+from scripts.harness_doctor import VALIDATION_SETUP
 
 
 class HarnessDoctorTests(unittest.TestCase):
@@ -52,16 +54,15 @@ class HarnessDoctorTests(unittest.TestCase):
             report = json.loads(output.getvalue())
             self.assertEqual(0, exit_code)
             self.assertTrue(report["ok"])
+            self.assertEqual("configured", report["status"])
             self.assertGreater(report["git"]["changed_paths"], 0)
             self.assertEqual(1, report["config"]["quick_checks"])
 
-    def test_bootstrap_doctor_accepts_missing_ci_without_reporting_it_configured(self) -> None:
+    def test_bootstrap_doctor_accepts_missing_profiles_without_reporting_configured(self) -> None:
         with TemporaryDirectory() as temp:
             root = Path(temp)
             _write_doctor_files(root)
             (root / ".harness/config.toml").unlink()
-            (root / ".github/workflows/ci.yml").unlink()
-            (root / ".github/workflows").rmdir()
             self.run_git(root, "init", "-q")
 
             bootstrap = doctor(root, bootstrap=True)
@@ -69,11 +70,12 @@ class HarnessDoctorTests(unittest.TestCase):
 
             self.assertTrue(bootstrap["ok"], bootstrap["errors"])
             self.assertEqual("unconfigured", bootstrap["status"])
+            self.assertEqual(VALIDATION_SETUP, bootstrap["next_action"])
             self.assertFalse(regular["ok"])
             self.assertEqual("unconfigured", regular["status"])
             self.assertTrue(any("unconfigured" in error for error in regular["errors"]))
 
-    def test_doctor_uses_trusted_config_root_for_ci_policy(self) -> None:
+    def test_doctor_uses_trusted_config_root_without_workflows(self) -> None:
         with TemporaryDirectory() as temp, TemporaryDirectory() as trusted_temp:
             root, trusted = Path(temp), Path(trusted_temp)
             _write_doctor_files(root)
@@ -81,11 +83,13 @@ class HarnessDoctorTests(unittest.TestCase):
             (root / ".harness/config.toml").unlink()
             self.run_git(root, "init", "-q")
 
+            self.assertFalse((root / ".github/workflows").exists())
             report = doctor(root, config_root=trusted)
 
         self.assertTrue(report["ok"], report["errors"])
         self.assertEqual("configured", report["config"]["status"])
-        self.assertEqual("configured", report["ci"]["status"])
+        self.assertEqual("configured", report["status"])
+        self.assertNotIn("ci", report)
 
     def test_doctor_returns_structured_error_when_extracted_module_is_missing(self) -> None:
         with TemporaryDirectory() as temp:
@@ -96,57 +100,50 @@ class HarnessDoctorTests(unittest.TestCase):
         self.assertEqual("invalid", report["status"])
         self.assertTrue(any("doctor module" in error for error in report["errors"]))
 
-    def test_bootstrap_doctor_does_not_hide_invalid_existing_ci(self) -> None:
+    def test_bootstrap_doctor_rejects_invalid_profiles(self) -> None:
         with TemporaryDirectory() as temp:
             root = Path(temp)
             _write_doctor_files(root)
-            workflow = root / ".github/workflows/ci.yml"
-            workflow.write_text(
-                workflow.read_text(encoding="utf-8").replace("permissions: {}", "permissions: write-all", 1),
-                encoding="utf-8",
-            )
+            (root / ".harness/config.toml").write_text("schema = [", encoding="utf-8")
+            self.run_git(root, "init", "-q")
             report = doctor(root, bootstrap=True)
         self.assertFalse(report["ok"])
-        self.assertEqual("invalid", report["ci"]["status"])
-        self.assertTrue(any("permissions" in error for error in report["errors"]))
+        self.assertEqual("invalid", report["config"]["status"])
+        self.assertEqual("unconfigured", report["status"])
 
-    def test_doctor_reports_malformed_workflow_directory_instead_of_unconfigured(self) -> None:
-        for kind in ("file", "symlink"):
-            with self.subTest(kind=kind), TemporaryDirectory() as temp, TemporaryDirectory() as outside:
+    def test_doctor_reports_unavailable_git_and_hook_executables(self) -> None:
+        for unavailable, expected in (("git", "Git executable"), ("python3", "Harness hook")):
+            with self.subTest(unavailable=unavailable), TemporaryDirectory() as temp:
                 root = Path(temp)
                 _write_doctor_files(root)
-                workflow_dir = root / ".github/workflows"
-                for workflow in workflow_dir.iterdir():
-                    workflow.unlink()
-                workflow_dir.rmdir()
-                if kind == "file":
-                    workflow_dir.write_text("not a directory", encoding="utf-8")
-                else:
-                    target = Path(outside) / "workflows"
-                    target.mkdir()
-                    workflow_dir.symlink_to(target, target_is_directory=True)
-                report = doctor(root, bootstrap=True)
-            self.assertFalse(report["ok"])
-            self.assertEqual("invalid", report["ci"]["status"])
-            self.assertTrue(any(".github/workflows" in error for error in report["errors"]))
+                self.run_git(root, "init", "-q")
+                which = shutil.which
+                with patch("scripts.harness_doctor.shutil.which",
+                           side_effect=lambda name: None if name == unavailable else which(name)):
+                    report = doctor(root)
+                self.assertFalse(report["ok"])
+                self.assertEqual("unconfigured", report["status"])
+                self.assertTrue(any(expected in error for error in report["errors"]))
 
-    def test_doctor_reports_workflow_inspection_errors_without_crashing(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            _write_doctor_files(root)
-            self.run_git(root, "init", "-q")
-            with patch("scripts.check_ci_security.workflow_files", side_effect=PermissionError("denied")):
-                report = doctor(root, bootstrap=True)
-        self.assertFalse(report["ok"])
-        self.assertEqual("invalid", report["ci"]["status"])
-        self.assertTrue(any("could not be inspected" in error for error in report["errors"]))
+    def test_doctor_reports_empty_profiles_and_setup_guidance(self) -> None:
+        for quick, full in (([], []), ([["true"]], []), ([], [["true"]])):
+            with self.subTest(quick=quick, full=full), TemporaryDirectory() as temp:
+                root = Path(temp)
+                _write_doctor_files(root)
+                self.write_config(root, quick, full)
+                self.run_git(root, "init", "-q")
+                report = doctor(root)
+                self.assertFalse(report["ok"])
+                self.assertEqual("unconfigured", report["status"])
+                self.assertEqual(VALIDATION_SETUP, report["next_action"])
+                self.assertIn(f"validation is unconfigured: {VALIDATION_SETUP}", report["errors"])
 
     def test_doctor_reports_missing_required_file(self) -> None:
         with TemporaryDirectory() as temp:
             root = Path(temp)
             self.write_config(root, [["true"]], [["true"]])
             _write_doctor_files(root)
-            (root / "scripts/github_expression_scanner.py").unlink()
+            (root / "scripts/harness_evidence.py").unlink()
             self.run_git(root, "init", "-q")
             output = StringIO()
 
@@ -156,7 +153,7 @@ class HarnessDoctorTests(unittest.TestCase):
             report = json.loads(output.getvalue())
             self.assertEqual(1, exit_code)
             self.assertFalse(report["ok"])
-            self.assertIn("scripts/github_expression_scanner.py", report["errors"])
+            self.assertIn("scripts/harness_evidence.py", report["errors"])
 
     def test_doctor_rejects_missing_reviewer_role(self) -> None:
         with TemporaryDirectory() as temp:
@@ -270,7 +267,7 @@ class HarnessDoctorTests(unittest.TestCase):
 
             self.assertTrue(report["ok"], report["errors"])
 
-    def test_doctor_preserves_docs_and_deployment_layout_checks(self) -> None:
+    def test_doctor_preserves_doc_checks_without_restricting_deployment_layout(self) -> None:
         with TemporaryDirectory() as temp:
             root = Path(temp)
             self.write_config(root, [["true"]], [["true"]])
@@ -286,27 +283,25 @@ class HarnessDoctorTests(unittest.TestCase):
 
             self.assertFalse(report["ok"])
             self.assertTrue(any("placeholder" in error for error in report["errors"]))
-            self.assertTrue(any("Dockerfile" in error for error in report["errors"]))
+            self.assertFalse(any("Dockerfile" in error for error in report["errors"]))
+            (root / "AGENTS.md").write_text("Project guide.\n", encoding="utf-8")
+            self.assertTrue(doctor(root)["ok"])
             self.assertFalse(any("node_modules" in error for error in report["errors"]))
 
 
 
 def _write_doctor_files(root: Path) -> None:
     required = (
-        "AGENTS.md", "docs/ARCHITECTURE.md", "docs/ADR.md", "docs/CI_SETUP.md",
-        ".agents/skills/harness/SKILL.md", ".agents/skills/pr-workflow/SKILL.md",
-        ".agents/skills/ci-setup/SKILL.md", ".github/PULL_REQUEST_TEMPLATE.md",
+        "AGENTS.md", "docs/ARCHITECTURE.md", "docs/ADR.md",
+        ".agents/skills/harness/SKILL.md",
         ".harness/task-template.md", ".codex/config.toml", ".codex/agents/reviewer.toml",
         ".codex/agents/security-reviewer.toml", ".codex/hooks/harness_hook.py",
         "scripts/command_runner.py", "scripts/harness.py", "scripts/harness_doctor.py",
         "scripts/harness_common.py", "scripts/harness_risk.py", "scripts/harness_evidence.py",
-        "scripts/github_expression_scanner.py", "scripts/check_ci_security.py",
-        "scripts/ci_action_policy.py", "scripts/verify_ci.py",
     )
     for relative in required:
         _write_doctor_fixture_file(root, relative)
     _write_doctor_fixture_config(root)
-    _write_doctor_fixture_workflow(root)
 
 
 def _write_doctor_fixture_file(root: Path, relative: str) -> None:
@@ -343,19 +338,5 @@ def _write_doctor_fixture_config(root: Path) -> None:
         "schema = 2\n\n[checks]\n"
         'quick = [["python", "-m", "unittest"]]\n'
         'full = [["python", "scripts/harness.py", "check", "--full"]]\n',
-        encoding="utf-8",
-    )
-
-
-def _write_doctor_fixture_workflow(root: Path) -> None:
-    workflow = root / ".github/workflows/ci.yml"
-    workflow.parent.mkdir(parents=True, exist_ok=True)
-    workflow.write_text(
-        "name: Project CI\non:\n  pull_request:\npermissions: {}\njobs:\n"
-        "  validate:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n"
-        "    permissions: {}\n    steps:\n"
-        "      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683\n"
-        "        with:\n          persist-credentials: false\n"
-        "      - run: python -I scripts/harness.py check --full\n",
         encoding="utf-8",
     )

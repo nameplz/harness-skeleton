@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import os
 import re
 import shlex
+import shutil
 import tomllib
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -29,24 +29,16 @@ except ImportError:  # Direct script invocation from the scripts directory.
     from harness_risk import _git_output, _git_root
 
 REQUIRED_PROJECT_FILES = (
-    "AGENTS.md", "docs/ARCHITECTURE.md", "docs/ADR.md", "docs/CI_SETUP.md", ".agents/skills/harness/SKILL.md",
-    ".agents/skills/pr-workflow/SKILL.md", ".agents/skills/ci-setup/SKILL.md",
-    ".github/PULL_REQUEST_TEMPLATE.md", ".harness/task-template.md",
+    "AGENTS.md", "docs/ARCHITECTURE.md", "docs/ADR.md", ".agents/skills/harness/SKILL.md",
+    ".harness/task-template.md",
     ".codex/config.toml", ".codex/agents/reviewer.toml", ".codex/agents/security-reviewer.toml",
     ".codex/hooks/harness_hook.py", "scripts/command_runner.py",
     "scripts/harness.py", "scripts/harness_doctor.py", "scripts/harness_common.py", "scripts/harness_risk.py",
-    "scripts/harness_evidence.py", "scripts/github_expression_scanner.py",
-    "scripts/check_ci_security.py", "scripts/ci_action_policy.py",
-    "scripts/verify_ci.py",
+    "scripts/harness_evidence.py",
 )
 REQUIRED_DOC_SCAN_PATHS = ("AGENTS.md", "docs/ARCHITECTURE.md", "docs/ADR.md")
 PLACEHOLDER_RE = re.compile(r"\{[^{}\n]+\}")
-DEPLOY_FILE_NAMES = frozenset({
-    "Dockerfile", "Procfile", "app.yaml", "cloudbuild.yaml", "docker-compose.yml",
-    "docker-compose.yaml", "fly.toml", "netlify.toml", "railway.json", "render.yaml",
-    "render.yml", "serverless.yml", "vercel.json",
-})
-DEPLOY_DIR_NAMES = frozenset({"helm", "k8s", "kubernetes", "terraform", ".netlify", ".vercel"})
+VALIDATION_SETUP = "define checks.quick/full; see .agents/skills/harness/SKILL.md (Validation profile setup)"
 
 
 def _valid_harness_hook(hook: Any, workspace: Path) -> bool:
@@ -58,7 +50,7 @@ def _valid_harness_hook(hook: Any, workspace: Path) -> bool:
         return False
     if len(argv) == 3 and argv[1] == "-I":
         argv = [argv[0], argv[2]]
-    return len(argv) == 2 and _is_python_executable(argv[0]) and argv[1] in {
+    return len(argv) == 2 and _is_python_executable(argv[0]) and shutil.which(argv[0]) is not None and argv[1] in {
         ".codex/hooks/harness_hook.py",
         "$(git rev-parse --show-toplevel)/.codex/hooks/harness_hook.py",
         str(workspace / ".codex/hooks/harness_hook.py"),
@@ -69,26 +61,28 @@ def doctor(root: Path, *, config_root: Path | None = None, bootstrap: bool = Fal
     """Report whether this checkout has the files and config needed by Harness."""
     workspace = _resolve_workspace(root)
     errors = _missing_required_file_errors(workspace)
-    errors.extend(_doctor_doc_and_deploy_errors(workspace))
-    config_report, config, config_errors = _doctor_config_report(workspace, config_root)
+    errors.extend(_doctor_doc_errors(workspace))
+    config_report, config_errors = _doctor_config_report(workspace, config_root)
     errors.extend(config_errors)
-    ci_report, configured, ci_errors = _doctor_ci_report(
-        workspace, config_root, config, config_report, bootstrap
-    )
-    errors.extend(ci_errors)
+    profiles_configured = config_report["status"] == "configured"
+    if config_report["status"] == "unconfigured" and not bootstrap:
+        errors.append(f"validation is unconfigured: {VALIDATION_SETUP}")
     errors.extend(_doctor_codex_errors(workspace))
     git_report, git_errors = _doctor_git_report(workspace)
     errors.extend(git_errors)
 
-    return {
+    configured = profiles_configured and not errors
+    report = {
         "ok": not errors and (bootstrap or configured),
         "status": "configured" if configured else "unconfigured",
         "root": str(workspace),
         "config": config_report,
-        "ci": ci_report,
         "git": git_report,
         "errors": list(dict.fromkeys(errors)),
     }
+    if config_report["status"] == "unconfigured":
+        report["next_action"] = VALIDATION_SETUP
+    return report
 
 
 def _missing_required_file_errors(workspace: Path) -> list[str]:
@@ -105,47 +99,22 @@ def _missing_required_file_errors(workspace: Path) -> list[str]:
     return errors
 
 
-def _doctor_config_report(workspace: Path, config_root: Path | None) -> tuple[dict[str, Any], Any, list[str]]:
+def _doctor_config_report(workspace: Path, config_root: Path | None) -> tuple[dict[str, Any], list[str]]:
     config_workspace = workspace if config_root is None else _resolve_workspace(config_root)
     config_path = config_workspace / ".harness/config.toml"
     report: dict[str, Any] = {"status": "unconfigured", "quick_checks": 0, "full_checks": 0}
     if not config_path.exists() and not config_path.is_symlink():
-        return report, None, []
+        return report, []
     try:
         config = load_config(workspace, config_root=config_root)
     except HarnessError:
-        return {**report, "status": "invalid"}, None, [".harness/config.toml (invalid)"]
+        return {**report, "status": "invalid"}, [".harness/config.toml (invalid)"]
     return {
         "schema": 2,
         "status": "configured" if config.quick and config.full else "unconfigured",
         "quick_checks": len(config.quick),
         "full_checks": len(config.full),
-    }, config, []
-
-
-def _doctor_ci_report(workspace: Path, config_root: Path | None, config: Any,
-                      config_report: dict[str, Any], bootstrap: bool) -> tuple[dict[str, Any], bool, list[str]]:
-    try:
-        try:
-            from .check_ci_security import check_security_policy
-        except ImportError:  # Direct script invocation from the scripts directory.
-            from check_ci_security import check_security_policy
-        report = check_security_policy(root=workspace, config_root=config_root)
-    except ImportError:
-        report = {"status": "invalid", "workflows": [],
-                  "errors": ["required CI policy module is unavailable"]}
-    errors: list[str] = []
-    configured = False
-    if report["status"] == "invalid":
-        errors.extend(report["errors"])
-    elif report["ok"] and config is not None and config.quick and config.full:
-        configured = True
-        report = {**report, "status": "configured"}
-    elif not bootstrap:
-        errors.extend(report["errors"])
-    if config_report["status"] == "unconfigured" and not bootstrap:
-        errors.append("validation is unconfigured: define non-empty quick and full profiles")
-    return report, configured, errors
+    }, []
 
 
 def _doctor_codex_errors(workspace: Path) -> list[str]:
@@ -184,6 +153,8 @@ def _has_harness_hook(entries: Any, event: str, workspace: Path) -> bool:
 
 
 def _doctor_git_report(workspace: Path) -> tuple[dict[str, Any] | None, list[str]]:
+    if shutil.which("git") is None:
+        return None, ["Git executable unavailable"]
     try:
         repository = _git_root(workspace)
         branch = _git_output(repository, ["branch", "--show-current"]).strip()
@@ -247,7 +218,7 @@ def _doctor_role_errors(role: str, agents: Any, codex_dir: Path,
     return errors
 
 
-def _doctor_doc_and_deploy_errors(root: Path) -> list[str]:
+def _doctor_doc_errors(root: Path) -> list[str]:
     errors: list[str] = []
     for relative in REQUIRED_DOC_SCAN_PATHS:
         path = root / relative
@@ -257,22 +228,4 @@ def _doctor_doc_and_deploy_errors(root: Path) -> list[str]:
         except (OSError, UnicodeError):
             errors.append(f"could not read project guide: {relative}")
 
-    ignored_roots = {".git", ".worktrees", ".harness", ".pytest_cache", "node_modules", ".next"}
-    for current, directories, files in os.walk(
-        root,
-        topdown=True,
-        followlinks=False,
-        onerror=lambda _error: errors.append("could not scan deployment layout"),
-    ):
-        relative = Path(current).relative_to(root)
-        if any(part in ignored_roots or part == "deploy" for part in relative.parts):
-            directories.clear()
-            continue
-        for name in directories:
-            if name in DEPLOY_DIR_NAMES:
-                errors.append(f"deployment directory must live under deploy/: {(relative / name).as_posix()}")
-        directories[:] = [name for name in directories if name not in ignored_roots and name != "deploy"]
-        for name in files:
-            if name in DEPLOY_FILE_NAMES:
-                errors.append(f"deployment file must live under deploy/: {(relative / name).as_posix()}")
     return errors

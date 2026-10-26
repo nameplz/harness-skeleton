@@ -9,7 +9,6 @@ import unittest
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from scripts.check_ci_security import is_sensitive_path
 from scripts.command_runner import CommandResult
 from scripts.harness import HarnessError, doctor, run_checks
 from scripts.harness_risk import classify_risk, inspect_git_risk
@@ -18,8 +17,8 @@ from tests import test_harness_doctor as doctor_fixtures
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTROL_PATHS = (
-    "AGENTS.md", ".agents/skills/harness/SKILL.md", ".agents/skills/pr-workflow/SKILL.md",
-    "scripts/github_expression_scanner.py", "scripts/command_runner.py",
+    "AGENTS.md", ".agents/skills/harness/SKILL.md",
+    "scripts/harness_doctor.py", "scripts/command_runner.py",
     "packages/foo/AGENTS.md", ".agents/skills/other/SKILL.md",
 )
 
@@ -34,16 +33,14 @@ class HarnessRegressionTests(unittest.TestCase):
     def config(self, root: Path) -> None:
         baseline.HarnessCheckTests.write_config(self, root, [["true"]], [["true"]])
 
-    def test_control_files_are_protected_by_both_policy_layers(self) -> None:
+    def test_control_files_require_highest_risk_tier(self) -> None:
         for path in CONTROL_PATHS:
             with self.subTest(path=path):
-                self.assertTrue(is_sensitive_path(path))
                 self.assertEqual("T3", classify_risk([path], "").level)
         self.assertEqual("T0", classify_risk(["docs/guide.md"], "+authorization").level)
-        self.assertFalse(is_sensitive_path("docs/guide.md"))
 
     def test_trusted_validators_and_their_local_imports_are_protected(self) -> None:
-        pending = ["harness.py", "check_ci_security.py", "check_pr_contract.py"]
+        pending = ["harness.py"]
         visited = set()
         while pending:
             name = pending.pop()
@@ -51,7 +48,6 @@ class HarnessRegressionTests(unittest.TestCase):
                 continue
             visited.add(name)
             relative = "scripts/" + name
-            self.assertTrue(is_sensitive_path(relative), relative)
             self.assertEqual("T3", classify_risk([relative], "").level, relative)
             for node in ast.walk(ast.parse((ROOT / relative).read_text(encoding="utf-8"))):
                 if isinstance(node, ast.ImportFrom) and node.module:
@@ -93,15 +89,13 @@ class HarnessRegressionTests(unittest.TestCase):
                 result = inspect_git_risk(root, load_config_fn=lambda _: None)
             self.assertIn("value.txt", result.changed_paths)
 
-    def test_doctor_requires_pr_workflow_and_executable_hook_shape(self) -> None:
+    def test_doctor_requires_executable_hook_shape(self) -> None:
         with TemporaryDirectory() as temp:
             root = Path(temp)
             self.git(root, "init", "-q")
             self.config(root)
             doctor_fixtures._write_doctor_files(root)
             self.assertTrue(doctor(root)["ok"])
-            (root / ".agents/skills/pr-workflow/SKILL.md").unlink()
-            self.assertIn(".agents/skills/pr-workflow/SKILL.md", doctor(root)["errors"])
             path = root / ".codex/config.toml"
             good = path.read_text(encoding="utf-8")
             for replacement in ("echo", "false", "python3 -c"):
