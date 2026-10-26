@@ -67,7 +67,27 @@ class AgentDocsTests(unittest.TestCase):
                 role_config_path = ROOT / ".codex" / agents[role]["config_file"]
                 role_config = tomllib.loads(role_config_path.read_text(encoding="utf-8"))
                 self.assertEqual("read-only", role_config["sandbox_mode"])
-                self.assertIn("read-only", role_config["developer_instructions"].lower())
+                instructions = role_config["developer_instructions"].lower()
+                for required in (
+                    "read-only", "do not send messages", "modify remote state",
+                    "including push or pr creation", "edit files, or commit",
+                    "review only the requested change",
+                    "report only requirement gaps, incorrect behavior, regressions, missing tests",
+                    "whether test_weakening signals are justified",
+                    "do not report style, personal preferences, or hypothetical cases",
+                    "each finding must include a repository path:line reference and a concrete failure scenario",
+                    "explicitly report no findings",
+                ):
+                    self.assertIn(required, instructions)
+                self.assertNotIn("contract and architecture drift", instructions)
+                if role == "security_reviewer":
+                    self.assertIn("limited to changed trust boundaries", instructions)
+                    for boundary in (
+                        "authorization", "input validation", "path confinement",
+                        "subprocess and shell use", "credentials", "network access",
+                        "permissions", "data exposure", "failure handling",
+                    ):
+                        self.assertIn(boundary, instructions)
                 self.assertNotIn("model", role_config)
 
     def test_skeleton_does_not_assume_a_project_validation_stack(self) -> None:
