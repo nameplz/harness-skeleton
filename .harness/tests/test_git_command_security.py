@@ -6,7 +6,7 @@ import unittest
 import subprocess
 from tempfile import TemporaryDirectory
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from scripts.harness import HarnessError, _validate_command_safety  # noqa: E402

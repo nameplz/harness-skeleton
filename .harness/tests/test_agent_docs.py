@@ -3,9 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 import tomllib
 import unittest
+from tempfile import TemporaryDirectory
+
+from tests import test_harness as baseline
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 class AgentDocsTests(unittest.TestCase):
@@ -68,12 +71,15 @@ class AgentDocsTests(unittest.TestCase):
                 self.assertNotIn("model", role_config)
 
     def test_skeleton_does_not_assume_a_project_validation_stack(self) -> None:
-        config = tomllib.loads((ROOT / ".harness/config.toml").read_text(encoding="utf-8"))
-        for profile in ("quick", "full"):
-            with self.subTest(profile=profile):
-                self.assertEqual([], config["checks"][profile])
-        self.assertFalse((ROOT / ".github/workflows/harness-ci.yml").exists())
-        self.assertFalse((ROOT / ".github/workflows/project-ci.yml").exists())
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            baseline.HarnessCheckTests.write_config(self, root, [], [])
+            config = tomllib.loads((root / ".harness/config.toml").read_text(encoding="utf-8"))
+            for profile in ("quick", "full"):
+                with self.subTest(profile=profile):
+                    self.assertEqual([], config["checks"][profile])
+            self.assertFalse((root / ".github/workflows/harness-ci.yml").exists())
+            self.assertFalse((root / ".github/workflows/project-ci.yml").exists())
 
 
 if __name__ == "__main__":

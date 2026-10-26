@@ -15,11 +15,11 @@ from scripts.harness_risk import classify_risk, inspect_git_risk
 from tests import test_harness as baseline
 from tests import test_harness_doctor as doctor_fixtures
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 CONTROL_PATHS = (
-    "AGENTS.md", ".agents/skills/harness/SKILL.md",
-    "scripts/harness_doctor.py", "scripts/command_runner.py",
-    "packages/foo/AGENTS.md", ".agents/skills/other/SKILL.md",
+    ".codex/config.toml", ".codex/hooks/harness_hook.py", ".github/workflows/ci.yml",
+    "scripts/harness.py", "scripts/harness_common.py", "scripts/harness_risk.py",
+    "scripts/harness_evidence.py", "scripts/command_runner.py", "scripts/harness_doctor.py",
 )
 
 

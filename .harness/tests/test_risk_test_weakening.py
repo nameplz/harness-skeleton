@@ -72,7 +72,7 @@ class TestWeakeningRiskTests(unittest.TestCase):
     def test_hard_tiers_cannot_be_lowered_by_custom_rules(self):
         content = diff("tests/test_app.py", "-assert ready")
         self.assert_weakening(["tests/test_app.py"], content, security_paths=[], security_keywords=[])
-        for paths, extra in ((["tests/test_app.py", ".harness/config.toml"], ""),
+        for paths, extra in ((["tests/test_app.py", ".codex/config.toml"], ""),
                              (["tests/test_app.py"], "+subprocess.run(argv)")):
             with self.subTest(paths=paths):
                 result = self.assert_weakening(paths, content + extra, level="T3")

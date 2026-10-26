@@ -494,6 +494,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     check.set_defaults(profile="quick")
     check.add_argument("--root", default=".", help="repository or subdirectory to validate")
     check.add_argument("--config-root", help="trusted repository root supplying .harness/config.toml")
+    commands.add_parser("selftest", help="run isolated Harness tests locally")
     risk = commands.add_parser("risk", help="classify the current Git diff")
     risk.add_argument("--root", default=".", help="repository or subdirectory to inspect")
     doctor_command = commands.add_parser("doctor", help="inspect Harness project setup")
@@ -506,6 +507,17 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
+        if args.command == "selftest":
+            root = Path(__file__).resolve().parents[1]
+            result = run_bounded_command(
+                [sys.executable, "-I", "-m", "unittest", "discover",
+                 "-s", str(root / ".harness/tests"), "-t", str(root / ".harness")],
+                cwd=root, timeout_seconds=120, max_output_bytes=MAX_COMMAND_OUTPUT_BYTES,
+            )
+            print(result.output, end="")
+            if result.timed_out or result.output_limited or not _unittest_completed(result.output):
+                return result.returncode or 1
+            return result.returncode
         if args.command == "check":
             result = run_checks(
                 Path(args.root),

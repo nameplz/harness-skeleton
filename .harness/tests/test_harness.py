@@ -13,7 +13,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from scripts.harness import HarnessError, load_config, main, run_checks, sanitize_log  # noqa: E402
@@ -37,6 +37,30 @@ class HarnessRiskTests(unittest.TestCase):
                 self.assertEqual(level, result.level)
                 self.assertEqual(code_review, result.code_review)
                 self.assertEqual(security_review, result.security_review)
+
+    def test_harness_path_tiers_follow_local_validation_policy(self) -> None:
+        cases = (
+            (".harness/config.toml", "", "T2"),
+            (".harness/tests/test_x.py", "+assert ready", "T1"),
+            (".harness/tests/test_x.py", "-assert ready", "T2"),
+            ("AGENTS.md", "+guide", "T0"),
+            (".agents/skills/harness/SKILL.md", "+guide", "T0"),
+            ("packages/foo/AGENTS.md", "+guide", "T0"),
+            (".codex/hooks/harness_hook.py", "", "T3"),
+            ("scripts/harness_risk.py", "", "T3"),
+            (".github/workflows/ci.yml", "", "T3"),
+        )
+        for path, diff, tier in cases:
+            with self.subTest(path=path, diff=diff):
+                result = classify_risk([path], diff, security_paths=[], security_keywords=[])
+                self.assertEqual(tier, result.level)
+                self.assertEqual(diff == "-assert ready", "test_weakening" in result.reasons)
+        for path in (".harness/task-template.md", "deploy/app.py", ".github/issue_template.md",
+                     ".codex/agents/reviewer.toml", "scripts/verify_ci.py",
+                     "scripts/github_expression_scanner.py", "scripts/ci_action_policy.py",
+                     "scripts/project_validation.py", "scripts/check_project.py"):
+            with self.subTest(path=path):
+                self.assertNotEqual("T3", classify_risk([path], "").level)
 
     def test_documentation_keywords_do_not_raise_risk(self) -> None:
         cases = (
@@ -136,7 +160,7 @@ class HarnessRiskTests(unittest.TestCase):
                 classify_risk([path], "+change")
 
     def test_sensitive_directory_root_paths_require_security_review(self) -> None:
-        for path in (".github", ".codex", ".harness", "deploy", "auth", "security", "migrations"):
+        for path in ("auth", "security", "migrations"):
             with self.subTest(path=path):
                 result = classify_risk([path], "+change")
 
@@ -218,7 +242,9 @@ class HarnessRiskTests(unittest.TestCase):
                 load_config_fn=lambda _root: SimpleNamespace(security_paths=(), security_keywords=()),
             )
 
-            self.assertTrue(assessment.security_review)
+            self.assertEqual("T2", assessment.level)
+            self.assertTrue(assessment.code_review)
+            self.assertFalse(assessment.security_review)
             self.assertIn(".harness/config.toml", assessment.changed_paths)
             self.assertIn("safe.txt", assessment.changed_paths)
 
@@ -236,10 +262,31 @@ class HarnessRiskTests(unittest.TestCase):
 
 
 class HarnessCheckTests(unittest.TestCase):
+    def test_selftest_uses_isolated_harness_suite_and_propagates_failure(self) -> None:
+        for code in (0, 1):
+            with self.subTest(code=code), patch(
+                "scripts.harness.run_bounded_command", return_value=CommandResult(code, "Ran 1 test in 0.001s\n\nOK\n")
+            ) as run, redirect_stdout(StringIO()):
+                self.assertEqual(code, main(["selftest"]))
+                command = run.call_args.args[0]
+                self.assertEqual([sys.executable, "-I", "-m", "unittest", "discover"], command[:5])
+                self.assertEqual(str(ROOT / ".harness/tests"), command[6])
+                self.assertEqual(str(ROOT / ".harness"), command[8])
+
+    def test_selftest_rejects_empty_or_incomplete_suite(self) -> None:
+        for output in ("", "Ran 0 tests in 0.001s\n\nOK\n"):
+            with self.subTest(output=output), patch(
+                "scripts.harness.run_bounded_command", return_value=CommandResult(0, output)
+            ), redirect_stdout(StringIO()):
+                self.assertNotEqual(0, main(["selftest"]))
+
     def test_skeleton_profiles_start_unconfigured(self) -> None:
-        config = load_config(ROOT)
-        self.assertEqual((), config.quick)
-        self.assertEqual((), config.full)
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_config(root, [], [])
+            config = load_config(root)
+            self.assertEqual((), config.quick)
+            self.assertEqual((), config.full)
 
     def write_config(self, root: Path, quick: list[list[str]], full: list[list[str]]) -> Path:
         config = root / ".harness/config.toml"

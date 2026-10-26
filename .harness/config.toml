@@ -7,16 +7,7 @@ full = [
 ]
 
 [risk]
-security_paths = [
-  ".github/**",
-  ".codex/hooks/**",
-  ".harness/**",
-  "deploy/**",
-  "**/auth/**",
-  "**/security/**",
-  "**/migrations/**",
-  "*.sql",
-  "**/*.sql",
-]
+# 프로젝트 고유 위험 경로만 추가한다.
+security_paths = []
 # security_keywords add hard T3 signals; hint keywords never set review routes.
 security_hint_keywords = ["network client"]

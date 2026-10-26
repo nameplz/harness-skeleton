@@ -9,7 +9,7 @@ import unittest
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".codex/hooks"))
 
 from harness_hook import CHECK_TIMEOUT_SECONDS, HARNESS_SCRIPT, handle_event  # noqa: E402

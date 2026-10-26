@@ -20,18 +20,9 @@ except ImportError:  # Direct script invocation from the scripts directory.
 MAX_DIFF_BYTES = 8 * 1024 * 1024
 MAX_UNTRACKED_FILE_BYTES = 1024 * 1024
 DEFAULT_SECURITY_PATHS = (
-    "AGENTS.md",
-    "**/AGENTS.md",
-    ".agents",
-    ".agents/**",
-    ".github",
-    ".github/**",
-    ".codex",
-    ".codex/**",
-    ".harness",
-    ".harness/**",
-    "deploy",
-    "deploy/**",
+    ".codex/hooks/**",
+    ".codex/config.toml",
+    ".github/workflows/**",
     "auth",
     "auth/**",
     "**/auth/**",
@@ -48,12 +39,7 @@ DEFAULT_SECURITY_PATHS = (
     "scripts/harness_risk.py",
     "scripts/harness_evidence.py",
     "scripts/command_runner.py",
-    "scripts/github_expression_scanner.py",
-    "scripts/verify_ci.py",
-    "scripts/ci_action_policy.py",
     "scripts/harness_doctor.py",
-    "scripts/*validation*.py",
-    "scripts/check_*.py",
 )
 DEFAULT_SECURITY_KEYWORDS = (
     "subprocess",
@@ -318,6 +304,8 @@ def _complexity_reasons(paths: Sequence[str], changed_text: str) -> list[str]:
         reasons.append("changed a public API area")
     if any(PurePosixPath(path).name.casefold() in DEPENDENCY_FILES for path in paths):
         reasons.append("changed dependency declarations")
+    if any(path.casefold() == ".harness/config.toml" for path in paths):
+        reasons.append("changed Harness configuration")
     for marker in COMPLEXITY_MARKERS:
         if marker in changed_text:
             reasons.append(f"complex change marker: {marker}")
