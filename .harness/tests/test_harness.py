@@ -103,7 +103,7 @@ class HarnessRiskTests(unittest.TestCase):
             ("AGENTS.md", "+guide", "T2"),
             (".agents/skills/harness/SKILL.md", "+guide", "T2"),
             ("packages/foo/AGENTS.md", "+guide", "T2"),
-            (".codex/hooks/harness_hook.py", "", "T3"),
+            ("scripts/hooks/agent_hook.py", "", "T3"),
             ("scripts/harness_risk.py", "", "T3"),
             (".github/workflows/ci.yml", "", "T3"),
         )
@@ -518,12 +518,12 @@ class HarnessCheckTests(unittest.TestCase):
         with TemporaryDirectory() as temp:
             root = Path(temp)
             scripts = root / "scripts"
-            hooks = root / ".codex/hooks"
+            hooks = root / "scripts/hooks"
             scripts.mkdir()
             hooks.mkdir(parents=True)
             (root / "compileall.py").write_text("print('fake compileall')\n", encoding="utf-8")
             (scripts / "broken.py").write_text("def broken(:\n", encoding="utf-8")
-            command = [sys.executable, "-m", "compileall", "-q", "scripts", ".codex/hooks"]
+            command = [sys.executable, "-m", "compileall", "-q", "scripts", "scripts/hooks"]
             self.write_config(root, [command], [command])
 
             report = run_checks(root, "quick")

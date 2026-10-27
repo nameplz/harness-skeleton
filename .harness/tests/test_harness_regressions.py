@@ -17,7 +17,7 @@ from tests import test_harness_doctor as doctor_fixtures
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTROL_PATHS = (
-    ".codex/config.toml", ".codex/hooks/harness_hook.py", ".github/workflows/ci.yml",
+    ".codex/config.toml", "scripts/hooks/agent_hook.py", ".github/workflows/ci.yml",
     "scripts/harness.py", "scripts/harness_common.py", "scripts/harness_risk.py",
     "scripts/harness_evidence.py", "scripts/command_runner.py", "scripts/harness_doctor.py",
 )

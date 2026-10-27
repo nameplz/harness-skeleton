@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PROJECT_DIR}/scripts/hooks/agent_hook.py\"",
+            "timeout": 960
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PROJECT_DIR}/scripts/hooks/agent_hook.py\"",
+            "timeout": 180
+          }
+        ]
+      }
+    ]
+  }
+}

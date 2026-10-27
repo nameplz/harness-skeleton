@@ -144,7 +144,7 @@ class HarnessGateTests(unittest.TestCase):
         self.assertEqual([], self.counts())
 
     def test_ac8_mv3_stop_reuses_cache_on_second_call(self) -> None:
-        spec = importlib.util.spec_from_file_location("gate_test_hook", ROOT / ".codex/hooks/harness_hook.py")
+        spec = importlib.util.spec_from_file_location("gate_test_hook", ROOT / "scripts/hooks/agent_hook.py")
         hook = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(hook)
         self.change()

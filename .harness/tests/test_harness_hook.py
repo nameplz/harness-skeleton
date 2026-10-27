@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -10,13 +12,61 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / ".codex/hooks"))
+sys.path.insert(0, str(ROOT / "scripts/hooks"))
 
-from harness_hook import CHECK_TIMEOUT_SECONDS, HARNESS_SCRIPT, handle_event  # noqa: E402
+from agent_hook import CHECK_TIMEOUT_SECONDS, HARNESS_SCRIPT, handle_event  # noqa: E402
 from scripts.harness import CHECK_QUICK_TIMEOUT_SECONDS, CHECK_TOTAL_TIMEOUT_SECONDS  # noqa: E402
 
 
 class HarnessHookTests(unittest.TestCase):
+    def test_wp05_ac1_claude_pre_tool_use_returns_deny_json(self) -> None:
+        with TemporaryDirectory() as temp:
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/hooks/agent_hook.py")],
+                input=json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash",
+                                  "tool_input": {"command": "rm -rf x"}, "cwd": temp}),
+                capture_output=True, text=True, check=False,
+            )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("deny", json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"])
+
+    def test_wp05_ac2_stop_reentry_has_no_output(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/hooks/agent_hook.py")],
+            input=json.dumps({"hook_event_name": "Stop", "stop_hook_active": True}),
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("", result.stdout)
+
+    def test_wp05_ac3_claude_project_dir_precedes_nested_cwd_and_git_root(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            nested = root / "nested"
+            nested.mkdir()
+            with patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": str(root)}), \
+                    patch("agent_hook._resolve_project_root") as resolve, \
+                    patch("agent_hook.evidence_matches", return_value=False), \
+                    patch("agent_hook._run_check", return_value=(True, "")) as check:
+                self.assertIsNone(handle_event({"hook_event_name": "Stop", "cwd": str(nested)}))
+                check.assert_called_once_with(root, "quick")
+                resolve.assert_not_called()
+            with patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": str(root / "missing")}):
+                result = handle_event({"hook_event_name": "Stop", "cwd": str(nested)})
+                self.assertEqual("block", result["decision"])
+
+    def test_wp05_ac6_moved_hook_runs_without_adapters(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            shutil.copytree(ROOT / "scripts", root / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
+            result = subprocess.run(
+                [sys.executable, str(root / "scripts/hooks/agent_hook.py")],
+                input=json.dumps({"hook_event_name": "Stop", "cwd": str(root)}),
+                capture_output=True, text=True, check=False,
+            )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("", result.stdout)
+
     def test_validation_hook_timeout_exceeds_quick_profile_ceiling(self) -> None:
         config = tomllib.loads((ROOT / ".codex/config.toml").read_text(encoding="utf-8"))
         hooks = config["hooks"]
@@ -31,7 +81,7 @@ class HarnessHookTests(unittest.TestCase):
         self.assertEqual(180, config["hooks"]["Stop"][0]["hooks"][0]["timeout"])
 
     def test_commit_delegates_to_git_gate_without_agent_checks(self) -> None:
-        with patch("harness_hook._run_check") as check, patch("harness_hook.subprocess.run") as run:
+        with patch("agent_hook._run_check") as check, patch("agent_hook.subprocess.run") as run:
             result = handle_event({"hook_event_name": "PreToolUse", "tool_name": "Bash",
                                    "tool_input": {"command": "git commit -m x"}, "cwd": str(ROOT)})
         self.assertIsNone(result)
@@ -39,8 +89,8 @@ class HarnessHookTests(unittest.TestCase):
         run.assert_not_called()
 
     def test_stop_runs_only_quick_without_risk(self) -> None:
-        with patch("harness_hook._resolve_project_root", return_value=ROOT), patch(
-            "harness_hook.subprocess.run", return_value=subprocess.CompletedProcess([], 0, '{"ok": true}', "")
+        with patch("agent_hook._resolve_project_root", return_value=ROOT), patch(
+            "agent_hook.subprocess.run", return_value=subprocess.CompletedProcess([], 0, '{"ok": true}', "")
         ) as run:
             self.assertIsNone(handle_event({"hook_event_name": "Stop", "cwd": str(ROOT)}))
             run.assert_called_once()
@@ -64,7 +114,7 @@ class HarnessHookTests(unittest.TestCase):
         self.assertEqual("", completed.stdout)
 
     def test_hook_resolves_the_repository_root_from_a_nested_cwd(self) -> None:
-        with patch("harness_hook._run_check", return_value=(False, "failed")) as quick_check:
+        with patch("agent_hook._run_check", return_value=(False, "failed")) as quick_check:
             result = handle_event({"hook_event_name": "Stop", "cwd": str(ROOT / "docs")})
 
         quick_check.assert_called_once_with(ROOT, "quick")
@@ -142,7 +192,7 @@ class HarnessHookTests(unittest.TestCase):
             "git --no-lazy-fetch commit -m x", "GIT.EXE --no-pager commit -m x",
         ):
             with self.subTest(command=command), patch(
-                "harness_hook._run_check", return_value=(False, "failed")
+                "agent_hook._run_check", return_value=(False, "failed")
             ) as check:
                 result = handle_event({"hook_event_name": "PreToolUse", "tool_name": "Bash",
                                        "tool_input": {"command": command}, "cwd": str(ROOT)})
@@ -155,7 +205,7 @@ class HarnessHookTests(unittest.TestCase):
             "echo ';' git commit", "git -C 'git commit' status", "git -C",
             "git status --format='git commit'", "echo 'unterminated",
         ):
-            with self.subTest(command=command), patch("harness_hook._run_check") as check:
+            with self.subTest(command=command), patch("agent_hook._run_check") as check:
                 result = handle_event({"hook_event_name": "PreToolUse", "tool_name": "Bash",
                                        "tool_input": {"command": command}})
                 self.assertIsNone(result)
@@ -164,7 +214,7 @@ class HarnessHookTests(unittest.TestCase):
     def test_invalid_hook_payload_reports_an_error_without_echoing_input(self) -> None:
         for payload in ("not-json private-input", "[]"):
             with self.subTest(payload=payload):
-                result = subprocess.run([sys.executable, str(ROOT / ".codex/hooks/harness_hook.py")],
+                result = subprocess.run([sys.executable, str(ROOT / "scripts/hooks/agent_hook.py")],
                                         input=payload, capture_output=True, text=True, check=False)
                 self.assertNotEqual(0, result.returncode)
                 self.assertIn("invalid hook payload", result.stderr)

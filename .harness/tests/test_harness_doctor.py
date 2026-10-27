@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import shutil
 import sys
+import tomllib
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -13,10 +14,98 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from scripts.harness import doctor, main
-from scripts.harness_doctor import VALIDATION_SETUP
+from scripts.harness_doctor import VALIDATION_SETUP, _has_model_setting, _claude_frontmatter
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 class HarnessDoctorTests(unittest.TestCase):
+    def test_wp05_ac4_mv6_optional_adapter_combinations(self) -> None:
+        for codex, claude in ((False, False), (True, False), (False, True), (True, True)):
+            with self.subTest(codex=codex, claude=claude), TemporaryDirectory() as temp:
+                root = Path(temp)
+                _write_doctor_files(root)
+                if not codex:
+                    shutil.rmtree(root / ".codex")
+                if claude:
+                    shutil.copytree(ROOT / ".claude", root / ".claude")
+                self.run_git(root, "init", "-q")
+                report = doctor(root)
+                self.assertTrue(report["ok"], report["errors"])
+                self.assertEqual("configured", report["status"])
+                self.assertEqual([], report["warnings"])
+
+    def test_wp05_ac5_adapters_have_no_model_pinning_and_share_instructions(self) -> None:
+        codex = tomllib.loads((ROOT / ".codex/config.toml").read_text())
+        self.assertNotIn("PermissionRequest", codex["hooks"])
+        self.assertFalse(_has_model_setting(codex))
+        settings = json.loads((ROOT / ".claude/settings.json").read_text())
+        self.assertFalse(_has_model_setting(settings))
+        for role in ("reviewer", "security-reviewer"):
+            data = tomllib.loads((ROOT / f".codex/agents/{role}.toml").read_text())
+            self.assertFalse(_has_model_setting(data))
+            metadata, instructions = _claude_frontmatter((ROOT / f".claude/agents/{role}.md").read_text())
+            self.assertNotRegex(metadata, r"(?m)^model:")
+            self.assertEqual(data["developer_instructions"].strip(), instructions.strip())
+
+    def test_claude_doctor_rejects_missing_hooks_and_write_tools(self) -> None:
+        for invalid in ("settings", "missing settings", "tools", "duplicate tools", "quoted tools", "instructions"):
+            with self.subTest(invalid=invalid), TemporaryDirectory() as temp:
+                root = Path(temp)
+                _write_doctor_files(root)
+                shutil.copytree(ROOT / ".claude", root / ".claude")
+                settings = root / ".claude/settings.json"
+                reviewer = root / ".claude/agents/reviewer.md"
+                if invalid == "settings":
+                    settings.write_text('{"hooks": {}}')
+                elif invalid == "missing settings":
+                    settings.unlink()
+                elif invalid == "instructions":
+                    metadata, _ = _claude_frontmatter(reviewer.read_text())
+                    reviewer.write_text(f"---\n{metadata}\n---\n")
+                else:
+                    replacement = {"tools": "tools: Read, Bash", "duplicate tools": "tools: Read\ntools: Bash",
+                                   "quoted tools": 'tools: Read\n"tools": Bash'}[invalid]
+                    reviewer.write_text(reviewer.read_text().replace("tools: Read, Grep, Glob", replacement))
+                self.run_git(root, "init", "-q")
+                report = doctor(root)
+                self.assertFalse(report["ok"])
+                self.assertTrue(any(".claude/" in error for error in report["errors"]))
+
+    def test_claude_doctor_rejects_adapter_symlink_escape(self) -> None:
+        with TemporaryDirectory() as temp, TemporaryDirectory() as external:
+            root = Path(temp)
+            _write_doctor_files(root)
+            shutil.copytree(ROOT / ".claude", Path(external) / ".claude")
+            (root / ".claude").symlink_to(Path(external) / ".claude", target_is_directory=True)
+            report = doctor(root, bootstrap=True)
+            self.assertFalse(report["ok"])
+            self.assertIn(".claude/settings.json (invalid)", report["errors"])
+
+    def test_adapter_model_overrides_warn_without_changing_readiness(self) -> None:
+        for adapter in ("codex", "claude settings", "claude reviewer"):
+            with self.subTest(adapter=adapter), TemporaryDirectory() as temp:
+                root = Path(temp)
+                _write_doctor_files(root)
+                shutil.copytree(ROOT / ".claude", root / ".claude")
+                if adapter == "codex":
+                    path = root / ".codex/agents/reviewer.toml"
+                    key = "model" + "_reasoning_effort"
+                    path.write_text(path.read_text() + f'{key} = "custom"\n')
+                elif adapter == "claude settings":
+                    path = root / ".claude/settings.json"
+                    data = json.loads(path.read_text())
+                    data["model"] = "custom"
+                    path.write_text(json.dumps(data))
+                else:
+                    path = root / ".claude/agents/reviewer.md"
+                    path.write_text(path.read_text().replace("---\n", "---\nmodel: custom\n", 1))
+                self.run_git(root, "init", "-q")
+                report = doctor(root)
+                self.assertTrue(report["ok"], report["errors"])
+                self.assertEqual("configured", report["status"])
+                self.assertTrue(any("runtime defaults" in warning for warning in report["warnings"]))
+
     def write_config(self, root: Path, quick: list[list[str]], full: list[list[str]]) -> Path:
         config = root / ".harness/config.toml"
         config.parent.mkdir(parents=True, exist_ok=True)
@@ -315,7 +404,7 @@ def _write_doctor_files(root: Path) -> None:
         "AGENTS.md", "docs/ARCHITECTURE.md", "docs/ADR.md",
         ".agents/skills/harness/SKILL.md",
         ".harness/task-template.md", ".codex/config.toml", ".codex/agents/reviewer.toml",
-        ".codex/agents/security-reviewer.toml", ".codex/hooks/harness_hook.py",
+        ".codex/agents/security-reviewer.toml", "scripts/hooks/agent_hook.py",
         "scripts/command_runner.py", "scripts/harness.py", "scripts/harness_doctor.py",
         "scripts/harness_common.py", "scripts/harness_risk.py", "scripts/harness_evidence.py",
         "scripts/harness_gate.py", ".harness/githooks/pre-commit",
@@ -334,12 +423,9 @@ def _write_doctor_fixture_file(root: Path, relative: str) -> None:
             '[agents.security_reviewer]\nconfig_file = "agents/security-reviewer.toml"\n'
             "[[hooks.PreToolUse]]\nmatcher = \"^Bash$\"\n"
             "[[hooks.PreToolUse.hooks]]\ntype = \"command\"\n"
-            "command = 'python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/harness_hook.py\"'\n"
-            "[[hooks.PermissionRequest]]\nmatcher = \"^Bash$\"\n"
-            "[[hooks.PermissionRequest.hooks]]\ntype = \"command\"\n"
-            "command = 'python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/harness_hook.py\"'\n"
+            "command = 'python3 \"$(git rev-parse --show-toplevel)/scripts/hooks/agent_hook.py\"'\n"
             "[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = \"command\"\n"
-            "command = 'python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/harness_hook.py\"'\n",
+            "command = 'python3 \"$(git rev-parse --show-toplevel)/scripts/hooks/agent_hook.py\"'\n",
             encoding="utf-8",
         )
     elif relative in {".codex/agents/reviewer.toml", ".codex/agents/security-reviewer.toml"}:

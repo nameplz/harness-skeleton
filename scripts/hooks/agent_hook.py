@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Provide small Codex hook guardrails and configured project validation."""
+"""Provide small agent hook guardrails and configured project validation."""
 
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -157,11 +158,14 @@ def handle_event(payload: dict[str, Any]) -> dict[str, Any] | None:
     else:
         return None
 
-    raw_root = payload.get("cwd") or "."
+    raw_root = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or "."
     if not isinstance(raw_root, str):
         return _hook_response(event, "Project root is invalid; validation was not run.")
     try:
-        root = _resolve_project_root(raw_root)
+        root = (Path(raw_root).resolve(strict=True) if os.environ.get("CLAUDE_PROJECT_DIR")
+                else _resolve_project_root(raw_root))
+        if not root.is_dir():
+            raise OSError("not a directory")
     except (OSError, RuntimeError):
         return _hook_response(event, "Project root is unavailable; validation was not run.")
 

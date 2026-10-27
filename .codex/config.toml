@@ -8,7 +8,7 @@ hooks = true
 enabled = true
 
 [agents.reviewer]
-description = "Independent, read-only reviewer for T2/T3 correctness, contracts, architecture, regression risk, and test adequacy."
+description = "Independent, read-only reviewer for T2/T3 requirement gaps, incorrect behavior, regressions, missing tests, and test_weakening justification."
 config_file = "agents/reviewer.toml"
 
 [agents.security_reviewer]
@@ -20,23 +20,14 @@ matcher = "^Bash$"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = 'python "$(git rev-parse --show-toplevel)/.codex/hooks/harness_hook.py"'
+command = 'python "$(git rev-parse --show-toplevel)/scripts/hooks/agent_hook.py"'
 timeout = 960
 statusMessage = "Checking Bash command and commit validation"
-
-[[hooks.PermissionRequest]]
-matcher = "^Bash$"
-
-[[hooks.PermissionRequest.hooks]]
-type = "command"
-command = 'python "$(git rev-parse --show-toplevel)/.codex/hooks/harness_hook.py"'
-timeout = 10
-statusMessage = "Checking approval request"
 
 [[hooks.Stop]]
 
 [[hooks.Stop.hooks]]
 type = "command"
-command = 'python "$(git rev-parse --show-toplevel)/.codex/hooks/harness_hook.py"'
+command = 'python "$(git rev-parse --show-toplevel)/scripts/hooks/agent_hook.py"'
 timeout = 180
 statusMessage = "Running project validation"
