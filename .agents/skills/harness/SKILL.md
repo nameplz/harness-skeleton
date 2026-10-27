@@ -40,6 +40,8 @@ Install the commit gate during setup with `python scripts/harness.py install-gat
 
 Remote work only when requested by the user.
 
-## Optional long-task note
+## Session start
 
-For work spanning sessions, use `.harness/task-template.md` under `.harness/tasks/<slug>.md` with acceptance evidence, constraints, decisions, current state, and next action. Skip notes for routine tasks. On resume, compare actual Git/config state and invalidate stale evidence. Never store credentials or whole conversations.
+Run `python scripts/harness.py status`, then read ongoing `.harness/tasks/*.md` notes. Without a passing record matching current evidence, run `python scripts/harness.py check --quick` before new work. Unconfigured profiles need setup first. SessionStart hooks are optional.
+
+For multi-session work, use `.harness/task-template.md` for acceptance evidence, constraints, decisions, state, and next action. Skip routine notes; never store credentials or conversations.

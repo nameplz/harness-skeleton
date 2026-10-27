@@ -527,6 +527,63 @@ def doctor(root: Path, *, config_root: Path | None = None, bootstrap: bool = Fal
     return run_doctor(root, config_root=config_root, bootstrap=bootstrap)
 
 
+def status(root: Path) -> dict[str, Any]:
+    """Inspect session readiness; never run checks or write repository state."""
+    try:
+        from .harness_gate import evidence_matches, gate_errors, read_check
+    except ImportError:
+        from harness_gate import evidence_matches, gate_errors, read_check
+    workspace = _resolve_workspace(root)
+    report: dict[str, Any] = {"repository": "unavailable", "branch": None, "dirty": None}
+    try:
+        workspace = _git_root(workspace)
+        report["repository"] = "available"
+        report["branch"] = _git_output(workspace, ["branch", "--show-current"]).strip() or "detached"
+        report["dirty"] = bool(_git_output(workspace, ["status", "--porcelain=v1", "-z"]))
+    except (HarnessError, OSError, ValueError) as exc:
+        report["git_error"] = sanitize_log(str(exc))
+    config_report: dict[str, Any] = {"status": "unconfigured", "quick_checks": 0, "full_checks": 0}
+    config_path = workspace / ".harness/config.toml"
+    if config_path.exists() or config_path.is_symlink():
+        try:
+            config = load_config(workspace)
+            config_report.update(status="configured" if config.quick and config.full else "unconfigured",
+                                 quick_checks=len(config.quick), full_checks=len(config.full))
+        except (HarnessError, OSError, ValueError) as exc:
+            config_report.update(status="invalid", error=sanitize_log(str(exc)))
+    report["profiles"] = config_report
+    errors = gate_errors(workspace)
+    report["gate"] = {"installed": not errors, "errors": errors}
+    report["checks"] = {}
+    for profile in ("quick", "full"):
+        cached = read_check(workspace, profile) or {}
+        passed = cached.get("ok")
+        report["checks"][profile] = {
+            "last_result": "passed" if passed is True else "failed" if passed is False else "unavailable",
+            "finished_at": cached.get("finished_at"),
+            "evidence_matches": evidence_matches(workspace, profile),
+        }
+    try:
+        report["risk"] = inspect_git_risk(workspace, load_config_fn=load_config).to_dict()
+    except (HarnessError, OSError, ValueError) as exc:
+        report["risk"] = {"level": "unknown", "error": sanitize_log(str(exc))}
+    return report
+
+
+def _status_text(report: dict[str, Any]) -> str:
+    dirty = report["dirty"]
+    lines = [f"Repository: {report['repository']}", f"Branch: {report['branch'] or 'unavailable'}",
+             f"Working tree: {'unknown' if dirty is None else 'dirty' if dirty else 'clean'}",
+             f"Profiles: {report['profiles']['status']} "
+             f"(quick={report['profiles']['quick_checks']}, full={report['profiles']['full_checks']})",
+             f"Gate: {'installed' if report['gate']['installed'] else 'unavailable'}"]
+    for profile, check in report["checks"].items():
+        lines.append(f"{profile}: last={check['last_result']}, "
+                     f"current evidence={'matches' if check['evidence_matches'] else 'no matching pass'}")
+    lines.append(f"Risk: {report['risk']['level']}")
+    return sanitize_log("\n".join(lines))
+
+
 def _safe_command(command: Sequence[str]) -> list[str]:
     return [sanitize_log(argument) for argument in command]
 
@@ -541,6 +598,9 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     check.set_defaults(profile="quick")
     check.add_argument("--root", default=".", help="repository or subdirectory to validate")
     check.add_argument("--config-root", help="trusted repository root supplying .harness/config.toml")
+    status_command = commands.add_parser("status", help="read session state and cached validation evidence")
+    status_command.add_argument("--root", default=".")
+    status_command.add_argument("--json", action="store_true", help="print structured session state")
     commands.add_parser("selftest", help="run isolated Harness tests locally")
     risk = commands.add_parser("risk", help="classify the current Git diff")
     risk.add_argument("--root", default=".", help="repository or subdirectory to inspect")
@@ -559,6 +619,10 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
+        if args.command == "status":
+            result = status(Path(args.root))
+            print(json.dumps(result, ensure_ascii=False, indent=2) if args.json else _status_text(result))
+            return 0
         if args.command in {"gate", "install-gate"}:
             try:
                 from .harness_gate import gate, install_gate

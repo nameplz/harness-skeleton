@@ -39,7 +39,7 @@ class AgentDocsTests(unittest.TestCase):
         for boundary in ("Always:", "Ask first:", "Never commit secrets", "Never bypass the commit gate",
                          "--no-verify", "adding dependencies"):
             self.assertIn(boundary, agents)
-        self.assertNotIn("harness.py status", agents)
+        self.assertIn("python scripts/harness.py status", agents)
         self.assertNotRegex(agents, r"(?i)codex|claude|you are a")
         for command in ("check --quick", "check --full", "gate", "install-gate", "risk", "doctor", "selftest"):
             self.assertIn(f"python scripts/harness.py {command}", agents)
@@ -214,6 +214,14 @@ class AgentDocsTests(unittest.TestCase):
                     ):
                         self.assertIn(boundary, instructions)
                 self.assertNotIn("model", role_config)
+
+    def test_wp08_session_start_routes_to_status_notes_and_quick(self) -> None:
+        skill = (ROOT / ".agents/skills/harness/SKILL.md").read_text()
+        section = skill.split("## Session start\n", 1)[1]
+        for expected in ("python scripts/harness.py status", ".harness/tasks/*.md",
+                         "matching current evidence", "python scripts/harness.py check --quick",
+                         "before new work", "SessionStart hooks are optional"):
+            self.assertIn(expected, section)
 
     def test_skeleton_does_not_assume_a_project_validation_stack(self) -> None:
         with TemporaryDirectory() as temp:

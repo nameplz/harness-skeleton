@@ -59,6 +59,19 @@ def save_check(root: Path, report: dict[str, Any]) -> None:
             temporary.unlink(missing_ok=True)
 
 
+def read_check(root: Path, profile: str) -> dict[str, Any] | None:
+    """Read a bounded cached result without changing evidence or repository state."""
+    try:
+        with _cache_path(root, profile).open(encoding="utf-8") as stream:
+            raw = stream.read(64 * 1024 + 1)
+        if len(raw) > 64 * 1024:
+            return None
+        cached = json.loads(raw)
+        return cached if isinstance(cached, dict) else None
+    except (HarnessError, OSError, UnicodeError, RuntimeError, ValueError):
+        return None
+
+
 def evidence_matches(root: Path, profile: str) -> bool:
     if profile not in {"quick", "full"}:
         return False
@@ -73,15 +86,7 @@ def evidence_matches(root: Path, profile: str) -> bool:
             return False
         current = {key: evidence[key] for key in ("head", "dirty", "diff_sha256")}
         for candidate in (("quick", "full") if profile == "quick" else ("full",)):
-            path = _cache_path(root, candidate)
-            try:
-                with path.open(encoding="utf-8") as stream:
-                    raw = stream.read(64 * 1024 + 1)
-                if len(raw) > 64 * 1024:
-                    continue
-                cached = json.loads(raw)
-            except (OSError, UnicodeError, ValueError):
-                continue
+            cached = read_check(root, candidate)
             if (isinstance(cached, dict) and cached.get("ok") is True
                     and cached.get("profile") == candidate
                     and cached.get("config_sha256") == config_hash

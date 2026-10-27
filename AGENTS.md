@@ -4,6 +4,8 @@
 
 ## Commands
 
+- Session state: `python scripts/harness.py status` (`--json` for structured output)
+
 - Setup: {setup command}; configure checks using [Harness skill](.agents/skills/harness/SKILL.md#validation-profile-setup) if `doctor` reports `unconfigured`.
 - Run: {run command}
 - Quick: `python scripts/harness.py check --quick`
