@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import json
+import shutil
+import subprocess
+import sys
 import tomllib
 import unittest
 from tempfile import TemporaryDirectory
@@ -16,7 +20,7 @@ class AgentDocsTests(unittest.TestCase):
     def test_agents_file_is_a_short_router_to_live_sources(self) -> None:
         agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
 
-        self.assertLessEqual(len(agents.splitlines()), 50)
+        self.assertLessEqual(len(agents.splitlines()), 100)
         for relative in (
             "docs/ARCHITECTURE.md",
             "docs/ADR.md",
@@ -25,10 +29,65 @@ class AgentDocsTests(unittest.TestCase):
             self.assertIn(relative, agents)
             self.assertTrue((ROOT / relative).is_file(), relative)
         self.assertIn("only when modifying Harness itself", agents)
-        for command in ("check --quick", "check --full", "risk", "doctor", "selftest"):
+        self.assertEqual(["# Project", "## Commands", "## Layout", "## Code style", "## Boundaries",
+                          "## Validation ladder (local)", "## References"],
+                         re.findall(r"^#{1,2} .+", agents, re.M))
+        for placeholder in ("{one-line description}", "{setup command}", "{run command}", "{snippet:"):
+            self.assertIn(placeholder, agents)
+        self.assertIn("```python", agents)
+        self.assertIn("return bool(name.strip())", agents)
+        for boundary in ("Always:", "Ask first:", "Never commit secrets", "Never bypass the commit gate",
+                         "--no-verify", "adding dependencies"):
+            self.assertIn(boundary, agents)
+        self.assertNotIn("harness.py status", agents)
+        self.assertNotRegex(agents, r"(?i)codex|claude|you are a")
+        for command in ("check --quick", "check --full", "gate", "install-gate", "risk", "doctor", "selftest"):
             self.assertIn(f"python scripts/harness.py {command}", agents)
-        for contract in ("2–5", "1–3", "exit code", "unverified", "Never weaken tests"):
+        for contract in ("2–5", "1–3", "exit code", "unverified", "weaken tests"):
             self.assertIn(contract, agents)
+
+    def test_wp07_ac2_empty_skeleton_doctor_and_bootstrap(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp) / "skeleton"
+            shutil.copytree(ROOT, root, ignore=shutil.ignore_patterns(".git", "__pycache__", ".codex", ".claude"))
+            subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
+            def run(*arguments: str) -> tuple[int, dict]:
+                result = subprocess.run([sys.executable, "-I", str(root / "scripts/harness.py"),
+                                         "doctor", *arguments], cwd=root, capture_output=True, text=True)
+                return result.returncode, json.loads(result.stdout)
+            code, regular = run()
+            self.assertEqual(1, code)
+            self.assertFalse(regular["ok"])
+            self.assertIn("unresolved placeholder: AGENTS.md", regular["errors"])
+            code, bootstrap = run("--bootstrap")
+            self.assertEqual(0, code, bootstrap)
+            self.assertTrue(bootstrap["ok"])
+            self.assertEqual("unconfigured", bootstrap["status"])
+            (root / "AGENTS.md").unlink()
+            code, missing = run("--bootstrap")
+            self.assertEqual(1, code)
+            self.assertIn("AGENTS.md", missing["errors"])
+            self.assertIn("could not read project guide: AGENTS.md", missing["errors"])
+
+    def test_wp07_ac3_templates_are_optional_and_not_scanned(self) -> None:
+        from scripts.harness_doctor import REQUIRED_PROJECT_FILES, REQUIRED_DOC_SCAN_PATHS, _doctor_doc_errors
+        for name in ("PRD.md", "UI_GUIDE.md"):
+            self.assertFalse((ROOT / "docs" / name).exists())
+            template = ROOT / "docs/templates" / name
+            self.assertTrue(template.is_file())
+            self.assertRegex(template.read_text(), r"\{[^{}\n]+\}")
+            self.assertNotIn(f"docs/templates/{name}", REQUIRED_PROJECT_FILES)
+            self.assertNotIn(f"docs/templates/{name}", REQUIRED_DOC_SCAN_PATHS)
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            for relative in REQUIRED_DOC_SCAN_PATHS:
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("Configured guide.\n")
+            shutil.copytree(ROOT / "docs/templates", root / "docs/templates")
+            self.assertEqual([], _doctor_doc_errors(root))
+            shutil.rmtree(root / "docs/templates")
+            self.assertEqual([], _doctor_doc_errors(root))
 
     def test_one_harness_skill_defines_risk_routing_and_deterministic_validation(self) -> None:
         skill = ROOT / ".agents/skills/harness/SKILL.md"
@@ -55,6 +114,10 @@ class AgentDocsTests(unittest.TestCase):
         self.assertIn("unrelated changes", skill)
         self.assertIn("honor explicit no-commit instructions", skill)
         self.assertIn("remote work only when requested by the user", skill)
+        for command in ("install-gate", "check --full", "gate"):
+            self.assertIn(f"python scripts/harness.py {command}", skill)
+        self.assertIn("before committing to catch failures early", skill)
+        self.assertIn("current head, diff, and config", skill)
         self.assertIn("never push, create a pr, or merge without a user request", agents)
 
     def test_agent_docs_fit_budgets_and_have_no_retired_workflows(self) -> None:
@@ -77,13 +140,14 @@ class AgentDocsTests(unittest.TestCase):
 
     def test_profile_setup_and_local_architecture_are_documented(self) -> None:
         skill = (ROOT / ".agents/skills/harness/SKILL.md").read_text(encoding="utf-8")
-        setup = skill.split("## Validation profile setup / 검증 프로필 설정\n", 1)[1].split("\n## ", 1)[0]
+        setup = skill.split("## Validation profile setup\n", 1)[1].split("\n## ", 1)[0]
         for required in (
             "unconfigured", "multiple files", "runtime versions", "lockfiles",
             "real test files and runners", "lint/type/build", "package scripts",
             "checks.quick", "checks.full", "argv arrays", "shell=False",
             "dependency installation", "credentials", "Never invent", "empty profile is not a pass",
             "check --quick", "check --full", "scripts/harness.py doctor", "T2 review",
+            "Do not put long-running resident processes", "npm run watch", "checks must terminate",
         ):
             self.assertIn(required, setup)
         architecture = (ROOT / "docs/ARCHITECTURE.md").read_text(encoding="utf-8")

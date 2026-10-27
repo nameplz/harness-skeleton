@@ -20,15 +20,15 @@ Keep one implementation writer. Reviewers do not replace deterministic tests; no
 
 Provide scope, acceptance criteria, final HEAD, dirty diff fingerprint, config identity, and validation evidence. Request `status`, `summary`, `findings`, `evidence`, and `recommendation`. Each finding needs `path:line` and a concrete failure scenario; require an explicit no-findings result when passing. Reviewers must not edit, commit, send messages, or perform external writes. Revalidate and review affected changes after edits; stale evidence cannot cover a new diff.
 
-## Validation profile setup / 검증 프로필 설정
+## Validation profile setup
 
-Choose an interpreter name for this OS before setup: try `python3`, then `python`, then `py -3`, and require Python 3.11 or newer (the same order and version floor as pre-commit). macOS may provide only `python3`; Windows conda commonly provides `python`, and the Windows launcher uses `py -3`. Check the version and use the working command consistently in local invocations and the hooks in `.codex/config.toml` and `.claude/settings.json`. `doctor` checks configured hook interpreters and suggests an available replacement in `next_action`; it does not rewrite configuration.
+Choose Python 3.11+: try `python3`, `python`, then `py -3`. Use the working command consistently locally and in adapter hooks (`.codex/config.toml`, `.claude/settings.json`). `doctor` checks hook interpreters and suggests replacements in `next_action`; it never rewrites configuration.
 
-Codex hooks run from the session working directory, which may be a subdirectory, so keep the Git-root-based script path. The default Codex hook commands require a POSIX shell (Windows: Git Bash); their `$(git rev-parse --show-toplevel)` command substitution is not a native cmd.exe/PowerShell command. Claude hook paths use `${CLAUDE_PROJECT_DIR}`. See the official Codex hooks documentation: https://developers.openai.com/codex/hooks/.
+Adapter compatibility: Codex hooks use Git-root-based paths because sessions may start in subdirectories. Their `$(git rev-parse --show-toplevel)` requires POSIX shell (Windows: Git Bash), not cmd.exe/PowerShell. Claude uses `${CLAUDE_PROJECT_DIR}`. Codex reference: https://developers.openai.com/codex/hooks/.
 
 Use this section when `doctor` reports `unconfigured` or the project's test, lint, or build setup changes. Start with `python scripts/harness.py doctor --bootstrap`. Inspect multiple files for languages, runtime versions, package manager, lockfiles, workspace layout, real test files and runners, and lint/type/build configuration. Cross-check package scripts against the lockfile; a manifest alone is insufficient. Identify required non-secret test settings and services without forwarding credentials.
 
-Write `checks.quick` for useful fast development checks and `checks.full` for actual tests plus configured lint/type/build checks in `.harness/config.toml`. Use argv arrays; execution uses `shell=False`. Keep dependency installation commands and credentials out of profiles. Never invent tools, tests, or versions. If no meaningful validation exists, leave the project unconfigured and report why; an empty profile is not a pass.
+Write `checks.quick` for useful fast development checks and `checks.full` for actual tests plus configured lint/type/build checks in `.harness/config.toml`. Use argv arrays; execution uses `shell=False`. Keep dependency installation commands and credentials out of profiles. Do not put long-running resident processes (for example, `npm run watch`) in check profiles; checks must terminate. Never invent tools, tests, or versions. If no meaningful validation exists, leave the project unconfigured and report why; an empty profile is not a pass.
 
 Run `python scripts/harness.py check --quick`, `python scripts/harness.py check --full`, and `python scripts/harness.py doctor`. Configuration changes require T2 review at minimum.
 
@@ -36,7 +36,7 @@ Run `python scripts/harness.py check --quick`, `python scripts/harness.py check 
 
 Define 2–5 acceptance criteria before work when none exist. For T1+, report a table of criterion → command, exit code, and 1–3 key output lines; mark unsupported items unverified. Check `evidence`, `evidence_after`, and `evidence_unchanged`; source/config changes during validation invalidate success. Null identity is unavailable evidence.
 
-Commit each completed task separately after configured checks and required reviews pass. Keep dependent changes together, exclude unrelated changes and pre-existing user edits, and leave unfinished or failed work uncommitted. Honor explicit no-commit instructions.
+Install the commit gate during setup with `python scripts/harness.py install-gate`. Run `python scripts/harness.py check --full` before committing to catch failures early; `python scripts/harness.py gate` requires quick for T0/T1 and full for T2/T3 or failed risk classification, bound to the current HEAD, diff, and config. Commit each completed task separately after configured checks and required reviews pass. Keep dependent changes together, exclude unrelated changes and pre-existing user edits, and leave unfinished or failed work uncommitted. Honor explicit no-commit instructions.
 
 Remote work only when requested by the user.
 

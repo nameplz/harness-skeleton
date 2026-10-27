@@ -137,7 +137,7 @@ def doctor(root: Path, *, config_root: Path | None = None, bootstrap: bool = Fal
     """Report whether this checkout has the files and config needed by Harness."""
     workspace = _resolve_workspace(root)
     errors = _missing_required_file_errors(workspace)
-    errors.extend(_doctor_doc_errors(workspace))
+    errors.extend(_doctor_doc_errors(workspace, allow_placeholders=bootstrap))
     config_report, config_errors = _doctor_config_report(workspace, config_root)
     errors.extend(config_errors)
     profiles_configured = config_report["status"] == "configured"
@@ -386,12 +386,12 @@ def _doctor_role_errors(role: str, agents: Any, codex_dir: Path,
     return errors
 
 
-def _doctor_doc_errors(root: Path) -> list[str]:
+def _doctor_doc_errors(root: Path, *, allow_placeholders: bool = False) -> list[str]:
     errors: list[str] = []
     for relative in REQUIRED_DOC_SCAN_PATHS:
         path = root / relative
         try:
-            if PLACEHOLDER_RE.search(path.read_text(encoding="utf-8")):
+            if PLACEHOLDER_RE.search(path.read_text(encoding="utf-8")) and not allow_placeholders:
                 errors.append(f"unresolved placeholder: {relative}")
         except (OSError, UnicodeError):
             errors.append(f"could not read project guide: {relative}")
