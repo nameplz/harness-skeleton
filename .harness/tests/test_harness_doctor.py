@@ -34,6 +34,26 @@ class HarnessDoctorTests(unittest.TestCase):
             check=False, shell=False, env={**os.environ, "GIT_CONFIG_NOSYSTEM": "1"},
         )
         self.assertEqual(0, completed.returncode, completed.stderr)
+        if arguments and arguments[0] == "init":
+            hook = root / ".harness/githooks/pre-commit"
+            hook.parent.mkdir(parents=True, exist_ok=True)
+            hook.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            hook.chmod(0o755)
+            self.run_git(root, "config", "core.hooksPath", ".harness/githooks")
+
+    def test_doctor_requires_gate_but_bootstrap_only_warns(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            _write_doctor_files(root)
+            self.run_git(root, "init", "-q")
+            self.run_git(root, "config", "--unset", "core.hooksPath")
+            regular = doctor(root)
+            bootstrap = doctor(root, bootstrap=True)
+            self.assertFalse(regular["ok"])
+            self.assertEqual("unconfigured", regular["status"])
+            self.assertTrue(any("install-gate" in error for error in regular["errors"]))
+            self.assertTrue(bootstrap["ok"], bootstrap["errors"])
+            self.assertTrue(any("install-gate" in warning for warning in bootstrap["warnings"]))
 
     def test_doctor_checks_required_files_config_and_git_state(self) -> None:
         with TemporaryDirectory() as temp:
@@ -298,6 +318,7 @@ def _write_doctor_files(root: Path) -> None:
         ".codex/agents/security-reviewer.toml", ".codex/hooks/harness_hook.py",
         "scripts/command_runner.py", "scripts/harness.py", "scripts/harness_doctor.py",
         "scripts/harness_common.py", "scripts/harness_risk.py", "scripts/harness_evidence.py",
+        "scripts/harness_gate.py", ".harness/githooks/pre-commit",
     )
     for relative in required:
         _write_doctor_fixture_file(root, relative)

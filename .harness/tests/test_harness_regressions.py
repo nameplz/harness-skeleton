@@ -95,6 +95,10 @@ class HarnessRegressionTests(unittest.TestCase):
             self.git(root, "init", "-q")
             self.config(root)
             doctor_fixtures._write_doctor_files(root)
+            hook = root / ".harness/githooks/pre-commit"
+            hook.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            hook.chmod(0o755)
+            self.git(root, "config", "core.hooksPath", ".harness/githooks")
             self.assertTrue(doctor(root)["ok"])
             path = root / ".codex/config.toml"
             good = path.read_text(encoding="utf-8")

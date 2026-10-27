@@ -1,0 +1,13 @@
+#!/bin/sh
+for interpreter in python3 python py; do
+    if [ "$interpreter" = py ]; then
+        set -- py -3
+    else
+        set -- "$interpreter"
+    fi
+    if "$@" -c 'import sys; sys.exit(sys.version_info < (3, 11))' >/dev/null 2>&1; then
+        exec "$@" -I scripts/harness.py gate
+    fi
+done
+echo 'Commit blocked: Python 3.11 or newer is required (python3, python, or py -3).' >&2
+exit 1

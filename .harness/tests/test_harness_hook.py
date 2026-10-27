@@ -25,75 +25,18 @@ class HarnessHookTests(unittest.TestCase):
                 timeout = hooks[event][0]["hooks"][0]["timeout"]
                 self.assertGreater(timeout, CHECK_QUICK_TIMEOUT_SECONDS)
 
-    def test_full_hook_timeout_covers_risk_and_full_validation(self) -> None:
+    def test_stop_timeout_covers_quick_validation(self) -> None:
         config = tomllib.loads((ROOT / ".codex/config.toml").read_text(encoding="utf-8"))
-        timeout = config["hooks"]["PreToolUse"][0]["hooks"][0]["timeout"]
-        self.assertGreater(CHECK_TIMEOUT_SECONDS["full"], CHECK_TOTAL_TIMEOUT_SECONDS)
-        self.assertGreater(timeout, CHECK_TIMEOUT_SECONDS["full"] + 20)
         self.assertEqual(180, CHECK_TIMEOUT_SECONDS["quick"])
         self.assertEqual(180, config["hooks"]["Stop"][0]["hooks"][0]["timeout"])
 
-    def test_commit_selects_profile_from_risk_and_fails_closed(self) -> None:
-        cases = [
-            (0, {"level": tier}, "quick" if tier in {"T0", "T1"} else "full", tier)
-            for tier in ("T0", "T1", "T2", "T3")
-        ] + [
-            (2, {"level": "T1"}, "full", "unknown"),
-            (0, "not-json", "full", "unknown"),
-            (0, [], "full", "unknown"),
-            (0, {}, "full", "unknown"),
-            (0, {"level": "T4"}, "full", "unknown"),
-            (0, {"level": []}, "full", "unknown"),
-        ]
-        for returncode, report, profile, tier in cases:
-            with self.subTest(report=report, returncode=returncode), patch(
-                "harness_hook._resolve_project_root", return_value=ROOT
-            ), patch("harness_hook.subprocess.run") as run:
-                run.side_effect = [
-                    subprocess.CompletedProcess([], returncode,
-                                                report if isinstance(report, str) else json.dumps(report), ""),
-                    subprocess.CompletedProcess([], 1, json.dumps({"ok": False, "error": "x" * 5000}), ""),
-                ]
-                result = handle_event({"hook_event_name": "PreToolUse", "tool_name": "Bash",
-                                       "tool_input": {"command": "git commit -m x"}, "cwd": str(ROOT)})
-                self.assertEqual(2, run.call_count)
-                risk_call, check_call = run.call_args_list
-                self.assertEqual([sys.executable, str(HARNESS_SCRIPT), "risk", "--root", str(ROOT)],
-                                 risk_call.args[0])
-                self.assertEqual([sys.executable, str(HARNESS_SCRIPT), "check", f"--{profile}",
-                                  "--root", str(ROOT)], check_call.args[0])
-                self.assertFalse(risk_call.kwargs["shell"])
-                self.assertFalse(check_call.kwargs["shell"])
-                self.assertEqual(CHECK_TIMEOUT_SECONDS[profile], check_call.kwargs["timeout"])
-                output = result["hookSpecificOutput"]
-                self.assertEqual("deny", output["permissionDecision"])
-                self.assertIn(profile, output["permissionDecisionReason"])
-                self.assertIn(tier, output["permissionDecisionReason"])
-                self.assertLessEqual(len(output["permissionDecisionReason"]), 4000)
-
-    def test_risk_execution_failure_runs_full(self) -> None:
-        for error in (OSError("unavailable"), subprocess.TimeoutExpired("risk", 10)):
-            with self.subTest(error=error), patch("harness_hook._resolve_project_root", return_value=ROOT), patch(
-                "harness_hook.subprocess.run", side_effect=[
-                    error, subprocess.CompletedProcess([], 0, '{"ok": true}', "")
-                ]
-            ) as run:
-                result = handle_event({"hook_event_name": "PreToolUse", "tool_name": "Bash",
-                                       "tool_input": {"command": "git commit"}, "cwd": str(ROOT)})
-                self.assertIsNone(result)
-                self.assertIn("--full", run.call_args.args[0])
-
-    def test_unconfigured_full_does_not_block_or_report_success(self) -> None:
-        with patch("harness_hook._resolve_project_root", return_value=ROOT), patch(
-            "harness_hook.subprocess.run", side_effect=[
-                subprocess.CompletedProcess([], 0, '{"level": "T3"}', ""),
-                subprocess.CompletedProcess([], 1, '{"ok": false, "status": "unconfigured"}', ""),
-            ]
-        ) as run:
+    def test_commit_delegates_to_git_gate_without_agent_checks(self) -> None:
+        with patch("harness_hook._run_check") as check, patch("harness_hook.subprocess.run") as run:
             result = handle_event({"hook_event_name": "PreToolUse", "tool_name": "Bash",
-                                   "tool_input": {"command": "git commit"}, "cwd": str(ROOT)})
-            self.assertIsNone(result)
-            self.assertIn("--full", run.call_args.args[0])
+                                   "tool_input": {"command": "git commit -m x"}, "cwd": str(ROOT)})
+        self.assertIsNone(result)
+        check.assert_not_called()
+        run.assert_not_called()
 
     def test_stop_runs_only_quick_without_risk(self) -> None:
         with patch("harness_hook._resolve_project_root", return_value=ROOT), patch(
@@ -162,7 +105,7 @@ class HarnessHookTests(unittest.TestCase):
         self.assertEqual("PermissionRequest", output["hookEventName"])
         self.assertEqual({"behavior": "deny", "message": "Blocked dangerous Bash command: hard git reset."}, output["decision"])
 
-    def test_commit_and_stop_run_checks_and_redact_failures(self) -> None:
+    def test_stop_runs_checks_and_redacts_failures(self) -> None:
         with TemporaryDirectory() as temp:
             root = Path(temp)
             script = root / "check.py"
@@ -173,7 +116,6 @@ class HarnessHookTests(unittest.TestCase):
             self.write_config(root, script)
 
             for event, extra in (
-                ("PreToolUse", {"tool_name": "Bash", "tool_input": {"command": "git commit -m x"}}),
                 ("Stop", {}),
             ):
                 with self.subTest(event=event):
@@ -191,7 +133,7 @@ class HarnessHookTests(unittest.TestCase):
 
         self.assertIsNone(result)
 
-    def test_git_commit_spellings_trigger_validation(self) -> None:
+    def test_git_commit_spellings_leave_validation_to_git_gate(self) -> None:
         for command in (
             "git commit -m x", "git -C 'my repo' commit -m x", "git -Crepo commit",
             '"git" --no-pager commit -m x', "git --git-dir=.git commit",
@@ -201,11 +143,11 @@ class HarnessHookTests(unittest.TestCase):
         ):
             with self.subTest(command=command), patch(
                 "harness_hook._run_check", return_value=(False, "failed")
-            ) as check, patch("harness_hook._commit_risk_tier", return_value="T1"):
+            ) as check:
                 result = handle_event({"hook_event_name": "PreToolUse", "tool_name": "Bash",
                                        "tool_input": {"command": command}, "cwd": str(ROOT)})
-                check.assert_called_once_with(ROOT, "quick")
-                self.assertEqual("deny", result["hookSpecificOutput"]["permissionDecision"])
+                check.assert_not_called()
+                self.assertIsNone(result)
 
     def test_commit_text_in_arguments_or_comments_does_not_trigger_validation(self) -> None:
         for command in (

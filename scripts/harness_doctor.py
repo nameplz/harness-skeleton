@@ -35,6 +35,7 @@ REQUIRED_PROJECT_FILES = (
     ".codex/hooks/harness_hook.py", "scripts/command_runner.py",
     "scripts/harness.py", "scripts/harness_doctor.py", "scripts/harness_common.py", "scripts/harness_risk.py",
     "scripts/harness_evidence.py",
+    "scripts/harness_gate.py", ".harness/githooks/pre-commit",
 )
 REQUIRED_DOC_SCAN_PATHS = ("AGENTS.md", "docs/ARCHITECTURE.md", "docs/ADR.md")
 PLACEHOLDER_RE = re.compile(r"\{[^{}\n]+\}")
@@ -70,8 +71,15 @@ def doctor(root: Path, *, config_root: Path | None = None, bootstrap: bool = Fal
     errors.extend(_doctor_codex_errors(workspace))
     git_report, git_errors = _doctor_git_report(workspace)
     errors.extend(git_errors)
+    try:
+        from .harness_gate import gate_errors
+    except ImportError:
+        from harness_gate import gate_errors
+    gate_warnings = gate_errors(workspace)
+    if not bootstrap:
+        errors.extend(gate_warnings)
 
-    configured = profiles_configured and not errors
+    configured = profiles_configured and not errors and not gate_warnings
     report = {
         "ok": not errors and (bootstrap or configured),
         "status": "configured" if configured else "unconfigured",
@@ -79,6 +87,7 @@ def doctor(root: Path, *, config_root: Path | None = None, bootstrap: bool = Fal
         "config": config_report,
         "git": git_report,
         "errors": list(dict.fromkeys(errors)),
+        "warnings": gate_warnings if bootstrap else [],
     }
     if config_report["status"] == "unconfigured":
         report["next_action"] = VALIDATION_SETUP

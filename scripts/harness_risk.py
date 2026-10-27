@@ -40,6 +40,8 @@ DEFAULT_SECURITY_PATHS = (
     "scripts/harness_evidence.py",
     "scripts/command_runner.py",
     "scripts/harness_doctor.py",
+    "scripts/harness_gate.py",
+    ".harness/githooks/**",
 )
 DEFAULT_SECURITY_KEYWORDS = (
     "subprocess",

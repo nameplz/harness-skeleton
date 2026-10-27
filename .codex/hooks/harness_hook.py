@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import re
-import shlex
 import subprocess
 import sys
 from typing import Any
@@ -14,23 +13,18 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 HARNESS_SCRIPT = PROJECT_ROOT / "scripts/harness.py"
-CHECK_TIMEOUT_SECONDS = {"quick": 180, "full": 930}
+CHECK_TIMEOUT_SECONDS = {"quick": 180}
 DANGEROUS_PATTERNS = (
     (re.compile(r"\brm\s+-[^\n;]*r[^\n;]*f\b"), "recursive force deletion"),
     (re.compile(r"\bgit\s+push\b[^\n;]*\s--force(?:-with-lease)?\b"), "forced git push"),
     (re.compile(r"\bgit\s+reset\s+--hard\b"), "hard git reset"),
     (re.compile(r"\bDROP\s+TABLE\b", re.IGNORECASE), "DROP TABLE statement"),
 )
-GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix", "--exec-path"})
-GIT_FLAG_OPTIONS = frozenset({"--no-pager", "--paginate", "-p", "-P", "--bare",
-                              "--no-replace-objects", "--no-optional-locks", "--no-lazy-fetch",
-                              "--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs"})
-
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.harness import sanitize_log  # noqa: E402
-from scripts.command_runner import _is_git_executable  # noqa: E402
+from scripts.harness_gate import evidence_matches  # noqa: E402
 
 
 def extract_command(payload: dict[str, Any]) -> str:
@@ -46,43 +40,6 @@ def _dangerous_reason(command: str) -> str | None:
         if pattern.search(command):
             return reason
     return None
-
-
-def _contains_git_commit(command: str) -> bool:
-    # shortcut: recognize simple command lists, not shell functions/substitutions; native permissions and CI enforce safety.
-    lexer = shlex.shlex(command, posix=False, punctuation_chars=";&|\n")
-    lexer.whitespace = " \t\r"
-    lexer.whitespace_split = True
-    segments: list[list[str]] = [[]]
-    try:
-        for token in lexer:
-            if token and all(char in ";&|\n" for char in token):
-                segments.append([])
-            else:
-                parts = shlex.split(token)
-                if len(parts) != 1:
-                    return False
-                segments[-1].append(parts[0])
-    except ValueError:
-        return False
-    return any(_is_git_commit(tokens) for tokens in segments)
-
-
-def _is_git_commit(tokens: list[str]) -> bool:
-    if not tokens or not _is_git_executable(tokens[0]):
-        return False
-    index = 1
-    while index < len(tokens):
-        token = tokens[index]
-        if token in GIT_VALUE_OPTIONS:
-            index += 2
-        elif token in GIT_FLAG_OPTIONS or token.startswith(("-C", "-c")) or (
-            "=" in token and token.split("=", 1)[0] in GIT_VALUE_OPTIONS
-        ):
-            index += 1
-        else:
-            return token == "commit"
-    return False
 
 
 def _hook_response(event: str, reason: str) -> dict[str, Any]:
@@ -153,29 +110,6 @@ def _run_check(root: Path, profile: str) -> tuple[bool, str]:
     return False, sanitize_log(str(report.get("error") or f"{profile} validation failed"))
 
 
-def _commit_risk_tier(root: Path) -> str:
-    try:
-        completed = subprocess.run(
-            [sys.executable, str(HARNESS_SCRIPT), "risk", "--root", str(root)],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=10,
-            shell=False,
-            check=False,
-        )
-        report = json.loads(completed.stdout)
-        if completed.returncode == 0 and isinstance(report, dict):
-            tier = report.get("level")
-            if isinstance(tier, str) and tier in {"T0", "T1", "T2", "T3"}:
-                return tier
-    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
-        pass
-    return "unknown"
-
-
 def _resolve_project_root(raw_root: str) -> Path:
     start = Path(raw_root).resolve(strict=True)
     if not start.is_dir():
@@ -215,8 +149,7 @@ def handle_event(payload: dict[str, Any]) -> dict[str, Any] | None:
         dangerous = _dangerous_reason(command)
         if dangerous:
             return _hook_response(event, f"Blocked dangerous Bash command: {dangerous}.")
-        if event != "PreToolUse" or not _contains_git_commit(command):
-            return None
+        return None
 
     elif event == "Stop":
         if payload.get("stop_hook_active"):
@@ -232,13 +165,12 @@ def handle_event(payload: dict[str, Any]) -> dict[str, Any] | None:
     except (OSError, RuntimeError):
         return _hook_response(event, "Project root is unavailable; validation was not run.")
 
-    tier = _commit_risk_tier(root) if event == "PreToolUse" else None
-    profile = "full" if tier in {"T2", "T3", "unknown"} else "quick"
-    passed, detail = _run_check(root, profile)
+    if evidence_matches(root, "quick"):
+        return None
+    passed, detail = _run_check(root, "quick")
     if passed:
         return None
-    risk_detail = f" (tier {tier})" if tier is not None else ""
-    reason = f"Configured {profile} validation{risk_detail} failed. Fix the failures before committing or finishing."
+    reason = "Configured quick validation failed. Fix the failures before finishing."
     if detail:
         reason += "\n\n" + detail
     return _hook_response(event, reason)

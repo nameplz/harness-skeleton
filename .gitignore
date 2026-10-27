@@ -14,6 +14,7 @@ __pycache__/
 *.py[cod]
 
 # Local verification artifacts
+.harness/state/
 .pytest_cache/
 .coverage
 .coverage.*

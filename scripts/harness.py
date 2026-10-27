@@ -352,6 +352,10 @@ def _validate_keyword_list(values: Any, name: str) -> tuple[str, ...]:
 
 
 def run_checks(root: Path, profile: str, *, config_root: Path | None = None) -> dict[str, Any]:
+    try:
+        from .harness_gate import save_check
+    except ImportError:
+        from harness_gate import save_check
     if profile not in {"quick", "full"}:
         raise HarnessError("check profile must be quick or full")
     workspace = _resolve_workspace(root)
@@ -369,7 +373,7 @@ def run_checks(root: Path, profile: str, *, config_root: Path | None = None) -> 
     evidence = {**capture_workspace(workspace), "config_sha256": config.config_sha256}
     commands = config.quick if profile == "quick" else config.full
     if not commands:
-        return {
+        report = {
             "ok": False,
             "status": "unconfigured",
             "profile": profile,
@@ -377,6 +381,8 @@ def run_checks(root: Path, profile: str, *, config_root: Path | None = None) -> 
             "evidence": evidence,
             "error": f"unconfigured: checks.{profile} has no validation commands; define checks.quick/full; see .agents/skills/harness/SKILL.md (Validation profile setup)",
         }
+        save_check(workspace, report)
+        return report
     if evidence.get("status") == "error":
         checks = _unstarted_results(commands, 1, reason="identity_error")
         return {"ok": False, "profile": profile, "checks": checks, "evidence": evidence,
@@ -450,9 +456,11 @@ def run_checks(root: Path, profile: str, *, config_root: Path | None = None) -> 
     else:
         unchanged = evidence == evidence_after
     ok = all(item["passed"] for item in results) and unchanged is not False
-    return {"ok": ok, "status": "configured" if ok else "failure",
+    report = {"ok": ok, "status": "configured" if ok else "failure",
             "profile": profile, "checks": results, "evidence": evidence,
             "evidence_after": evidence_after, "evidence_unchanged": unchanged}
+    save_check(workspace, report)
+    return report
 
 
 def _is_unittest_command(command: Sequence[str]) -> bool:
@@ -540,12 +548,28 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     doctor_command.add_argument("--root", default=".", help="project root to inspect")
     doctor_command.add_argument("--config-root", help="trusted repository root supplying .harness/config.toml")
     doctor_command.add_argument("--bootstrap", action="store_true", help="check Harness structure before validation setup")
+    gate_command = commands.add_parser("gate", help="require validation before a commit")
+    gate_command.add_argument("--root", default=".")
+    install = commands.add_parser("install-gate", help="install the Git commit gate")
+    install.add_argument("--root", default=".")
+    install.add_argument("--force", action="store_true")
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
+        if args.command in {"gate", "install-gate"}:
+            try:
+                from .harness_gate import gate, install_gate
+            except ImportError:
+                from harness_gate import gate, install_gate
+            if args.command == "install-gate":
+                print(install_gate(Path(args.root), force=args.force))
+                return 0
+            passed, detail = gate(Path(args.root))
+            print(sanitize_log(detail), file=sys.stdout if passed else sys.stderr)
+            return 0 if passed else 1
         if args.command == "selftest":
             root = Path(__file__).resolve().parents[1]
             result = run_bounded_command(
