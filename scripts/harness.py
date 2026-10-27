@@ -47,9 +47,17 @@ CHECK_TIMEOUT_SECONDS = 600
 CHECK_QUICK_TIMEOUT_SECONDS = 120
 CHECK_TOTAL_TIMEOUT_SECONDS = 900
 MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024
-UNSAFE_COMMAND_TOKENS = frozenset(
-    "add ci deploy external-login install login migrate migration publish reset seed watch".split()
-)
+UNSAFE_COMMAND_TOKENS = {
+    "*": frozenset("deploy migrate seed login publish".split()),
+    "npm": frozenset("install i ci add publish login".split()),
+    "pnpm": frozenset("install i ci add publish login".split()),
+    "yarn": frozenset("install i ci add publish login".split()),
+    "pip": frozenset({"install", "uninstall"}),
+    "pip3": frozenset({"install", "uninstall"}),
+    "uv": frozenset("add install publish remove".split()),
+    "poetry": frozenset("add install publish remove".split()),
+    "cargo": frozenset("add install publish remove".split()),
+}
 SHELL_EXECUTABLES = frozenset({"sh", "bash", "zsh", "dash", "fish", "pwsh", "powershell", "cmd", "cmd.exe"})
 FILE_URI_RE = re.compile(r"^file:", re.IGNORECASE)
 URL_RE = re.compile(r"^(?![a-z]:[/\\])[a-z][a-z0-9.+-]*://", re.IGNORECASE)
@@ -153,12 +161,38 @@ def _validate_command_safety(command: Sequence[str], workspace: Path, field: str
         _normalize_executable(Path(part.replace("\\", "/")).name.casefold())
         for part in command
     }
-    forbidden = sorted(tokens & UNSAFE_COMMAND_TOKENS)
-    if forbidden:
-        raise HarnessError(f"{field}[{index}] contains a forbidden operation")
-    executable = _normalize_executable(Path(command[0].replace("\\", "/")).name.casefold())
-    if executable == "env":
-        raise HarnessError(f"{field}[{index}] cannot override the validation process environment")
+    invocation = command
+    # shortcut: runner option values and leading options can hide commands, upgrade when option parsing is required.
+    while invocation:
+        program = _normalize_executable(Path(invocation[0].replace("\\", "/")).name.casefold())
+        arguments = invocation[1:]
+        subcommand_index = next((i for i, arg in enumerate(arguments) if not arg.startswith("-")), None)
+        boundary = next((i for i, arg in enumerate(arguments) if arg in {"run", "--"}), len(arguments))
+        candidates = [arg.casefold() for arg in arguments[:boundary] if not arg.startswith("-")]
+        subcommand = arguments[subcommand_index].casefold() if subcommand_index is not None else ""
+        if program == "env":
+            raise HarnessError(f"{field}[{index}] cannot override the validation process environment")
+        if program in UNSAFE_COMMAND_TOKENS:
+            operations = candidates
+        else:
+            operations = [arguments[0].casefold()] if arguments and not arguments[0].startswith("-") else []
+        if (program in UNSAFE_COMMAND_TOKENS["*"]
+                or set(operations) & (UNSAFE_COMMAND_TOKENS["*"] | UNSAFE_COMMAND_TOKENS.get(program, frozenset()))):
+            raise HarnessError(f"{field}[{index}] contains a forbidden operation")
+        if (re.fullmatch(r"(?:python|pypy)(?:\d+(?:\.\d+)*)?", program)
+                and "-m" in arguments
+                and (subcommand_index is None or arguments.index("-m") < subcommand_index)):
+            invocation = arguments[arguments.index("-m") + 1:]
+        elif program == "npx" and subcommand_index is not None:
+            invocation = arguments[subcommand_index:]
+        elif program in {"npm", "uv", "poetry", "pipx"} and boundary < len(arguments) and arguments[boundary] == "run":
+            runner_arguments = arguments[boundary + 1:]
+            executable_index = next((i for i, arg in enumerate(runner_arguments) if not arg.startswith("-")), None)
+            invocation = runner_arguments[executable_index:] if executable_index is not None else ()
+        elif program == "uv" and subcommand == "pip":
+            invocation = arguments[subcommand_index:]
+        else:
+            break
     if _is_git_executable(command[0]):
         arguments = command[1:]
         subcommand_index = _git_subcommand_index(arguments)
@@ -169,6 +203,10 @@ def _validate_command_safety(command: Sequence[str], workspace: Path, field: str
             for argument in arguments[:subcommand_index]
         ):
             raise HarnessError(f"{field}[{index}] cannot override safe Git configuration")
+        if subcommand_index is None or arguments[subcommand_index] not in {
+            "status", "diff", "log", "show", "ls-files", "rev-parse", "grep", "describe", "cat-file"
+        }:
+            raise HarnessError(f"{field}[{index}] must use a read-only Git subcommand")
     if not _is_git_executable(command[0]) and any(_is_git_executable(argument) for argument in command[1:]):
         raise HarnessError(f"{field}[{index}] must invoke Git directly, not through a wrapper")
     if tokens & SHELL_EXECUTABLES and any(

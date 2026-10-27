@@ -617,13 +617,97 @@ class HarnessCheckTests(unittest.TestCase):
             ["ruff", "check", ".", "--fix"],
             ["python", "-m", "timeit", "pass"],
             ["git", "log", "--oneline"],
-            ["git", "ls-remote", "ext::helper"],
             ["git", "diff", "--ext-diff", "--output=result.patch"],
         ]
         with TemporaryDirectory() as temp:
             root = Path(temp)
             self.write_config(root, commands, commands)
             self.assertEqual(tuple(map(tuple, commands)), load_config(root).full)
+
+    def test_wp01_ac1_mv6_validation_arguments_and_runners_are_allowed(self) -> None:
+        commands = [
+            ["pytest", "-k", "add"],
+            ["pytest", "-k", "migrate"],
+            ["pytest", "-m", "seed"],
+            ["pytest", "tests/ci"],
+            ["go", "test", "./internal/migration"],
+            ["npm", "run", "watch"],
+            ["npm", "run", "test:ci"],
+            ["uv", "run", "pytest"],
+            ["npx", "pytest", "-k", "add"],
+            ["poetry", "run", "pytest", "tests/ci"],
+            ["pipx", "run", "pytest"],
+            ["python3.13", "-I", "-m", "pytest", "-k", "add"],
+            ["npm", "--offline", "run", "test:ci"],
+            ["uv", "run", "--no-sync", "pytest"],
+            ["npm", "-w", "pkg", "run", "test"],
+            ["npm", "--prefix", "web", "run", "test"],
+            ["uv", "--directory", "svc", "run", "pytest"],
+            ["uv", "run", "--directory", "svc", "pytest"],
+            ["npm", "run", "pytest", "-k", "add"],
+            ["tool", "check", "publish"],
+        ]
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_config(root, commands, commands)
+            config = load_config(root)
+            self.assertEqual(tuple(map(tuple, commands)), config.quick)
+            self.assertEqual(tuple(map(tuple, commands)), config.full)
+
+    def test_wp01_ac2_mv6_unsafe_operations_and_nested_runners_are_rejected(self) -> None:
+        commands = [
+            [manager, operation, "x"]
+            for manager, operations in {
+                "npm": "install i ci add publish login",
+                "pnpm": "install i ci add publish login",
+                "yarn": "install i ci add publish login",
+                "pip": "install uninstall",
+                "pip3": "install uninstall",
+                "uv": "add install publish remove",
+                "poetry": "add install publish remove",
+                "cargo": "add install publish remove",
+                "tool": "deploy migrate seed login publish",
+            }.items()
+            for operation in operations.split()
+        ] + [
+            ["npm", "ci"], ["npm", "install"],
+            ["migrate"], ["seed"],
+            ["uv", "pip", "install", "x"], ["uv", "pip", "uninstall", "x"],
+            ["npx", "prisma", "migrate", "deploy"],
+            ["prisma", "migrate", "deploy"],
+            ["npm", "run", "prisma", "migrate", "deploy"],
+            ["uv", "run", "pip", "install", "x"],
+            ["poetry", "run", "pip", "install", "x"],
+            ["pipx", "run", "pip", "install", "x"],
+            ["python3.13", "-I", "-m", "pip", "install", "x"],
+            ["uv", "run", "python", "-m", "pip", "install", "x"],
+            ["npm.exe", "--offline", "install", "x"],
+            ["uv", "run", "env", "pytest"],
+            ["uv", "run", "--no-sync", "pip", "install", "x"],
+            ["npm", "run", "--silent", "prisma", "migrate", "deploy"],
+            ["npm", "--prefix", "web", "ci"],
+            ["npm", "--prefix", "web", "install"],
+            ["pnpm", "--dir", "web", "install"],
+            ["yarn", "--cwd", "web", "add", "x"],
+            ["uv", "--directory", "svc", "add", "x"],
+            ["pip", "--log", "x.log", "install", "x"],
+            ["npm", "--prefix", "web", "run", "prisma", "migrate", "deploy"],
+            ["npm", "-w", "pkg", "run", "prisma", "migrate", "deploy"],
+            ["uv", "--directory", "svc", "run", "pip", "install", "x"],
+            ["npm", "--prefix=web", "ci"],
+            ["npm", "-wpkg", "ci"],
+            ["npm", "--omit", "dev", "ci"],
+            ["npm", "--include", "dev", "install"],
+            ["pnpm", "--reporter", "silent", "install"],
+            ["cargo", "-Z", "x", "install", "y"],
+        ]
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            for command in commands:
+                with self.subTest(command=command):
+                    self.write_config(root, [command], [["pytest"]])
+                    with self.assertRaises(HarnessError):
+                        load_config(root)
 
     def test_invalid_or_shell_config_fails_closed(self) -> None:
         with TemporaryDirectory() as temp:

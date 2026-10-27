@@ -14,6 +14,23 @@ from scripts.command_runner import run_bounded_command  # noqa: E402
 
 
 class GitCommandSecurityTests(unittest.TestCase):
+    def test_wp01_ac3_mv6_only_read_only_git_subcommands_are_allowed(self) -> None:
+        for subcommand in ("status", "diff", "log", "show", "ls-files", "rev-parse", "grep", "describe", "cat-file"):
+            with self.subTest(subcommand=subcommand):
+                _validate_command_safety(["git", "--no-pager", subcommand], ROOT, "checks.full", 0)
+
+        commands = (
+            ["git", "clean", "-fdx"], ["git", "checkout", "."],
+            ["git", "commit", "-m", "x"], ["git", "push"],
+            ["git", "reset", "--hard"], ["git", "ls-remote", "ext::helper"],
+            ["git", "-C", ".", "clean", "-fdx"],
+            ["git.exe", "--git-dir=.git", "push"],
+            ["git", "custom-alias"], ["git"], ["git", "--version"],
+        )
+        for command in commands:
+            with self.subTest(command=command), self.assertRaisesRegex(HarnessError, "read-only Git"):
+                _validate_command_safety(command, ROOT, "checks.full", 0)
+
     def test_global_git_configuration_overrides_are_rejected(self) -> None:
         commands = (
             ["git", "-c", "alias.x=!sh -c 'touch /tmp/pwn'", "x"],
