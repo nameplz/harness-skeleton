@@ -22,6 +22,63 @@ from scripts.harness_risk import MAX_DIFF_BYTES, _git_output, classify_risk, ins
 
 
 class HarnessRiskTests(unittest.TestCase):
+    def test_wp04_ac1_mv5_guide_control_paths_require_t2(self) -> None:
+        for path in (".codex/agents/reviewer.toml", "AGENTS.md", "packages/foo/AGENTS.md",
+                     "CLAUDE.md", "packages/foo/CLAUDE.md", ".agents/skills/harness/SKILL.md",
+                     ".claude/agents/reviewer.md", ".claude/skills/harness/SKILL.md",
+                     ".harness/task-template.md"):
+            with self.subTest(path=path):
+                result = classify_risk([path], "-run full", security_paths=[], security_keywords=[])
+                self.assertEqual("T2", result.level)
+                self.assertTrue(result.code_review)
+                self.assertTrue(any("guide/control" in reason for reason in result.reasons))
+
+    def test_wp04_ac2_mv5_hook_control_paths_require_t3(self) -> None:
+        for path in (".harness/githooks/pre-commit", "scripts/harness_gate.py",
+                     "scripts/hooks/agent_hook.py", ".claude/settings.json", ".claude/hooks/check.md"):
+            with self.subTest(path=path):
+                self.assertEqual("T3", classify_risk([path], "+guide").level)
+
+    def test_wp04_ac3_documentation_lines_excluded_from_mixed_diff(self) -> None:
+        for keyword in ("authentication", "secret", "subprocess", "eval(", "token"):
+            for headers in (("a/docs/x.md", "b/docs/x.md"), ("a/docs/x.md", "/dev/null"),
+                            ("/dev/null", "b/docs/x.md"), ('"a/docs/x y.md"', '"b/docs/x y.md"')):
+                with self.subTest(keyword=keyword, headers=headers):
+                    content = (f"diff --git a/docs/x.md b/docs/x.md\n--- {headers[0]}\n"
+                               f"+++ {headers[1]}\n@@ -1 +1 @@\n-{keyword}\n+{keyword}\n"
+                               "diff --git a/src/a.py b/src/a.py\n--- a/src/a.py\n+++ b/src/a.py\n"
+                               "@@ -1 +1 @@\n+x = 1\n")
+                    result = classify_risk(["docs/x.md", "src/a.py"], content)
+                    self.assertEqual("T1", result.level)
+                    self.assertEqual((), result.hints)
+
+    def test_wp04_ac4_broad_keywords_are_hints_and_project_rules_remain_hard(self) -> None:
+        for keyword in ("secret", "credential", "authentication", "authorization",
+                        "user-controlled path", "user_supplied"):
+            with self.subTest(keyword=keyword):
+                result = classify_risk(["src/fmt.py"], f"+# keep the {keyword} sauce simple")
+                self.assertEqual("T1", result.level)
+                self.assertIn(f"security-related keyword detected: {keyword}", result.hints)
+                self.assertEqual("T3", classify_risk(
+                    ["src/fmt.py"], f"+{keyword}", security_keywords=[keyword]
+                ).level)
+
+    def test_wp04_ac5_subprocess_still_requires_t3(self) -> None:
+        result = classify_risk(["src/a.py"], "+subprocess.run(command)")
+        self.assertEqual("T3", result.level)
+        self.assertTrue(result.security_review)
+
+    def test_wp04_ac6_mv4_test_weakening_cannot_be_lowered(self) -> None:
+        result = classify_risk(["tests/test_app.py"], "-assert ready",
+                               security_paths=[], security_keywords=[])
+        self.assertEqual("T2", result.level)
+        self.assertIn("test_weakening", result.reasons)
+
+    def test_wp04_ac7_readme_only_stays_t0(self) -> None:
+        result = classify_risk(["README.md"], "+authentication subprocess secret")
+        self.assertEqual("T0", result.level)
+        self.assertEqual((), result.hints)
+
     def test_risk_tiers_select_expected_review_routes(self) -> None:
         cases = (
             (["docs/README.md"], "", "T0", False, False),
@@ -43,9 +100,9 @@ class HarnessRiskTests(unittest.TestCase):
             (".harness/config.toml", "", "T2"),
             (".harness/tests/test_x.py", "+assert ready", "T1"),
             (".harness/tests/test_x.py", "-assert ready", "T2"),
-            ("AGENTS.md", "+guide", "T0"),
-            (".agents/skills/harness/SKILL.md", "+guide", "T0"),
-            ("packages/foo/AGENTS.md", "+guide", "T0"),
+            ("AGENTS.md", "+guide", "T2"),
+            (".agents/skills/harness/SKILL.md", "+guide", "T2"),
+            ("packages/foo/AGENTS.md", "+guide", "T2"),
             (".codex/hooks/harness_hook.py", "", "T3"),
             ("scripts/harness_risk.py", "", "T3"),
             (".github/workflows/ci.yml", "", "T3"),
@@ -105,7 +162,8 @@ class HarnessRiskTests(unittest.TestCase):
             "+os.system(command)",
             "+shell=True",
             "+Popen(command, shell = True)",
-            "+api_secret = read_secret()",
+            "+eval(expression)",
+            "+exec(source)",
         ):
             with self.subTest(diff=diff):
                 result = classify_risk(["src/runner.py"], diff)

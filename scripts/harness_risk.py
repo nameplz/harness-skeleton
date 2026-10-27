@@ -42,19 +42,29 @@ DEFAULT_SECURITY_PATHS = (
     "scripts/harness_doctor.py",
     "scripts/harness_gate.py",
     ".harness/githooks/**",
+    "scripts/hooks/**",
+    ".claude/settings.json",
+    ".claude/hooks/**",
+)
+GUIDE_CONTROL_PATHS = (
+    "AGENTS.md", "**/AGENTS.md", "CLAUDE.md", "**/CLAUDE.md",
+    ".agents/skills/**", ".claude/agents/**", ".claude/skills/**",
+    ".codex/agents/**", ".harness/task-template.md",
 )
 DEFAULT_SECURITY_KEYWORDS = (
     "subprocess",
     "os.system",
     "shell=true",
+    "eval(",
+    "exec(",
+)
+DEFAULT_SECURITY_HINT_KEYWORDS = (
     "credential",
     "secret",
     "user-controlled path",
     "user_supplied",
     "authentication",
     "authorization",
-)
-DEFAULT_SECURITY_HINT_KEYWORDS = (
     "http",
     "network",
     "token",
@@ -130,10 +140,16 @@ def classify_risk(
         reasons.extend(weakening)
         return RiskAssessment("T3", True, True, tuple(reasons), (), changed_paths)
 
-    if not weakening and all(_is_documentation_path(path) for path in changed_paths):
+    control_reasons = [
+        f"changed guide/control path: {path}"
+        for path in changed_paths
+        if any(fnmatch.fnmatchcase(path.casefold(), pattern.casefold()) for pattern in GUIDE_CONTROL_PATHS)
+    ]
+    if not weakening and not control_reasons and all(_is_documentation_path(path) for path in changed_paths):
         return RiskAssessment("T0", False, False, ("documentation-only changes",), (), changed_paths)
 
     changed_text = _changed_lines(diff_text).casefold()
+    keyword_text = _keyword_changed_lines(diff_text, changed_paths).casefold()
     configured_keywords = _merge_keywords(DEFAULT_SECURITY_KEYWORDS, security_keywords, "security_keywords")
     configured_hint_keywords = _merge_keywords(
         DEFAULT_SECURITY_HINT_KEYWORDS, security_hint_keywords, "security_hint_keywords"
@@ -141,12 +157,12 @@ def classify_risk(
     hard_reasons = [
         f"security-sensitive keyword detected: {keyword}"
         for keyword in configured_keywords
-        if _contains_keyword(changed_text, keyword)
+        if _contains_keyword(keyword_text, keyword)
     ]
     hints = [
         f"security-related keyword detected: {keyword}"
         for keyword in configured_hint_keywords
-        if keyword.casefold() in changed_text
+        if keyword.casefold() in keyword_text
     ]
     implementation_paths = [
         path for path in changed_paths if not _is_documentation_path(path) and not _is_test_path(path)
@@ -157,7 +173,7 @@ def classify_risk(
     if hard_reasons:
         return RiskAssessment("T3", True, True, tuple(hard_reasons + weakening), tuple(hints), changed_paths)
 
-    complexity_reasons = _complexity_reasons(changed_paths, changed_text) + weakening
+    complexity_reasons = control_reasons + _complexity_reasons(changed_paths, changed_text) + weakening
     if complexity_reasons:
         return RiskAssessment("T2", True, False, tuple(complexity_reasons), tuple(hints), changed_paths)
     return RiskAssessment("T1", False, False, ("focused change",), tuple(hints), changed_paths)
@@ -242,6 +258,24 @@ def _changed_lines(diff_text: str) -> str:
         if line.startswith(("+", "-")) and not line.startswith(("+++", "---"))
     ]
     return "\n".join(lines) if lines else diff_text
+
+
+def _keyword_changed_lines(diff_text: str, paths: Sequence[str]) -> str:
+    if all(_is_documentation_path(path) for path in paths):
+        return ""
+    sections = []
+    for section in re.split(r"(?m)^(?=diff --git )", diff_text):
+        headers = re.search(r"(?m)^--- (.+)\n\+\+\+ (.+)$", section)
+        if headers:
+            file_paths = [
+                header.split("\t", 1)[0].strip('"')[2:]
+                for header in headers.groups() if header != "/dev/null"
+            ]
+            if file_paths and all(_is_documentation_path(path) for path in file_paths):
+                continue
+        # shortcut: headerless mixed-file snippets cannot be attributed; scan them until callers supply file headers.
+        sections.append(_changed_lines(section))
+    return "\n".join(sections)
 
 
 def _is_documentation_path(path: str) -> bool:
