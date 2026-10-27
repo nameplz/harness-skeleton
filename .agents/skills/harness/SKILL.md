@@ -22,6 +22,10 @@ Provide scope, acceptance criteria, final HEAD, dirty diff fingerprint, config i
 
 ## Validation profile setup / 검증 프로필 설정
 
+Choose an interpreter name for this OS before setup: try `python3`, then `python`, then `py -3`, and require Python 3.11 or newer (the same order and version floor as pre-commit). macOS may provide only `python3`; Windows conda commonly provides `python`, and the Windows launcher uses `py -3`. Check the version and use the working command consistently in local invocations and the hooks in `.codex/config.toml` and `.claude/settings.json`. `doctor` checks configured hook interpreters and suggests an available replacement in `next_action`; it does not rewrite configuration.
+
+Codex hooks run from the session working directory, which may be a subdirectory, so keep the Git-root-based script path. The default Codex hook commands require a POSIX shell (Windows: Git Bash); their `$(git rev-parse --show-toplevel)` command substitution is not a native cmd.exe/PowerShell command. Claude hook paths use `${CLAUDE_PROJECT_DIR}`. See the official Codex hooks documentation: https://developers.openai.com/codex/hooks/.
+
 Use this section when `doctor` reports `unconfigured` or the project's test, lint, or build setup changes. Start with `python scripts/harness.py doctor --bootstrap`. Inspect multiple files for languages, runtime versions, package manager, lockfiles, workspace layout, real test files and runners, and lint/type/build configuration. Cross-check package scripts against the lockfile; a manifest alone is insufficient. Identify required non-secret test settings and services without forwarding credentials.
 
 Write `checks.quick` for useful fast development checks and `checks.full` for actual tests plus configured lint/type/build checks in `.harness/config.toml`. Use argv arrays; execution uses `shell=False`. Keep dependency installation commands and credentials out of profiles. Never invent tools, tests, or versions. If no meaningful validation exists, leave the project unconfigured and report why; an empty profile is not a pass.

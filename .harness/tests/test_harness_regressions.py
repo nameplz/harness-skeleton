@@ -104,7 +104,7 @@ class HarnessRegressionTests(unittest.TestCase):
             good = path.read_text(encoding="utf-8")
             for replacement in ("echo", "false", "python3 -c"):
                 with self.subTest(replacement=replacement):
-                    path.write_text(good.replace("python3 ", replacement + " "), encoding="utf-8")
+                    path.write_text(good.replace(f'"{doctor_fixtures.PYTHON_NAME}" ', replacement + " "), encoding="utf-8")
                     self.assertTrue(any("Harness hook" in item for item in doctor(root)["errors"]))
             path.write_text(good.replace('type = "command"', 'type = "prompt"'), encoding="utf-8")
             self.assertTrue(any("Harness hook" in item for item in doctor(root)["errors"]))

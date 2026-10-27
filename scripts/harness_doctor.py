@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 try:
+    from .command_runner import run_bounded_command
     from .harness import (
         MAX_CONFIG_BYTES,
         _is_python_executable,
@@ -20,6 +21,7 @@ try:
     from .harness_common import HarnessError
     from .harness_risk import _git_output, _git_root
 except ImportError:  # Direct script invocation from the scripts directory.
+    from command_runner import run_bounded_command
     from harness import (
         MAX_CONFIG_BYTES,
         _is_python_executable,
@@ -42,22 +44,93 @@ PLACEHOLDER_RE = re.compile(r"\{[^{}\n]+\}")
 VALIDATION_SETUP = "define checks.quick/full; see .agents/skills/harness/SKILL.md (Validation profile setup)"
 
 
-def _valid_harness_hook(hook: Any, workspace: Path, *, claude: bool = False) -> bool:
+def _hook_command(hook: Any) -> tuple[tuple[str, ...], str] | None:
     if not isinstance(hook, dict) or hook.get("type") != "command" or not isinstance(hook.get("command"), str):
-        return False
+        return None
     try:
         argv = shlex.split(hook["command"])
     except ValueError:
+        return None
+    if not argv or not _is_python_executable(argv[0]):
+        return None
+    interpreter = (argv.pop(0),)
+    if Path(interpreter[0].replace("\\", "/")).name.casefold() in {"py", "py.exe"}:
+        if not argv or argv.pop(0) != "-3":
+            return None
+        interpreter += ("-3",)
+    if argv and argv[0] == "-I":
+        argv.pop(0)
+    return (interpreter, argv[0]) if len(argv) == 1 else None
+
+
+def _valid_harness_hook(hook: Any, workspace: Path, *, claude: bool = False) -> bool:
+    command = _hook_command(hook)
+    if command is None:
         return False
-    if len(argv) == 3 and argv[1] == "-I":
-        argv = [argv[0], argv[2]]
+    interpreter, script = command
     paths = {"${CLAUDE_PROJECT_DIR}/scripts/hooks/agent_hook.py"} if claude else {
         "scripts/hooks/agent_hook.py",
         "$(git rev-parse --show-toplevel)/scripts/hooks/agent_hook.py",
         str(workspace / "scripts/hooks/agent_hook.py"),
     }
-    return (len(argv) == 2 and _is_python_executable(argv[0])
-            and shutil.which(argv[0]) is not None and argv[1] in paths)
+    return shutil.which(interpreter[0]) is not None and script in paths
+
+
+def _interpreter_issue(interpreter: tuple[str, ...], workspace: Path) -> str | None:
+    if "/" in interpreter[0] or "\\" in interpreter[0]:
+        return "interpreter must be a name on PATH, not a path; version check was not run"
+    executable = shutil.which(interpreter[0])
+    if executable is None:
+        return "not found on PATH"
+    try:
+        result = run_bounded_command(
+            [executable, *interpreter[1:], "-I", "-c",
+             "import sys; print('%s.%s' % sys.version_info[:2]); sys.exit(sys.version_info < (3, 11))"],
+            cwd=workspace, timeout_seconds=5, max_output_bytes=1024,
+        )
+    except OSError:
+        return "Python 3.11 or newer required (version check could not start)"
+    version = re.fullmatch(r"(\d+)\.(\d+)", result.output.strip())
+    if version and tuple(map(int, version.groups())) < (3, 11):
+        return f"Python 3.11 or newer required (reported {version[0]})"
+    if result.returncode != 0 or not version or result.timed_out or result.output_limited:
+        return "Python 3.11 or newer required (version check failed)"
+    return None
+
+
+def _doctor_interpreter_report(workspace: Path) -> tuple[list[str], str | None]:
+    errors: list[str] = []
+    checked: dict[tuple[str, ...], str | None] = {}
+    for relative in (".codex/config.toml", ".claude/settings.json"):
+        try:
+            text = _read_adapter_file(workspace, relative)
+            data = tomllib.loads(text) if relative.endswith(".toml") else json.loads(text)
+        except (OSError, UnicodeError, RuntimeError, ValueError):
+            continue  # Adapter diagnostics report missing or invalid configuration.
+        hooks = data.get("hooks") if isinstance(data, dict) else None
+        if not isinstance(hooks, dict):
+            continue
+        for event in ("PreToolUse", "Stop"):
+            entries = hooks.get(event)
+            for entry in entries if isinstance(entries, list) else []:
+                commands = entry.get("hooks") if isinstance(entry, dict) else None
+                for hook in commands if isinstance(commands, list) else []:
+                    command = _hook_command(hook)
+                    if command is None:
+                        continue
+                    interpreter, _ = command
+                    if interpreter not in checked:
+                        checked[interpreter] = _interpreter_issue(interpreter, workspace)
+                    if checked[interpreter]:
+                        errors.append(f"{relative} (Harness hook interpreter {' '.join(interpreter)}: {checked[interpreter]})")
+    if not errors:
+        return [], None
+    for candidate in (("python3",), ("python",), ("py", "-3")):
+        if candidate not in checked:
+            checked[candidate] = _interpreter_issue(candidate, workspace)
+        if checked[candidate] is None:
+            return errors, f"set adapter hook interpreter to {' '.join(candidate)} (Python 3.11+)"
+    return errors, "install Python 3.11 or newer on PATH (python3, python, or py -3), then update adapter hooks"
 
 
 def doctor(root: Path, *, config_root: Path | None = None, bootstrap: bool = False) -> dict[str, Any]:
@@ -77,6 +150,8 @@ def doctor(root: Path, *, config_root: Path | None = None, bootstrap: bool = Fal
             errors.extend(_doctor_codex_errors(workspace) if adapter == ".codex"
                           else _doctor_claude_errors(workspace))
             adapter_warnings.extend(_doctor_model_warnings(workspace, adapter))
+    interpreter_errors, interpreter_action = _doctor_interpreter_report(workspace)
+    errors.extend(interpreter_errors)
     git_report, git_errors = _doctor_git_report(workspace)
     errors.extend(git_errors)
     try:
@@ -99,6 +174,8 @@ def doctor(root: Path, *, config_root: Path | None = None, bootstrap: bool = Fal
     }
     if config_report["status"] == "unconfigured":
         report["next_action"] = VALIDATION_SETUP
+    if interpreter_action:
+        report["next_action"] = (report.get("next_action", "") + "; " + interpreter_action).lstrip("; ")
     return report
 
 

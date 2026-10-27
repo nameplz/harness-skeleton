@@ -14,12 +14,125 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from scripts.harness import doctor, main
-from scripts.harness_doctor import VALIDATION_SETUP, _has_model_setting, _claude_frontmatter
+from scripts.command_runner import CommandResult
+from scripts.harness_doctor import VALIDATION_SETUP, _has_model_setting, _claude_frontmatter, _interpreter_issue
 
 ROOT = Path(__file__).resolve().parents[2]
+PYTHON_NAME = Path(sys.executable).name
 
 
 class HarnessDoctorTests(unittest.TestCase):
+    def test_wp06_review_repository_interpreter_is_never_executed(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            _write_doctor_files(root)
+            _write_claude_doctor_files(root)
+            self.run_git(root, "init", "-q")
+            executable = root / "tools/python3"
+            executable.parent.mkdir()
+            executable.write_text("#!/bin/sh\ntouch PWNED\nprintf '3.11\\n'\n")
+            executable.chmod(0o755)
+            settings = root / ".claude/settings.json"
+            data = json.loads(settings.read_text())
+            for interpreter in ("tools/python3", str(executable), r"tools\python3", r"C:\tools\python3.exe"):
+                for script in ("${CLAUDE_PROJECT_DIR}/scripts/hooks/agent_hook.py", "unrecognized.py"):
+                    with self.subTest(interpreter=interpreter, script=script):
+                        data["hooks"]["PreToolUse"][0]["hooks"][0]["command"] = f'"{interpreter}" "{script}"'
+                        settings.write_text(json.dumps(data))
+                        with patch("scripts.harness_doctor.run_bounded_command") as run, \
+                                patch("scripts.harness_doctor.shutil.which") as which:
+                            issue = _interpreter_issue((interpreter,), root)
+                            self.assertIn("not a path", issue)
+                            run.assert_not_called()
+                            which.assert_not_called()
+                        report = doctor(root, bootstrap=True)
+                        self.assertFalse(report["ok"])
+                        self.assertTrue(any("not a path" in error for error in report["errors"]))
+                        self.assertIn("set adapter hook interpreter to", report["next_action"])
+                        self.assertFalse((root / "PWNED").exists())
+
+    def test_wp06_ac1_missing_interpreter_suggests_available_name(self) -> None:
+        for configured, available in (("python", "python3"), ("python3", "python")):
+            with self.subTest(configured=configured, available=available), TemporaryDirectory() as temp:
+                root = Path(temp)
+                _write_doctor_files(root)
+                _write_claude_doctor_files(root)
+                codex = root / ".codex/config.toml"
+                codex.write_text(codex.read_text().replace(f'"{PYTHON_NAME}" ', configured + " "))
+                claude = root / ".claude/settings.json"
+                data = json.loads(claude.read_text())
+                for entries in data["hooks"].values():
+                    for entry in entries:
+                        for hook in entry["hooks"]:
+                            hook["command"] = configured + ' "${CLAUDE_PROJECT_DIR}/scripts/hooks/agent_hook.py"'
+                claude.write_text(json.dumps(data))
+                self.run_git(root, "init", "-q")
+                real_which = shutil.which
+                def which(name):
+                    if name in {"python", "python3", "py"}:
+                        return f"/interpreters/{name}" if name == available else None
+                    return real_which(name)
+                with patch("scripts.harness_doctor.shutil.which", side_effect=which), \
+                        patch("scripts.harness_doctor.run_bounded_command",
+                              return_value=CommandResult(0, "3.11\n")):
+                    report = doctor(root)
+                self.assertFalse(report["ok"])
+                self.assertTrue(any("not found on PATH" in error for error in report["errors"]))
+                self.assertIn(f"set adapter hook interpreter to {available} (Python 3.11+)", report["next_action"])
+
+    def test_wp06_ac2_python310_only_reports_version_error(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            _write_doctor_files(root)
+            config = root / ".codex/config.toml"
+            config.write_text(config.read_text().replace(f'"{PYTHON_NAME}" ', "python3 "))
+            self.run_git(root, "init", "-q")
+            real_which = shutil.which
+            def which(name):
+                if name in {"python", "python3", "py"}:
+                    return "/interpreters/python3" if name == "python3" else None
+                return real_which(name)
+            with patch("scripts.harness_doctor.shutil.which", side_effect=which), \
+                    patch("scripts.harness_doctor.run_bounded_command", return_value=CommandResult(1, "3.10\n")):
+                report = doctor(root)
+            self.assertFalse(report["ok"])
+            self.assertTrue(any("Python 3.11 or newer required (reported 3.10)" in error for error in report["errors"]))
+            self.assertIn("install Python 3.11 or newer", report["next_action"])
+
+    def test_wp06_ac3_py_launcher_selects_python3_and_checks_version(self) -> None:
+        for command in ('py -3 "scripts/hooks/agent_hook.py"', 'py -3 -I "scripts/hooks/agent_hook.py"'):
+            with self.subTest(command=command), TemporaryDirectory() as temp:
+                root = Path(temp)
+                _write_doctor_files(root)
+                config = root / ".codex/config.toml"
+                text = config.read_text()
+                text = text.replace(f'"{PYTHON_NAME}" "$(git rev-parse --show-toplevel)/scripts/hooks/agent_hook.py"', command)
+                config.write_text(text)
+                self.run_git(root, "init", "-q")
+                real_which = shutil.which
+                with patch("scripts.harness_doctor.shutil.which",
+                           side_effect=lambda name: "/interpreters/py" if name == "py" else real_which(name)), \
+                        patch("scripts.harness_doctor.run_bounded_command",
+                              return_value=CommandResult(0, "3.11\n")) as run:
+                    report = doctor(root)
+                self.assertTrue(report["ok"], report["errors"])
+                run.assert_called_once()
+                self.assertEqual(["/interpreters/py", "-3", "-I", "-c"], run.call_args.args[0][:4])
+                self.assertEqual(5, run.call_args.kwargs["timeout_seconds"])
+
+    def test_interpreter_query_failure_cannot_report_ready(self) -> None:
+        for result in (CommandResult(124, "", timed_out=True), CommandResult(0, "not a version"),
+                       CommandResult(0, "3.10"), CommandResult(0, "3.13", output_limited=True), OSError()):
+            with self.subTest(result=result), TemporaryDirectory() as temp:
+                root = Path(temp)
+                _write_doctor_files(root)
+                self.run_git(root, "init", "-q")
+                with patch("scripts.harness_doctor.run_bounded_command", return_value=result,
+                           side_effect=result if isinstance(result, OSError) else None):
+                    report = doctor(root)
+                self.assertFalse(report["ok"])
+                self.assertTrue(any("Python 3.11 or newer required" in error for error in report["errors"]))
+
     def test_wp05_ac4_mv6_optional_adapter_combinations(self) -> None:
         for codex, claude in ((False, False), (True, False), (False, True), (True, True)):
             with self.subTest(codex=codex, claude=claude), TemporaryDirectory() as temp:
@@ -28,7 +141,7 @@ class HarnessDoctorTests(unittest.TestCase):
                 if not codex:
                     shutil.rmtree(root / ".codex")
                 if claude:
-                    shutil.copytree(ROOT / ".claude", root / ".claude")
+                    _write_claude_doctor_files(root)
                 self.run_git(root, "init", "-q")
                 report = doctor(root)
                 self.assertTrue(report["ok"], report["errors"])
@@ -53,7 +166,7 @@ class HarnessDoctorTests(unittest.TestCase):
             with self.subTest(invalid=invalid), TemporaryDirectory() as temp:
                 root = Path(temp)
                 _write_doctor_files(root)
-                shutil.copytree(ROOT / ".claude", root / ".claude")
+                _write_claude_doctor_files(root)
                 settings = root / ".claude/settings.json"
                 reviewer = root / ".claude/agents/reviewer.md"
                 if invalid == "settings":
@@ -87,7 +200,7 @@ class HarnessDoctorTests(unittest.TestCase):
             with self.subTest(adapter=adapter), TemporaryDirectory() as temp:
                 root = Path(temp)
                 _write_doctor_files(root)
-                shutil.copytree(ROOT / ".claude", root / ".claude")
+                _write_claude_doctor_files(root)
                 if adapter == "codex":
                     path = root / ".codex/agents/reviewer.toml"
                     key = "model" + "_reasoning_effort"
@@ -221,7 +334,7 @@ class HarnessDoctorTests(unittest.TestCase):
         self.assertEqual("unconfigured", report["status"])
 
     def test_doctor_reports_unavailable_git_and_hook_executables(self) -> None:
-        for unavailable, expected in (("git", "Git executable"), ("python3", "Harness hook")):
+        for unavailable, expected in (("git", "Git executable"), (PYTHON_NAME, "Harness hook")):
             with self.subTest(unavailable=unavailable), TemporaryDirectory() as temp:
                 root = Path(temp)
                 _write_doctor_files(root)
@@ -399,6 +512,17 @@ class HarnessDoctorTests(unittest.TestCase):
 
 
 
+def _write_claude_doctor_files(root: Path) -> None:
+    shutil.copytree(ROOT / ".claude", root / ".claude")
+    path = root / ".claude/settings.json"
+    data = json.loads(path.read_text())
+    for entries in data["hooks"].values():
+        for entry in entries:
+            for hook in entry["hooks"]:
+                hook["command"] = hook["command"].replace("python ", f'"{PYTHON_NAME}" ', 1)
+    path.write_text(json.dumps(data))
+
+
 def _write_doctor_files(root: Path) -> None:
     required = (
         "AGENTS.md", "docs/ARCHITECTURE.md", "docs/ADR.md",
@@ -423,9 +547,9 @@ def _write_doctor_fixture_file(root: Path, relative: str) -> None:
             '[agents.security_reviewer]\nconfig_file = "agents/security-reviewer.toml"\n'
             "[[hooks.PreToolUse]]\nmatcher = \"^Bash$\"\n"
             "[[hooks.PreToolUse.hooks]]\ntype = \"command\"\n"
-            "command = 'python3 \"$(git rev-parse --show-toplevel)/scripts/hooks/agent_hook.py\"'\n"
+            f"command = '\"{PYTHON_NAME}\" \"$(git rev-parse --show-toplevel)/scripts/hooks/agent_hook.py\"'\n"
             "[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = \"command\"\n"
-            "command = 'python3 \"$(git rev-parse --show-toplevel)/scripts/hooks/agent_hook.py\"'\n",
+            f"command = '\"{PYTHON_NAME}\" \"$(git rev-parse --show-toplevel)/scripts/hooks/agent_hook.py\"'\n",
             encoding="utf-8",
         )
     elif relative in {".codex/agents/reviewer.toml", ".codex/agents/security-reviewer.toml"}:
