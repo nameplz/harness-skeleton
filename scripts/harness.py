@@ -475,7 +475,8 @@ def _trusted_check_command(command: Sequence[str], *, config_root: Path | None =
     if module_index is not None and tail[module_index + 1] in {"unittest", "compileall"}:
         if "-I" not in tail[:module_index]:
             tail.insert(0, "-I")
-        return [sys.executable, *tail]
+        executable = command[0] if "/" in command[0] or "\\" in command[0] else sys.executable
+        return [executable, *tail]
     if len(tail) >= 2 and tail[0].replace("\\", "/") == "scripts/harness.py" and tail[1] == "doctor":
         doctor_args = list(tail[1:])
         if config_root is not None:
@@ -486,7 +487,7 @@ def _trusted_check_command(command: Sequence[str], *, config_root: Path | None =
 
 def _is_python_executable(value: str) -> bool:
     executable = Path(value.replace("\\", "/")).name.casefold()
-    return re.fullmatch(r"(?:python(?:\d+(?:\.\d+)*)?|py(?:\.exe)?)", executable) is not None
+    return re.fullmatch(r"(?:python(?:\d+(?:\.\d+)*)?|py)(?:\.exe)?", executable) is not None
 
 
 def _unittest_completed(output: str) -> bool:

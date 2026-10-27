@@ -16,7 +16,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from scripts.harness import HarnessError, load_config, main, run_checks, sanitize_log  # noqa: E402
+from scripts.harness import HarnessError, _trusted_check_command, load_config, main, run_checks, sanitize_log  # noqa: E402
 from scripts.command_runner import CommandResult, run_bounded_command  # noqa: E402
 from scripts.harness_risk import MAX_DIFF_BYTES, _git_output, classify_risk, inspect_git_risk  # noqa: E402
 
@@ -393,6 +393,45 @@ class HarnessCheckTests(unittest.TestCase):
 
             self.assertTrue(report["ok"])
             self.assertTrue(report["checks"][0]["passed"])
+
+    def test_wp02_ac1_mv6_preserves_posix_virtualenv_interpreter(self) -> None:
+        self.assertEqual(
+            [".venv/bin/python", "-I", "-m", "unittest", "discover"],
+            _trusted_check_command([".venv/bin/python", "-m", "unittest", "discover"]),
+        )
+
+    def test_wp02_ac2_mv6_preserves_windows_virtualenv_interpreter(self) -> None:
+        self.assertEqual(
+            [r".venv\Scripts\python.exe", "-I", "-m", "unittest"],
+            _trusted_check_command([r".venv\Scripts\python.exe", "-m", "unittest"]),
+        )
+
+    def test_wp02_ac3_mv6_bare_python_names_use_host_interpreter(self) -> None:
+        for executable in ("python", "python3", "python3.12", "py", "python.exe", "py.exe"):
+            with self.subTest(executable=executable):
+                self.assertEqual(
+                    [sys.executable, "-I", "-m", "unittest"],
+                    _trusted_check_command([executable, "-m", "unittest"]),
+                )
+
+    def test_wp02_mv6_module_isolation_preserves_paths_and_existing_flags(self) -> None:
+        for executable in (".venv/bin/python3.12", r".venv\Scripts\python.exe", sys.executable):
+            for module in ("unittest", "compileall"):
+                with self.subTest(executable=executable, module=module):
+                    command = [executable, "-m", module, "-q"]
+                    isolated = [executable, "-I", *command[1:]]
+                    self.assertEqual(isolated, _trusted_check_command(command))
+                    self.assertEqual(isolated, _trusted_check_command(isolated))
+        self.assertEqual(
+            [".venv/bin/python", "-m", "pytest"],
+            _trusted_check_command([".venv/bin/python", "-m", "pytest"]),
+        )
+
+    def test_wp02_mv6_path_interpreter_still_uses_trusted_doctor(self) -> None:
+        self.assertEqual(
+            [sys.executable, "-I", str(ROOT / "scripts/harness.py"), "doctor", "--root", "."],
+            _trusted_check_command([".venv/bin/python", "scripts/harness.py", "doctor", "--root", "."]),
+        )
 
     def test_check_uses_isolated_stdlib_unittest_despite_candidate_module_shadowing(self) -> None:
         with TemporaryDirectory() as temp:
