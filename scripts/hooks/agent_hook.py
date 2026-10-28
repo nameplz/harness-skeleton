@@ -24,7 +24,7 @@ DANGEROUS_PATTERNS = (
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.harness import sanitize_log  # noqa: E402
+from scripts.harness import _harness_command, sanitize_log  # noqa: E402
 from scripts.harness_gate import evidence_matches  # noqa: E402
 
 
@@ -43,8 +43,8 @@ def _dangerous_reason(command: str) -> str | None:
     return None
 
 
-def _hook_response(event: str, reason: str) -> dict[str, Any]:
-    safe_reason = sanitize_log(reason)
+def _hook_response(event: str, reason: str, action: str) -> dict[str, Any]:
+    safe_reason = sanitize_log(reason + "\nNext: " + action)
     if event == "PreToolUse":
         return {
             "hookSpecificOutput": {
@@ -149,7 +149,7 @@ def handle_event(payload: dict[str, Any]) -> dict[str, Any] | None:
             return None
         dangerous = _dangerous_reason(command)
         if dangerous:
-            return _hook_response(event, f"Blocked dangerous Bash command: {dangerous}.")
+            return _hook_response(event, f"Blocked dangerous Bash command: {dangerous}.", "Use a command without the blocked destructive operation")
         return None
 
     elif event == "Stop":
@@ -160,14 +160,14 @@ def handle_event(payload: dict[str, Any]) -> dict[str, Any] | None:
 
     raw_root = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or "."
     if not isinstance(raw_root, str):
-        return _hook_response(event, "Project root is invalid; validation was not run.")
+        return _hook_response(event, "Project root is invalid; validation was not run.", "Set cwd or CLAUDE_PROJECT_DIR to an existing project directory")
     try:
         root = (Path(raw_root).resolve(strict=True) if os.environ.get("CLAUDE_PROJECT_DIR")
                 else _resolve_project_root(raw_root))
         if not root.is_dir():
             raise OSError("not a directory")
     except (OSError, RuntimeError):
-        return _hook_response(event, "Project root is unavailable; validation was not run.")
+        return _hook_response(event, "Project root is unavailable; validation was not run.", "Set cwd or CLAUDE_PROJECT_DIR to an accessible project directory")
 
     if evidence_matches(root, "quick"):
         return None
@@ -177,7 +177,7 @@ def handle_event(payload: dict[str, Any]) -> dict[str, Any] | None:
     reason = "Configured quick validation failed. Fix the failures before finishing."
     if detail:
         reason += "\n\n" + detail
-    return _hook_response(event, reason)
+    return _hook_response(event, reason, _harness_command(root, "check", "--quick"))
 
 
 def main() -> int:

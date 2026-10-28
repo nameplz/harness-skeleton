@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 import json
 import os
@@ -49,7 +49,7 @@ class HarnessStatusTests(unittest.TestCase):
 
     def cli(self, *args: str) -> str:
         output = StringIO()
-        with redirect_stdout(output):
+        with (redirect_stdout(output) if "--json" in args else redirect_stderr(output)):
             code = main(["status", "--root", str(self.root), *args])
         self.assertEqual(0, code)
         return output.getvalue()
@@ -108,7 +108,7 @@ class HarnessStatusTests(unittest.TestCase):
         self.assertEqual(before, self.snapshot())
         self.assertEqual(self.git("branch", "--show-current"), report["branch"])
         self.assertEqual({"status", "quick_checks", "full_checks"}, set(report["profiles"]))
-        self.assertEqual({"installed", "errors"}, set(report["gate"]))
+        self.assertEqual({"installed", "errors", "next_action"}, set(report["gate"]))
         self.assertEqual({"quick", "full"}, set(report["checks"]))
         self.assertIn("level", report["risk"])
         self.assertEqual("unavailable", report["checks"]["quick"]["last_result"])

@@ -153,7 +153,7 @@ class HarnessHookTests(unittest.TestCase):
 
         output = result["hookSpecificOutput"]
         self.assertEqual("PermissionRequest", output["hookEventName"])
-        self.assertEqual({"behavior": "deny", "message": "Blocked dangerous Bash command: hard git reset."}, output["decision"])
+        self.assertEqual({"behavior": "deny", "message": "Blocked dangerous Bash command: hard git reset.\nNext: Use a command without the blocked destructive operation"}, output["decision"])
 
     def test_stop_runs_checks_and_redacts_failures(self) -> None:
         with TemporaryDirectory() as temp:

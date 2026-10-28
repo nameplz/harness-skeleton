@@ -99,14 +99,14 @@ def evidence_matches(root: Path, profile: str) -> bool:
 
 def gate(root: Path) -> tuple[bool, str]:
     try:
-        from .harness import load_config, run_checks
+        from .harness import _harness_command, load_config, run_checks
     except ImportError:
-        from harness import load_config, run_checks
+        from harness import _harness_command, load_config, run_checks
     try:
         root = _git_root(root)
         config = load_config(root)
         if not config.quick or not config.full:
-            return False, SETUP
+            return False, SETUP + "\nNext: " + SETUP
         try:
             tier = inspect_git_risk(root, load_config_fn=load_config).level
         except (HarnessError, OSError, ValueError):
@@ -118,9 +118,9 @@ def gate(root: Path) -> tuple[bool, str]:
         if report["ok"]:
             return True, f"{profile} validation passed"
         failures = ", ".join(item["name"] for item in report.get("checks", []) if not item["passed"])
-        return False, f"{profile} validation failed: {failures or report.get('error') or 'workspace changed'}. Fix failures and run check --{profile}."
+        return False, f"{profile} validation failed: {failures or report.get('error') or 'workspace changed'}. Fix failures and run check --{profile}.\nNext: {report.get('next_action') or _harness_command(root, 'check', f'--{profile}')}"
     except (HarnessError, OSError, RuntimeError, ValueError) as exc:
-        return False, f"Commit validation unavailable: {exc}. {SETUP}"
+        return False, f"Commit validation unavailable: {exc}. {SETUP}\nNext: {_harness_command(root, 'doctor', '--bootstrap')}"
 
 
 def install_gate(root: Path, *, force: bool = False) -> str:

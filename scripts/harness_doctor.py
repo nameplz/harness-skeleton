@@ -14,6 +14,7 @@ try:
     from .command_runner import run_bounded_command
     from .harness import (
         MAX_CONFIG_BYTES,
+        _harness_command,
         _is_python_executable,
         _resolve_workspace,
         load_config,
@@ -24,6 +25,7 @@ except ImportError:  # Direct script invocation from the scripts directory.
     from command_runner import run_bounded_command
     from harness import (
         MAX_CONFIG_BYTES,
+        _harness_command,
         _is_python_executable,
         _resolve_workspace,
         load_config,
@@ -176,6 +178,11 @@ def doctor(root: Path, *, config_root: Path | None = None, bootstrap: bool = Fal
         report["next_action"] = VALIDATION_SETUP
     if interpreter_action:
         report["next_action"] = (report.get("next_action", "") + "; " + interpreter_action).lstrip("; ")
+    if config_report["status"] != "configured":
+        config_report["next_action"] = VALIDATION_SETUP
+    if not report["ok"] and "next_action" not in report:
+        report["next_action"] = (_harness_command(workspace, "install-gate") if gate_warnings and len(errors) == len(gate_warnings)
+                                 else "Fix the reported setup errors, then run " + _harness_command(workspace, "doctor", "--bootstrap"))
     return report
 
 

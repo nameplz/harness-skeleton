@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -351,6 +352,13 @@ def _validate_keyword_list(values: Any, name: str) -> tuple[str, ...]:
     return tuple(keywords)
 
 
+VALIDATION_SETUP = "define checks.quick/full; see .agents/skills/harness/SKILL.md (Validation profile setup)"
+
+
+def _harness_command(root: Path, command: str, *flags: str) -> str:
+    return shlex.join([sys.executable, str(Path(__file__).resolve()), command, "--root", str(root), *flags])
+
+
 def run_checks(root: Path, profile: str, *, config_root: Path | None = None) -> dict[str, Any]:
     try:
         from .harness_gate import save_check
@@ -365,6 +373,7 @@ def run_checks(root: Path, profile: str, *, config_root: Path | None = None) -> 
         return {
             "ok": False,
             "status": "unconfigured",
+            "next_action": VALIDATION_SETUP,
             "profile": profile,
             "checks": [],
             "error": "unconfigured: .harness/config.toml is missing; define checks.quick/full; see .agents/skills/harness/SKILL.md (Validation profile setup)",
@@ -376,6 +385,7 @@ def run_checks(root: Path, profile: str, *, config_root: Path | None = None) -> 
         report = {
             "ok": False,
             "status": "unconfigured",
+            "next_action": VALIDATION_SETUP,
             "profile": profile,
             "checks": [],
             "evidence": evidence,
@@ -386,7 +396,8 @@ def run_checks(root: Path, profile: str, *, config_root: Path | None = None) -> 
     if evidence.get("status") == "error":
         checks = _unstarted_results(commands, 1, reason="identity_error")
         return {"ok": False, "profile": profile, "checks": checks, "evidence": evidence,
-                "evidence_after": None, "evidence_unchanged": False}
+                "evidence_after": None, "evidence_unchanged": False,
+                "next_action": "Restore Git workspace access, then run " + _harness_command(workspace, "check", f"--{profile}")}
     results: list[dict[str, Any]] = []
     total_timeout = CHECK_QUICK_TIMEOUT_SECONDS if profile == "quick" else CHECK_TOTAL_TIMEOUT_SECONDS
     deadline = time.monotonic() + total_timeout
@@ -459,6 +470,15 @@ def run_checks(root: Path, profile: str, *, config_root: Path | None = None) -> 
     report = {"ok": ok, "status": "configured" if ok else "failure",
             "profile": profile, "checks": results, "evidence": evidence,
             "evidence_after": evidence_after, "evidence_unchanged": unchanged}
+    if not ok:
+        retry_flags = [f"--{profile}"]
+        if config_root is not None:
+            retry_flags.extend(["--config-root", str(config_root)])
+        action = ("Finish workspace changes, then run " if unchanged is False else "Fix the failed checks, then run ") + _harness_command(workspace, "check", *retry_flags)
+        report["next_action"] = action
+        for item in results:
+            if not item["passed"]:
+                item["next_action"] = action
     save_check(workspace, report)
     return report
 
@@ -509,7 +529,8 @@ def _unstarted_results(commands: Sequence[Sequence[str]], first_index: int, *, r
         {"name": f"check-{index}", "command": _safe_command(command), "returncode": 125 if reason == "identity_error" else 124,
          "passed": False, "output": "workspace identity could not be captured" if reason == "identity_error" else "aggregate validation runtime limit reached",
          "duration_ms": None, "started": False, "timed_out": False,
-         "output_limited": False, "failure_reason": reason}
+         "output_limited": False, "failure_reason": reason,
+         "next_action": "Restore workspace access or resolve the validation runtime limit; rerun the check profile"}
         for index, command in enumerate(commands, start=first_index)
     ]
 
@@ -523,7 +544,8 @@ def doctor(root: Path, *, config_root: Path | None = None, bootstrap: bool = Fal
             from harness_doctor import doctor as run_doctor
         except ImportError:
             return {"ok": False, "status": "invalid", "root": str(root), "config": {},
-                    "git": None, "errors": ["required Harness doctor module is unavailable"]}
+                    "git": None, "errors": ["required Harness doctor module is unavailable"],
+                    "next_action": "Restore scripts/harness_doctor.py, then run " + _harness_command(root, "doctor")}
     return run_doctor(root, config_root=config_root, bootstrap=bootstrap)
 
 
@@ -551,9 +573,13 @@ def status(root: Path) -> dict[str, Any]:
                                  quick_checks=len(config.quick), full_checks=len(config.full))
         except (HarnessError, OSError, ValueError) as exc:
             config_report.update(status="invalid", error=sanitize_log(str(exc)))
+    if config_report["status"] != "configured":
+        config_report["next_action"] = VALIDATION_SETUP
     report["profiles"] = config_report
     errors = gate_errors(workspace)
     report["gate"] = {"installed": not errors, "errors": errors}
+    if errors:
+        report["gate"]["next_action"] = _harness_command(workspace, "install-gate")
     report["checks"] = {}
     for profile in ("quick", "full"):
         cached = read_check(workspace, profile) or {}
@@ -563,10 +589,21 @@ def status(root: Path) -> dict[str, Any]:
             "finished_at": cached.get("finished_at"),
             "evidence_matches": evidence_matches(workspace, profile),
         }
+        if passed is False or not report["checks"][profile]["evidence_matches"]:
+            report["checks"][profile]["next_action"] = _harness_command(workspace, "check", f"--{profile}")
     try:
         report["risk"] = inspect_git_risk(workspace, load_config_fn=load_config).to_dict()
     except (HarnessError, OSError, ValueError) as exc:
-        report["risk"] = {"level": "unknown", "error": sanitize_log(str(exc))}
+        report["risk"] = {"level": "unknown", "error": sanitize_log(str(exc)),
+                          "next_action": _harness_command(workspace, "doctor")}
+    if report["repository"] == "unavailable":
+        report["next_action"] = "Run status --root with an accessible Git repository"
+    elif config_report["status"] != "configured":
+        report["next_action"] = config_report["next_action"]
+    elif errors:
+        report["next_action"] = report["gate"]["next_action"]
+    elif any(not check["evidence_matches"] for check in report["checks"].values()):
+        report["next_action"] = _harness_command(workspace, "check", "--full")
     return report
 
 
@@ -581,6 +618,8 @@ def _status_text(report: dict[str, Any]) -> str:
         lines.append(f"{profile}: last={check['last_result']}, "
                      f"current evidence={'matches' if check['evidence_matches'] else 'no matching pass'}")
     lines.append(f"Risk: {report['risk']['level']}")
+    if report.get("next_action"):
+        lines.append(f"Next: {report['next_action']}")
     return sanitize_log("\n".join(lines))
 
 
@@ -610,6 +649,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     doctor_command.add_argument("--bootstrap", action="store_true", help="check Harness structure before validation setup")
     gate_command = commands.add_parser("gate", help="require validation before a commit")
     gate_command.add_argument("--root", default=".")
+    gate_command.add_argument("--json", action="store_true", help="print structured gate result")
     install = commands.add_parser("install-gate", help="install the Git commit gate")
     install.add_argument("--root", default=".")
     install.add_argument("--force", action="store_true")
@@ -621,7 +661,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "status":
             result = status(Path(args.root))
-            print(json.dumps(result, ensure_ascii=False, indent=2) if args.json else _status_text(result))
+            print(json.dumps(result, ensure_ascii=False, indent=2) if args.json else _status_text(result),
+                  file=sys.stdout if args.json else sys.stderr)
             return 0
         if args.command in {"gate", "install-gate"}:
             try:
@@ -629,10 +670,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             except ImportError:
                 from harness_gate import gate, install_gate
             if args.command == "install-gate":
-                print(install_gate(Path(args.root), force=args.force))
+                print(install_gate(Path(args.root), force=args.force), file=sys.stderr)
                 return 0
             passed, detail = gate(Path(args.root))
-            print(sanitize_log(detail), file=sys.stdout if passed else sys.stderr)
+            if args.json:
+                report = {"ok": passed, "detail": sanitize_log(detail)}
+                if not passed:
+                    report["next_action"] = sanitize_log(detail.rsplit("\nNext: ", 1)[-1])
+                print(json.dumps(report, ensure_ascii=False, indent=2))
+            print(sanitize_log(detail), file=sys.stderr)
             return 0 if passed else 1
         if args.command == "selftest":
             root = Path(__file__).resolve().parents[1]
@@ -652,6 +698,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 config_root=Path(args.config_root) if args.config_root else None,
             )
             print(json.dumps(result, ensure_ascii=False, indent=2))
+            if result.get("next_action"):
+                print("Next: " + sanitize_log(result["next_action"]), file=sys.stderr)
             return 0 if result["ok"] else 1
         if args.command == "doctor":
             result = doctor(
@@ -660,13 +708,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 bootstrap=args.bootstrap,
             )
             print(json.dumps(result, ensure_ascii=False, indent=2))
+            if result.get("next_action"):
+                print("Next: " + sanitize_log(result["next_action"]), file=sys.stderr)
             return 0 if result["ok"] else 1
         if args.command == "risk":
             result = inspect_git_risk(Path(args.root), load_config_fn=load_config)
             print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
             return 0
     except (HarnessError, OSError) as exc:
-        print(json.dumps({"error": sanitize_log(str(exc))}, ensure_ascii=False))
+        action = VALIDATION_SETUP if args.command == "check" else _harness_command(Path(getattr(args, "root", ".")), "doctor", "--bootstrap")
+        print(json.dumps({"error": sanitize_log(str(exc)), "next_action": action}, ensure_ascii=False))
+        print("Next: " + sanitize_log(action), file=sys.stderr)
         return 2
     return 2
 
