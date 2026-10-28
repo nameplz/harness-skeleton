@@ -7,7 +7,7 @@ description: Local deterministic validation, risk routing, and completion eviden
 
 ## Risk and procedure
 
-Run `python scripts/harness.py risk` on the final diff. It gives a minimum tier; never lower hard T2/T3 signals. Hints do not force review; escalate for material risks missed by the diff.
+Run `python scripts/harness.py risk` on the final diff. Never lower hard T2/T3 minimums. Hints do not force review; escalate missed material risks.
 
 - **T0:** documentation or typos; run quick when configured, no reviewer.
 - **T1:** ordinary local changes; update behavior tests, run quick, self-review, and report acceptance evidence.
@@ -37,6 +37,8 @@ Run `python scripts/harness.py check --quick`, `python scripts/harness.py check 
 Define 2–5 acceptance criteria before work when none exist. For T1+, report a table of criterion → command, exit code, and 1–3 key output lines; mark unsupported items unverified. Check `evidence`, `evidence_after`, and `evidence_unchanged`; source/config changes during validation invalidate success. Null identity is unavailable evidence.
 
 Install the commit gate during setup with `python scripts/harness.py install-gate`. Run `python scripts/harness.py check --full` before committing to catch failures early; `python scripts/harness.py gate` requires quick for T0/T1 and full for T2/T3 or failed risk classification, bound to the current HEAD, diff, and config. Commit each completed task separately after configured checks and required reviews pass. Keep dependent changes together, exclude unrelated changes and pre-existing user edits, and leave unfinished or failed work uncommitted. Honor explicit no-commit instructions.
+
+Hooks aren't security boundaries; `bash -c` wrappers bypass their feedback.
 
 Remote work only when requested by the user.
 

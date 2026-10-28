@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 from typing import Any
@@ -15,15 +16,10 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 HARNESS_SCRIPT = PROJECT_ROOT / "scripts/harness.py"
 CHECK_TIMEOUT_SECONDS = {"quick": 180}
-DANGEROUS_PATTERNS = (
-    (re.compile(r"\brm\s+-[^\n;]*r[^\n;]*f\b"), "recursive force deletion"),
-    (re.compile(r"\bgit\s+push\b[^\n;]*\s--force(?:-with-lease)?\b"), "forced git push"),
-    (re.compile(r"\bgit\s+reset\s+--hard\b"), "hard git reset"),
-    (re.compile(r"\bDROP\s+TABLE\b", re.IGNORECASE), "DROP TABLE statement"),
-)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from scripts.command_runner import _git_subcommand_index  # noqa: E402
 from scripts.harness import _harness_command, sanitize_log  # noqa: E402
 from scripts.harness_gate import evidence_matches  # noqa: E402
 
@@ -36,10 +32,154 @@ def extract_command(payload: dict[str, Any]) -> str:
     return ""
 
 
+def _shell_commands(command: str) -> list[list[str]]:
+    # Keep quotes until command boundaries are found, then parse each argv.
+    lexer = shlex.shlex(command, posix=False, punctuation_chars=";&|\n")
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
+    commands: list[list[str]] = []
+    words: list[str] = []
+    try:
+        for token in lexer:
+            if all(char in ";&|\n" for char in token):
+                try:
+                    argv = shlex.split(" ".join(words))
+                except ValueError:
+                    words.append(token)
+                    continue
+                if argv:
+                    commands.append(argv)
+                words = []
+            else:
+                words.append(token)
+        if words:
+            commands.append(shlex.split(" ".join(words)))
+    except ValueError:
+        # A malformed tail must not erase earlier commands or suppress feedback.
+        fragment = " ".join([*words, lexer.token]).split()
+        if fragment:
+            commands.append(fragment)
+    return commands
+
+
+def _options(arguments: list[str], value_options: set[str]) -> tuple[set[str], list[str]]:
+    flags: set[str] = set()
+    operands: list[str] = []
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        index += 1
+        if argument == "--":
+            operands.extend(arguments[index:])
+            break
+        if argument.startswith("--"):
+            option, separator, _ = argument.partition("=")
+            if option in value_options:
+                if not separator:
+                    index += 1
+            else:
+                flags.add(option)
+        elif argument.startswith("-") and argument != "-":
+            for position, char in enumerate(argument[1:], start=1):
+                option = "-" + char
+                if option in value_options:
+                    if position == len(argument) - 1:
+                        index += 1
+                    break
+                flags.add(option)
+        else:
+            operands.append(argument)
+    return flags, operands
+
+
 def _dangerous_reason(command: str) -> str | None:
-    for pattern, reason in DANGEROUS_PATTERNS:
-        if pattern.search(command):
-            return reason
+    prefix_value_options = {
+        "sudo": {"-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--close-from", "-T", "--command-timeout", "-R", "--chroot", "-D", "--chdir", "-r", "--role", "-t", "--type"},
+        "doas": {"-u", "-C"},
+        "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"},
+        "command": set(), "exec": {"-a"}, "nohup": set(),
+        "time": {"-f", "--format", "-o", "--output"},
+        "nice": {"-n", "--adjustment"},
+        "xargs": {"-a", "--arg-file", "-d", "--delimiter", "-E", "-e", "--eof", "-I", "-i", "--replace", "-L", "-l", "--max-lines", "-n", "--max-args", "-P", "--max-procs", "-s", "--max-chars", "--process-slot-var"},
+    }
+    for argv in _shell_commands(command):
+        index = 0
+        while index < len(argv):
+            if re.match(r"[a-zA-Z_][a-zA-Z0-9_]*=", argv[index]):
+                index += 1
+                continue
+            prefix = Path(argv[index]).name
+            if prefix not in prefix_value_options:
+                break
+            value_options = prefix_value_options[prefix]
+            index += 1
+            while index < len(argv) and argv[index].startswith("-"):
+                option = argv[index]
+                index += 1
+                if option == "--":
+                    break
+                if option.startswith("--"):
+                    name, separator, _ = option.partition("=")
+                    if name in value_options and not separator:
+                        index += 1
+                else:
+                    for position, char in enumerate(option[1:], start=1):
+                        if "-" + char in value_options:
+                            if position == len(option) - 1:
+                                index += 1
+                            break
+        argv = argv[index:]
+        if not argv:
+            continue
+        executable = Path(argv[0]).name
+        if executable in {"sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd", "cmd.exe"}:
+            continue
+        if executable == "rm":
+            flags, _ = _options(argv[1:], set())
+            if flags & {"-r", "-R", "--recursive"} and flags & {"-f", "--force"}:
+                return "recursive force deletion"
+        if executable == "git":
+            arguments = argv[1:]
+            subcommand_index = _git_subcommand_index(arguments)
+            globals_ = arguments if subcommand_index is None else arguments[:subcommand_index]
+            for index, argument in enumerate(globals_):
+                if argument == "-c" and index + 1 < len(globals_):
+                    setting = globals_[index + 1]
+                elif argument.startswith("-c"):
+                    setting = argument[2:]
+                else:
+                    continue
+                if setting.split("=", 1)[0].lower() == "core.hookspath":
+                    return "commit gate bypass via core.hooksPath"
+            if subcommand_index is None:
+                continue
+            subcommand = arguments[subcommand_index]
+            arguments = arguments[subcommand_index + 1:]
+            if subcommand == "push":
+                flags, operands = _options(arguments, {"-o", "--push-option", "--repo", "--receive-pack", "--exec"})
+                if flags & {"-f", "--force", "--force-with-lease"} or any(value.startswith("+") for value in operands):
+                    return "forced git push"
+            elif subcommand == "commit":
+                flags, _ = _options(arguments, {"-m", "--message", "-F", "--file", "-C", "--reuse-message", "-c", "--reedit-message",
+                                                 "--author", "--date", "--cleanup", "-t", "--template", "--trailer", "--pathspec-from-file"})
+                if flags & {"-n", "--no-verify"}:
+                    return "commit gate bypass via --no-verify"
+            elif subcommand == "clean":
+                flags, _ = _options(arguments, {"-e", "--exclude"})
+                if flags & {"-f", "--force"}:
+                    return "forced git clean"
+            elif subcommand == "config":
+                flags, operands = _options(arguments, {"-f", "--file", "--blob", "--type"})
+                if operands and operands[0] in {"set", "unset"}:
+                    flags.add("--" + operands.pop(0))
+                if (operands and operands[0].lower() == "core.hookspath"
+                        and (len(operands) > 1 or flags & {"--unset", "--unset-all", "--set"})
+                        and not flags & {"--get", "--get-all", "--get-regexp", "--get-urlmatch"}):
+                    return "commit gate bypass via core.hooksPath"
+            elif subcommand == "reset" and "--hard" in arguments:
+                return "hard git reset"
+        if re.search(r"\bDROP\s+TABLE\b", " ".join(argv), re.IGNORECASE):
+            return "DROP TABLE statement"
     return None
 
 
