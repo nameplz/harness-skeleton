@@ -164,7 +164,7 @@ class AgentDocsTests(unittest.TestCase):
             body = section.split("\n", 1)[1].strip().splitlines()
             self.assertEqual(1, len(body))
             self.assertIn("Superseded by ADR-018", body[0])
-        decision = adr.split("### ADR-018:", 1)[1]
+        decision = adr.split("### ADR-018:", 1)[1].split("\n### ADR-", 1)[0]
         self.assertLessEqual(len(decision.split()), 400)
         for required in ("§2.1", "principles 7–8", "T0", "T1", "T2", "T3", "N1", "N2", "Excluded"):
             self.assertIn(required, decision)

@@ -9,6 +9,7 @@ import shutil
 import tomllib
 from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 try:
     from .command_runner import run_bounded_command
@@ -403,4 +404,28 @@ def _doctor_doc_errors(root: Path, *, allow_placeholders: bool = False) -> list[
         except (OSError, UnicodeError):
             errors.append(f"could not read project guide: {relative}")
 
+    for relative in ("AGENTS.md", "CLAUDE.md", ".agents/skills/harness/SKILL.md"):
+        path = root / relative
+        if not path.exists():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            errors.append(f"could not read project guide: {relative}")
+            continue
+        text = re.sub(r"(?ms)^(`{3,}|~{3,})[^\n]*\n.*?^\1[ \t]*(?:\n|$)", "", text)
+        text = re.sub(r"`[^`\n]*`", "", text)
+        targets = re.findall(r"\[[^\]\n]*\]\(\s*(<[^>\n]+>|[^\s)]+)(?:\s+[\"'][^\"']*[\"'])?\s*\)", text)
+        targets.extend(re.findall(r"(?m)^\s*\[[^\]\n]+\]:\s*(<[^>\n]+>|[^\s]+)", text))
+        for target in targets:
+            target = target.removeprefix("<").removesuffix(">")
+            try:
+                link = urlsplit(target)
+                if link.scheme or link.netloc or not link.path or link.path.startswith("/"):
+                    continue
+                exists = (path.parent / unquote(link.path)).exists()
+            except (OSError, ValueError):
+                exists = False
+            if not exists:
+                errors.append(f"broken relative link: {relative} -> {target}")
     return errors

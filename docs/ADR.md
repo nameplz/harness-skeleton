@@ -24,11 +24,20 @@ Add durable choices for the concrete project here. Record the decision, the reas
 
 ### ADR-012: Project-defined validation commands
 
-**Decision:** Keep project checks in .harness/config.toml as quick/full argv arrays. The starter profiles are empty and mean unconfigured. Run configured commands with shell=False, a 10-minute per-command limit, a 2-minute quick and 15-minute full-profile ceiling, a 1 MiB output cap, and sanitized output; terminate timed-out POSIX process groups. Python unittest and compileall module commands use isolated interpreter loading. Confine path arguments, option values, and path-like assignment values to the workspace. Reject environment-replacement launchers, Git subcommands outside a local read-only allowlist, Git helper configuration, and external transport options. Drop inherited GIT_* environment overrides, inject safe Git settings, and ignore global/system Git config. Permit an absolute executable only when it resolves to the running Python interpreter.
+**Decision:** Keep quick/full checks as project-defined argv arrays in `.harness/config.toml`; empty profiles mean unconfigured.
+Run with `shell=False`, a 10-minute command limit, 2-minute quick and 15-minute full ceilings, a 1 MiB output cap, and sanitized output; terminate timed-out POSIX process groups.
+Reject forbidden operations by executable/subcommand position, including supported runners, rather than banning words in ordinary arguments.
+Allow `npm run watch`; a nonterminating command fails through runtime limits.
+Allow only direct Git invocations with `status`, `diff`, `log`, `show`, `ls-files`, `rev-parse`, `grep`, `describe`, or `cat-file`; reject global Git configuration overrides and wrapped Git.
+Run Git with inherited GIT_* overrides removed, safe settings injected, global/system configuration ignored, and external transports disabled.
+Reject inline shell/code and confine paths, option values, and path-like assignments to the workspace.
+Absolute executables must resolve inside the workspace, except the running Python interpreter.
+Isolated unittest/compileall commands preserve explicitly pathed Python interpreters and resolve bare Python names to the running interpreter.
+Trusted doctor checks use the running Harness interpreter and script.
 
-**Reason:** Harness must not guess a toolchain or turn project configuration into arbitrary shell text. Empty checks must never become a passing result.
+**Reason:** Harness must not guess toolchains or turn configuration into arbitrary shell text. Empty checks must never become a passing result.
 
-**Trade-off:** A new project must provide its own checks; the core does not invent tests, lint, typecheck, or build commands. Logs redact known credential forms but cannot infer arbitrary unlabelled secret values. The unittest summary check is a sanity heuristic, not proof that tests completed honestly.
+**Trade-off:** Projects supply their own tests, lint, typecheck, and build checks. Redaction covers known credential forms, not arbitrary unlabelled secrets. The unittest summary is a sanity heuristic, not proof of honest completion.
 
 ### ADR-013: Codex creates project-specific CI
 
@@ -36,9 +45,9 @@ Add durable choices for the concrete project here. Record the decision, the reas
 
 ### ADR-014: Hooks provide feedback, not isolation
 
-**Decision:** Keep local hooks small and focused on command policy and tier-based quick/full validation. Permit bootstrap work while profiles are unconfigured without reporting a pass. Treat Codex host permissions as enforcement boundaries; remote enforcement is a project choice.
+**Decision:** Keep agent hooks focused on command feedback and Stop quick validation. Commit enforcement moved to the Git pre-commit gate and bound evidence cache described in ADR-019. Permit bootstrap work while profiles are unconfigured without reporting a pass. Treat host permissions as enforcement boundaries; remote enforcement is a project choice.
 
-**Reason:** Regex hooks and same-repository validators do not form a complete security sandbox.
+**Reason:** Agent hooks fail open, and same-repository validators do not form a complete security sandbox.
 
 **Trade-off:** Local checks improve feedback but cannot confine arbitrary test code, network access, or filesystem access.
 
@@ -73,3 +82,15 @@ Add durable choices for the concrete project here. Record the decision, the reas
 **Excluded** (reference design §2.1 principles 6–8 and §4.5): mandatory issue gates, PR workflows, CI generation, CI policy checks, remote-result verification, publication templates and contract checks; planner/generator/evaluator sprints, exhaustive feature JSON, ledger/stall replanning, background documentation gardening, flaky reruns, coverage filters, and generated architecture linters.
 
 **Trade-off:** Local gates target mistakes, not adversarial control of validators. Host confinement remains necessary. Remote enforcement and delivery remain user-owned; no verified state is inferred from configured profiles. Empty profiles stay unconfigured and never pass.
+
+### ADR-019: Minimal verification with an agent-neutral core
+
+**Gate and contract.** DEC-01 puts commit enforcement in Git pre-commit with workspace-bound evidence caching; DEC-02 applies the default that empty profiles block commits. MV-1 through MV-6 in [Minimum verification](ARCHITECTURE.md#minimum-verification) define the guaranteed behavior. **Reason:** agent hooks fail open and stale checks cannot authorize changed work. **Trade-off:** deliberate bypasses, forged caches, and non-commit completion remain outside enforcement.
+
+**Command policy.** DEC-03 applies the default local read-only Git allowlist. DEC-04 applies the default allowing resident commands, with guidance against them and runtime limits. ADR-012 records argv semantics and preserved path interpreters. **Reason:** ordinary arguments must not trigger operation bans. **Trade-off:** supported runner parsing is limited, and nonterminating checks consume their time budget.
+
+**Core and adapters.** DEC-05, DEC-06, and DEC-11 apply defaults: ship optional Codex/Claude adapters, locate shared feedback at `scripts/hooks/agent_hook.py`, and omit duplicate PermissionRequest registration. **Reason:** Git enforcement and neutral core files preserve the minimum contract without agent-specific hooks. **Trade-off:** optional feedback depends on each host's event support.
+
+**Risk vocabulary.** DEC-12 applies the default moving secret, credential, authentication, and authorization words from hard signals to hints. Projects may restore hard `security_keywords`. **Reason:** documentation vocabulary caused false T3 escalation. **Trade-off:** contextual risk still needs agent judgment; control-file and test-weakening hard signals remain.
+
+**Small defaults.** DEC-07 excludes model/reasoning settings, leaving runtime/user choices. DEC-08 excludes extra E2E entrypoints. DEC-09 and DEC-10 apply defaults: optional project document templates and English core guidance. **Reason:** avoid unsupported assumptions and unnecessary instructions. **Trade-off:** projects configure their own models, validation tools, and domain documents.

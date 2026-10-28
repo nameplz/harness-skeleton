@@ -22,7 +22,7 @@ matcher = "^Bash$"
 type = "command"
 command = 'python "$(git rev-parse --show-toplevel)/scripts/hooks/agent_hook.py"'
 timeout = 960
-statusMessage = "Checking Bash command and commit validation"
+statusMessage = "Checking Bash command policy"
 
 [[hooks.Stop]]
 
